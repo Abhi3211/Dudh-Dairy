@@ -27,7 +27,7 @@ const initialTransactions: PashuAaharTransaction[] = [
 
 export default function PashuAaharPage() {
   const [transactions, setTransactions] = useState<PashuAaharTransaction[]>(initialTransactions);
-  const [currentStock, setCurrentStock] = useState(initialStock);
+  const [currentStock, setCurrentStock] = useState(0); // Will be calculated by useEffect
 
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [supplierName, setSupplierName] = useState("");
@@ -35,11 +35,11 @@ export default function PashuAaharPage() {
   const [purchasePrice, setPurchasePrice] = useState("");
 
   useEffect(() => {
-    const newStock = initialTransactions.reduce((stock, tx) => {
+    const newStock = transactions.reduce((stock, tx) => {
       if (tx.type === "Purchase") return stock + tx.quantityKg;
       if (tx.type === "Sale") return stock - tx.quantityKg;
       return stock;
-    }, initialStock - initialTransactions.reduce((acc, tx) => tx.type === "Purchase" ? acc + tx.quantityKg : (tx.type === "Sale" ? acc - tx.quantityKg : acc) ,0) ); // Recalculate based on initial state
+    }, initialStock); // Start with initialStock and apply all transactions
     setCurrentStock(newStock);
   }, [transactions]);
 
@@ -59,8 +59,7 @@ export default function PashuAaharPage() {
       purchasePricePerKg: parseFloat(purchasePrice),
       totalAmount: parseFloat(quantityKg) * parseFloat(purchasePrice),
     };
-    setTransactions([newTransaction, ...transactions]);
-    // setCurrentStock(currentStock + parseFloat(quantityKg)); // Handled by useEffect
+    setTransactions(prevTransactions => [newTransaction, ...prevTransactions].sort((a,b) => b.date.getTime() - a.date.getTime()));
     // Reset form
     setSupplierName("");
     setQuantityKg("");
@@ -139,7 +138,7 @@ export default function PashuAaharPage() {
                   <TableRow key={tx.id}>
                     <TableCell>{tx.date.toLocaleDateString()}</TableCell>
                     <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.type === "Purchase" ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"}`}>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.type === "Purchase" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
                         {tx.type}
                       </span>
                     </TableCell>

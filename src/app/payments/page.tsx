@@ -62,7 +62,7 @@ export default function PaymentsPage() {
       mode,
       notes,
     };
-    setPayments([newPayment, ...payments]);
+    setPayments(prevPayments => [newPayment, ...prevPayments].sort((a,b) => b.date.getTime() - a.date.getTime()));
     // Reset form
     setPartyName("");
     setAmount("");
@@ -146,7 +146,7 @@ export default function PaymentsPage() {
                   <TableRow key={p.id}>
                     <TableCell>{p.date.toLocaleDateString()}</TableCell>
                     <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.type === "Received" ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"}`}>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.type === "Received" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
                         {p.type}
                       </span>
                     </TableCell>
