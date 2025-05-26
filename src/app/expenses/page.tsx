@@ -24,12 +24,20 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
-import { IndianRupee, ListChecks, FileText, PlusCircle, CalendarDays } from "lucide-react";
-import type { ExpenseEntry } from "@/lib/types";
+import { IndianRupee, ListChecks, FileText, PlusCircle, CalendarDays, Users } from "lucide-react";
+import type { ExpenseEntry, Party } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 
+// Mock data for parties - in a real app, this would be fetched
+const mockParties: Party[] = [
+  { id: "1", name: "Rajesh Kumar", type: "Dealer" },
+  { id: "EMP1", name: "Anita Sharma (Accountant)", type: "Employee" },
+  { id: "C1", name: "Local Cafe", type: "Customer" },
+];
+
+
 const initialExpenses: ExpenseEntry[] = [
-  { id: "E1", date: new Date(new Date().setDate(new Date().getDate() - 1)), category: "Salary", description: "Helper wages - April", amount: 5000 },
+  { id: "E1", date: new Date(new Date().setDate(new Date().getDate() - 1)), category: "Salary", description: "Helper wages - April", amount: 5000, partyId: "EMP1", partyName: "Anita Sharma (Accountant)" },
   { id: "E2", date: new Date(), category: "Miscellaneous", description: "Office stationary", amount: 250 },
 ];
 
@@ -38,16 +46,25 @@ const expenseCategories: ExpenseEntry['category'][] = ["Salary", "Miscellaneous"
 export default function ExpensesPage() {
   const { toast } = useToast();
   const [expenses, setExpenses] = useState<ExpenseEntry[]>(initialExpenses);
+  const [availableParties] = useState<Party[]>(mockParties); // Using mock parties
 
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [category, setCategory] = useState<ExpenseEntry['category']>("Miscellaneous");
+  const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined);
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+
+  useEffect(() => {
+    // If category changes away from Salary, clear selected party
+    if (category !== "Salary") {
+      setSelectedPartyId(undefined);
+    }
+  }, [category]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!date || !description.trim() || !amount) {
-      toast({ title: "Error", description: "Please fill all required fields.", variant: "destructive" });
+      toast({ title: "Error", description: "Please fill all required fields (Date, Description, Amount).", variant: "destructive" });
       return;
     }
     const parsedAmount = parseFloat(amount);
@@ -56,12 +73,29 @@ export default function ExpensesPage() {
         return;
     }
 
+    let partyDetails: { partyId?: string; partyName?: string } = {};
+    if (category === "Salary" && selectedPartyId) {
+      const party = availableParties.find(p => p.id === selectedPartyId);
+      if (party) {
+        partyDetails = { partyId: party.id, partyName: party.name };
+      } else {
+         toast({ title: "Error", description: "Selected party not found.", variant: "destructive" });
+         return;
+      }
+    }
+     if (category === "Salary" && !selectedPartyId) {
+      toast({ title: "Error", description: "Please select a party for salary expense.", variant: "destructive" });
+      return;
+    }
+
+
     const newExpense: ExpenseEntry = {
       id: String(Date.now()),
       date,
       category,
       description: description.trim(),
       amount: parsedAmount,
+      ...partyDetails,
     };
     setExpenses(prevExpenses => [newExpense, ...prevExpenses].sort((a,b) => b.date.getTime() - a.date.getTime()));
     
@@ -70,7 +104,8 @@ export default function ExpensesPage() {
     // Reset form
     setDescription("");
     setAmount("");
-    setCategory("Miscellaneous");
+    setCategory("Miscellaneous"); // Resets party selection due to useEffect
+    setSelectedPartyId(undefined);
     setDate(new Date());
   };
 
@@ -108,6 +143,28 @@ export default function ExpensesPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {category === "Salary" && (
+                <div>
+                  <Label htmlFor="expenseParty" className="flex items-center mb-1">
+                    <Users className="h-4 w-4 mr-2 text-muted-foreground" /> Party (for Salary)
+                  </Label>
+                  <Select value={selectedPartyId} onValueChange={setSelectedPartyId}>
+                    <SelectTrigger id="expenseParty">
+                      <SelectValue placeholder="Select party" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableParties.filter(p => p.type === "Employee" || p.type === "Dealer" || p.type === "Supplier").map(party => (
+                        <SelectItem key={party.id} value={party.id}>{party.name} ({party.type})</SelectItem>
+                      ))}
+                      {availableParties.filter(p => p.type === "Employee" || p.type === "Dealer" || p.type === "Supplier").length === 0 && (
+                        <SelectItem value="no-parties" disabled>No eligible parties found</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               <div>
                 <Label htmlFor="expenseDescription" className="flex items-center mb-1">
                     <FileText className="h-4 w-4 mr-2 text-muted-foreground" /> Description
@@ -153,13 +210,14 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Party</TableHead>
                   <TableHead className="text-right">Amount (₹)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {expenses.length === 0 ? (
                     <TableRow>
-                        <TableCell colSpan={4} className="text-center text-muted-foreground">No expenses recorded yet.</TableCell>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground">No expenses recorded yet.</TableCell>
                     </TableRow>
                 ) : (
                     expenses.map((exp) => (
@@ -167,6 +225,7 @@ export default function ExpensesPage() {
                         <TableCell>{exp.date.toLocaleDateString()}</TableCell>
                         <TableCell>{exp.category}</TableCell>
                         <TableCell>{exp.description}</TableCell>
+                        <TableCell>{exp.partyName || "-"}</TableCell>
                         <TableCell className="text-right">{exp.amount.toFixed(2)}</TableCell>
                     </TableRow>
                     ))

@@ -36,7 +36,7 @@ export interface PashuAaharTransaction {
 export interface Party {
   id: string;
   name: string;
-  type: "Dealer" | "Customer" | "Supplier";
+  type: "Dealer" | "Customer" | "Supplier" | "Employee"; // Added Employee type
 }
 
 export interface PartyLedgerEntry {
@@ -56,7 +56,7 @@ export interface PaymentEntry {
   date: Date;
   type: "Received" | "Paid";
   partyName: string;
-  partyType: "Dealer" | "Customer" | "Supplier";
+  partyType: "Dealer" | "Customer" | "Supplier" | "Employee";
   amount: number;
   mode: "Cash" | "Bank" | "UPI";
   notes?: string;
@@ -68,6 +68,8 @@ export interface ExpenseEntry {
   category: "Salary" | "Miscellaneous";
   description: string;
   amount: number;
+  partyId?: string;
+  partyName?: string;
 }
 
 export interface DailySummary {
