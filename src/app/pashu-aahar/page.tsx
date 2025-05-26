@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Package, Warehouse, ShoppingCart, IndianRupee, User, PlusCircle, Tag } from "lucide-react";
+import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag } from "lucide-react";
 import type { PashuAaharTransaction } from "@/lib/types";
 
 const initialTransactions: PashuAaharTransaction[] = [
@@ -38,18 +38,17 @@ export default function PashuAaharPage() {
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
-    // Sort transactions by date to ensure correct stock calculation sequence
     const sortedTransactions = [...transactions].sort((a, b) => a.date.getTime() - b.date.getTime());
 
     sortedTransactions.forEach(tx => {
-      if (!stockCalc[tx.productName]) {
-        stockCalc[tx.productName] = 0;
+      const pName = tx.productName.trim();
+      if (!stockCalc[pName]) {
+        stockCalc[pName] = 0;
       }
       if (tx.type === "Purchase") {
-        stockCalc[tx.productName] += tx.quantityBags;
+        stockCalc[pName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
-        // Ensure stock doesn't go negative, though ideally sales shouldn't exceed stock
-        stockCalc[tx.productName] = Math.max(0, stockCalc[tx.productName] - tx.quantityBags);
+        stockCalc[pName] = Math.max(0, stockCalc[pName] - tx.quantityBags);
       }
     });
     setCurrentStockByProduct(stockCalc);
@@ -73,7 +72,6 @@ export default function PashuAaharPage() {
       totalAmount: parseInt(quantityBags) * parseFloat(pricePerBag),
     };
     setTransactions(prevTransactions => [...prevTransactions, newTransaction].sort((a,b) => b.date.getTime() - a.date.getTime()));
-    // Reset form
     setProductName("");
     setSupplierName("");
     setQuantityBags("");
@@ -101,16 +99,16 @@ export default function PashuAaharPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {Object.entries(currentStockByProduct).map(([prodName, stock]) => (
                 <Card key={prodName} className="shadow-sm">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4 px-4">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 px-3 pt-3 pb-1">
                     <CardTitle className="text-sm font-medium text-muted-foreground truncate" title={prodName}>
                       {prodName}
                     </CardTitle>
                     <Package className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
-                  <CardContent className="pb-4 px-4">
+                  <CardContent className="px-3 pt-1 pb-3">
                     <div className="text-2xl font-bold text-foreground">
                       {stock.toFixed(0)}
-                      <span className="text-base font-normal text-muted-foreground ml-1">Bags</span>
+                      <span className="text-base font-normal text-muted-foreground ml-1"> Bags</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -204,4 +202,4 @@ export default function PashuAaharPage() {
     </div>
   );
 }
-
+    
