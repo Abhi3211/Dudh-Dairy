@@ -8,8 +8,10 @@ import {
   Milk,
   ShoppingCart,
   Package,
-  Users, // Changed from BookUser
+  Users,
   IndianRupee,
+  BarChart3, // Added for Profit/Loss
+  Receipt,   // Added for Expenses
   type LucideIcon,
 } from "lucide-react";
 
@@ -17,7 +19,6 @@ import { cn } from "@/lib/utils";
 import {
   SidebarMenu,
   SidebarMenuItem,
-  // SidebarMenuButton, // Not used directly if Button is used with asChild
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -28,20 +29,34 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
+  adminOnly?: boolean; // New property for role-based visibility
 }
+
+// IMPORTANT: This is a placeholder for actual role management.
+// In a real app, this would come from your authentication system.
+const userRole: "admin" | "accountant" = "admin"; // Change to "accountant" to test non-admin view
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/milk-collection", label: "Milk Collection", icon: Milk },
   { href: "/sales", label: "Sales Entry", icon: ShoppingCart },
   { href: "/pashu-aahar", label: "Pashu Aahar", icon: Package },
-  { href: "/parties", label: "Parties", icon: Users }, // Changed from Dealer Ledger
+  { href: "/parties", label: "Parties", icon: Users },
   { href: "/payments", label: "Payments", icon: IndianRupee },
+  { href: "/expenses", label: "Expenses", icon: Receipt },
+  { href: "/profit-loss", label: "Profit/Loss", icon: BarChart3, adminOnly: true },
 ];
 
 export function SidebarNav() {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
+
+  const visibleNavItems = navItems.filter(item => {
+    if (item.adminOnly) {
+      return userRole === 'admin';
+    }
+    return true;
+  });
 
   return (
     <nav className="flex flex-col h-full">
@@ -49,7 +64,7 @@ export function SidebarNav() {
          <Logo />
       </div>
       <SidebarMenu className="flex-1 p-2">
-        {navItems.map((item) => (
+        {visibleNavItems.map((item) => (
           <SidebarMenuItem key={item.href}>
             <Button
               asChild
