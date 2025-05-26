@@ -29,12 +29,13 @@ import type { SaleEntry, ProductName } from "@/lib/types";
 const initialSales: SaleEntry[] = [
   { id: "1", date: new Date(), customerName: "Amit Singh", productName: "Milk", quantity: 5, unit: "Ltr", rate: 60, totalAmount: 300, paymentType: "Cash" },
   { id: "2", date: new Date(), customerName: "Priya Sharma", productName: "Ghee", quantity: 1, unit: "Kg", rate: 700, totalAmount: 700, paymentType: "Credit" },
+  { id: "3", date: new Date(), customerName: "Vijay Store", productName: "Pashu Aahar", quantity: 2, unit: "Bags", rate: 320, totalAmount: 640, paymentType: "Cash" },
 ];
 
-const productOptions: { name: ProductName; unit: "Ltr" | "Kg" | "Packet" }[] = [
+const productOptions: { name: ProductName; unit: SaleEntry['unit'] }[] = [
   { name: "Milk", unit: "Ltr" },
   { name: "Ghee", unit: "Kg" },
-  { name: "Pashu Aahar", unit: "Packet" },
+  { name: "Pashu Aahar", unit: "Bags" }, // Changed "Packet" to "Bags"
 ];
 
 export default function SalesPage() {
@@ -66,7 +67,7 @@ export default function SalesPage() {
       totalAmount: parseFloat(quantity) * parseFloat(rate),
       paymentType,
     };
-    setSales([newSale, ...sales]);
+    setSales(prevSales => [newSale, ...prevSales].sort((a,b) => b.date.getTime() - a.date.getTime()));
     // Reset form
     setCustomerName("");
     setQuantity("");
@@ -107,7 +108,7 @@ export default function SalesPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="quantity">Quantity</Label>
-                  <Input id="quantity" type="number" step="0.1" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5" required />
+                  <Input id="quantity" type="number" step={productOptions[parseInt(selectedProductIndex)]?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
                 </div>
                 <div>
                   <Label htmlFor="rate" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Rate</Label>

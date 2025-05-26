@@ -19,10 +19,10 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Package, Warehouse, ShoppingCart, IndianRupee, User, PlusCircle } from "lucide-react";
 import type { PashuAaharTransaction } from "@/lib/types";
 
-const initialStock = 500; // kg
+const initialStockBags = 50; // Bags
 const initialTransactions: PashuAaharTransaction[] = [
-  { id: "1", date: new Date(Date.now() - 86400000 * 2), type: "Purchase", supplierOrCustomerName: "Shakti Feeds", quantityKg: 200, purchasePricePerKg: 30, totalAmount: 6000 },
-  { id: "2", date: new Date(Date.now() - 86400000 * 1), type: "Sale", supplierOrCustomerName: "Ramesh Bhai", quantityKg: 50, salePricePerKg: 35, totalAmount: 1750 },
+  { id: "1", date: new Date(Date.now() - 86400000 * 2), type: "Purchase", supplierOrCustomerName: "Shakti Feeds", quantityBags: 20, pricePerBag: 300, totalAmount: 6000 },
+  { id: "2", date: new Date(Date.now() - 86400000 * 1), type: "Sale", supplierOrCustomerName: "Ramesh Bhai", quantityBags: 5, pricePerBag: 350, totalAmount: 1750 },
 ];
 
 export default function PashuAaharPage() {
@@ -31,22 +31,22 @@ export default function PashuAaharPage() {
 
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [supplierName, setSupplierName] = useState("");
-  const [quantityKg, setQuantityKg] = useState("");
-  const [purchasePrice, setPurchasePrice] = useState("");
+  const [quantityBags, setQuantityBags] = useState("");
+  const [pricePerBag, setPricePerBag] = useState("");
 
   useEffect(() => {
     const newStock = transactions.reduce((stock, tx) => {
-      if (tx.type === "Purchase") return stock + tx.quantityKg;
-      if (tx.type === "Sale") return stock - tx.quantityKg;
+      if (tx.type === "Purchase") return stock + tx.quantityBags;
+      if (tx.type === "Sale") return stock - tx.quantityBags;
       return stock;
-    }, initialStock); // Start with initialStock and apply all transactions
+    }, initialStockBags); 
     setCurrentStock(newStock);
   }, [transactions]);
 
 
   const handlePurchaseSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !supplierName || !quantityKg || !purchasePrice) {
+    if (!date || !supplierName || !quantityBags || !pricePerBag) {
       alert("Please fill all purchase fields.");
       return;
     }
@@ -55,23 +55,20 @@ export default function PashuAaharPage() {
       date,
       type: "Purchase",
       supplierOrCustomerName: supplierName,
-      quantityKg: parseFloat(quantityKg),
-      purchasePricePerKg: parseFloat(purchasePrice),
-      totalAmount: parseFloat(quantityKg) * parseFloat(purchasePrice),
+      quantityBags: parseInt(quantityBags),
+      pricePerBag: parseFloat(pricePerBag),
+      totalAmount: parseInt(quantityBags) * parseFloat(pricePerBag),
     };
     setTransactions(prevTransactions => [newTransaction, ...prevTransactions].sort((a,b) => b.date.getTime() - a.date.getTime()));
     // Reset form
     setSupplierName("");
-    setQuantityKg("");
-    setPurchasePrice("");
+    setQuantityBags("");
+    setPricePerBag("");
   };
   
-  // Note: Sales of Pashu Aahar would ideally be handled via the main Sales page for consistency.
-  // This page focuses on stock and purchases. A simplified sales entry could be added here if needed.
-
   return (
     <div>
-      <PageHeader title="Pashu Aahar Stock" description="Track stock levels and record purchases." />
+      <PageHeader title="Pashu Aahar Stock" description="Track stock levels and record purchases in bags." />
       
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -79,7 +76,7 @@ export default function PashuAaharPage() {
           <Warehouse className="h-6 w-6 text-primary" />
         </CardHeader>
         <CardContent>
-          <div className="text-3xl font-bold text-foreground">{currentStock.toFixed(2)} Kg</div>
+          <div className="text-3xl font-bold text-foreground">{currentStock.toFixed(0)} Bags</div>
           <p className="text-xs text-muted-foreground">Available Pashu Aahar stock</p>
         </CardContent>
       </Card>
@@ -102,12 +99,12 @@ export default function PashuAaharPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="purchaseQuantity" className="flex items-center mb-1"><Package className="h-4 w-4 mr-2 text-muted-foreground" />Quantity (Kg)</Label>
-                  <Input id="purchaseQuantity" type="number" step="0.1" value={quantityKg} onChange={(e) => setQuantityKg(e.target.value)} placeholder="e.g., 100" required />
+                  <Label htmlFor="purchaseQuantity" className="flex items-center mb-1"><Package className="h-4 w-4 mr-2 text-muted-foreground" />Quantity (Bags)</Label>
+                  <Input id="purchaseQuantity" type="number" step="1" value={quantityBags} onChange={(e) => setQuantityBags(e.target.value)} placeholder="e.g., 10" required />
                 </div>
                 <div>
-                  <Label htmlFor="purchasePrice" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Price/Kg</Label>
-                  <Input id="purchasePrice" type="number" step="0.01" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} placeholder="e.g., 30" required />
+                  <Label htmlFor="purchasePrice" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Price/Bag</Label>
+                  <Input id="purchasePrice" type="number" step="0.01" value={pricePerBag} onChange={(e) => setPricePerBag(e.target.value)} placeholder="e.g., 300" required />
                 </div>
               </div>
               <Button type="submit" className="w-full">
@@ -129,7 +126,7 @@ export default function PashuAaharPage() {
                   <TableHead>Date</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Party</TableHead>
-                  <TableHead className="text-right">Qty (Kg)</TableHead>
+                  <TableHead className="text-right">Qty (Bags)</TableHead>
                   <TableHead className="text-right">Amount (₹)</TableHead>
                 </TableRow>
               </TableHeader>
@@ -143,7 +140,7 @@ export default function PashuAaharPage() {
                       </span>
                     </TableCell>
                     <TableCell>{tx.supplierOrCustomerName}</TableCell>
-                    <TableCell className="text-right">{tx.quantityKg.toFixed(1)}</TableCell>
+                    <TableCell className="text-right">{tx.quantityBags.toFixed(0)}</TableCell>
                     <TableCell className="text-right">{tx.totalAmount.toFixed(2)}</TableCell>
                   </TableRow>
                 ))}
@@ -155,4 +152,3 @@ export default function PashuAaharPage() {
     </div>
   );
 }
-
