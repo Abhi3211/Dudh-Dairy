@@ -174,23 +174,18 @@ export default function SalesPage() {
                   <Label htmlFor="specificPashuAaharName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Specific Pashu Aahar Name</Label>
                   <Popover open={popoverOpenForPashuAahar} onOpenChange={setPopoverOpenForPashuAahar}>
                     <PopoverTrigger asChild>
-                      <Input 
-                        id="specificPashuAaharName" 
-                        value={specificPashuAaharName} 
+                      <Input
+                        id="specificPashuAaharName"
+                        value={specificPashuAaharName}
                         onChange={(e) => handlePashuAaharNameChange(e.target.value)}
-                        onFocus={() => {
-                          if (specificPashuAaharName.trim() && filteredPashuAaharSuggestions.length > 0) {
-                            setPopoverOpenForPashuAahar(true);
-                          }
-                        }}
-                        placeholder="Type to search Pashu Aahar" 
-                        required 
+                        placeholder="Type to search Pashu Aahar"
+                        required
                         autoComplete="off"
                         className="w-full"
                       />
                     </PopoverTrigger>
-                    <PopoverContent 
-                      className="w-[var(--radix-popover-trigger-width)] p-0" 
+                    <PopoverContent
+                      className="w-[var(--radix-popover-trigger-width)] p-0"
                       onOpenAutoFocus={(e) => e.preventDefault()}
                       sideOffset={5}
                     >
