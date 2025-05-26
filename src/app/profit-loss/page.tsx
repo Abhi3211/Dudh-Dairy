@@ -4,73 +4,90 @@
 import { useState, useEffect, useCallback } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { AlertTriangle, CalendarIcon, IndianRupee, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, CalendarIcon, IndianRupee } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, differenceInDays } from "date-fns";
+import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, differenceInDays, addDays } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
+import type { FullProfitLossData, ProfitLossSummaryData, PlChartDataPoint } from "@/lib/types";
 
 // IMPORTANT: This is a placeholder for actual role management.
 const userRole: "admin" | "accountant" = "admin";
 
-interface ProfitLossData {
-  totalRevenue: number;
-  milkSales: number;
-  gheeSales: number;
-  pashuAaharSales: number;
-  costOfGoodsSold: number; // Milk purchases
-  grossProfit: number;
-  operatingExpenses: number;
-  netProfitLoss: number;
-  periodDays: number;
-}
 
 // Simulated data fetching function
-const getPlData = async (startDate: Date, endDate: Date): Promise<ProfitLossData> => {
+const getPlData = async (startDate: Date, endDate: Date): Promise<FullProfitLossData> => {
   await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay
 
   const periodDays = Math.max(1, differenceInDays(endDate, startDate) + 1);
-  let milkSales = 0;
-  let gheeSales = 0;
-  let pashuAaharSales = 0;
-  let costOfGoodsSold = 0; // Milk purchases
+  
+  let totalMilkSales = 0;
+  let totalGheeSales = 0;
+  let totalPashuAaharSales = 0;
+  let totalCostOfGoodsSold = 0;
+  let totalOperatingExpenses = 0;
 
-  // Simulate daily values and sum them up for the period
+  const chartSeries: PlChartDataPoint[] = [];
+
   for (let i = 0; i < periodDays; i++) {
-    milkSales += Math.random() * 2000 + 1000; // Daily milk sales
-    gheeSales += Math.random() * 300 + 50;    // Daily ghee sales
-    pashuAaharSales += Math.random() * 200 + 30; // Daily pashu aahar sales
-    costOfGoodsSold += Math.random() * 1500 + 800; // Daily milk purchases
+    const currentDate = addDays(startDate, i);
+    const dailyMilkSales = Math.random() * 1500 + 800; // Daily milk sales
+    const dailyGheeSales = Math.random() * 200 + 40;    // Daily ghee sales
+    const dailyPashuAaharSales = Math.random() * 150 + 20; // Daily pashu aahar sales
+    const dailyCostOfGoodsSold = Math.random() * 1200 + 600; // Daily milk purchases
+
+    totalMilkSales += dailyMilkSales;
+    totalGheeSales += dailyGheeSales;
+    totalPashuAaharSales += dailyPashuAaharSales;
+    totalCostOfGoodsSold += dailyCostOfGoodsSold;
+    
+    const dailyRevenue = dailyMilkSales + dailyGheeSales + dailyPashuAaharSales;
+    const dailyGrossProfit = dailyRevenue - dailyCostOfGoodsSold;
+    // Simulate daily operating expenses, e.g., 10% of daily revenue + some fixed daily cost
+    const dailyOperatingExpenses = (dailyRevenue * 0.10) + (Math.random() * 50 + 50); 
+    totalOperatingExpenses += dailyOperatingExpenses;
+    
+    const dailyNetProfitLoss = dailyGrossProfit - dailyOperatingExpenses;
+
+    chartSeries.push({
+      date: format(currentDate, "MMM dd"),
+      netProfit: parseFloat(dailyNetProfitLoss.toFixed(2)),
+    });
   }
   
-  const totalRevenue = milkSales + gheeSales + pashuAaharSales;
-  const grossProfit = totalRevenue - costOfGoodsSold;
-  
-  // Simulate operating expenses, e.g., 15% of revenue + some fixed daily cost
-  const operatingExpenses = (totalRevenue * 0.15) + (periodDays * 100); 
-  const netProfitLoss = grossProfit - operatingExpenses;
+  const summaryTotalRevenue = totalMilkSales + totalGheeSales + totalPashuAaharSales;
+  const summaryGrossProfit = summaryTotalRevenue - totalCostOfGoodsSold;
+  const summaryNetProfitLoss = summaryGrossProfit - totalOperatingExpenses;
 
-  return {
-    totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-    milkSales: parseFloat(milkSales.toFixed(2)),
-    gheeSales: parseFloat(gheeSales.toFixed(2)),
-    pashuAaharSales: parseFloat(pashuAaharSales.toFixed(2)),
-    costOfGoodsSold: parseFloat(costOfGoodsSold.toFixed(2)),
-    grossProfit: parseFloat(grossProfit.toFixed(2)),
-    operatingExpenses: parseFloat(operatingExpenses.toFixed(2)),
-    netProfitLoss: parseFloat(netProfitLoss.toFixed(2)),
+  const summary: ProfitLossSummaryData = {
+    totalRevenue: parseFloat(summaryTotalRevenue.toFixed(2)),
+    milkSales: parseFloat(totalMilkSales.toFixed(2)),
+    gheeSales: parseFloat(totalGheeSales.toFixed(2)),
+    pashuAaharSales: parseFloat(totalPashuAaharSales.toFixed(2)),
+    costOfGoodsSold: parseFloat(totalCostOfGoodsSold.toFixed(2)),
+    grossProfit: parseFloat(summaryGrossProfit.toFixed(2)),
+    operatingExpenses: parseFloat(totalOperatingExpenses.toFixed(2)),
+    netProfitLoss: parseFloat(summaryNetProfitLoss.toFixed(2)),
     periodDays,
   };
+
+  return { summary, chartSeries };
 };
+
+const chartConfig = {
+  netProfit: { label: "Net Profit/Loss", color: "hsl(var(--chart-1))" }, // Using chart-1 (Saffron)
+} satisfies ChartConfig;
+
 
 export default function ProfitLossPage() {
   const [filterType, setFilterType] = useState<string>("monthly");
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
   
-  const [plData, setPlData] = useState<ProfitLossData | null>(null);
+  const [plData, setPlData] = useState<FullProfitLossData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const calculateDateRange = useCallback(() => {
@@ -94,6 +111,7 @@ export default function ProfitLossPage() {
       case "custom":
         start = customStartDate || subDays(today, 7);
         end = customEndDate || today;
+        if (start > end) end = start; // Ensure end is not before start
         break;
     }
     return { startDate: start, endDate: end };
@@ -106,14 +124,10 @@ export default function ProfitLossPage() {
     }
     setIsLoading(true);
     const { startDate, endDate } = calculateDateRange();
-    let effectiveEndDate = endDate;
-    if (filterType === 'custom' && startDate && endDate && endDate < startDate) {
-        effectiveEndDate = startDate;
-    }
-    const data = await getPlData(startDate, effectiveEndDate);
+    const data = await getPlData(startDate, endDate);
     setPlData(data);
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); // Added filterType
+  }, [calculateDateRange, filterType]); // filterType is included as it's a dependency of calculateDateRange indirectly.
 
   useEffect(() => {
     fetchData();
@@ -143,8 +157,8 @@ export default function ProfitLossPage() {
     );
   }
 
-  const { startDate, endDate } = calculateDateRange();
-  const formattedPeriod = `${format(startDate, "MMM dd, yyyy")} - ${format(endDate, "MMM dd, yyyy")}`;
+  const currentRange = calculateDateRange();
+  const formattedPeriod = `${format(currentRange.startDate, "MMM dd, yyyy")} - ${format(currentRange.endDate, "MMM dd, yyyy")}`;
 
   return (
     <div>
@@ -164,8 +178,8 @@ export default function ProfitLossPage() {
               <SelectTrigger id="filterType"><SelectValue placeholder="Select period" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="daily">Daily</SelectItem>
-                <SelectItem value="weekly">Weekly</SelectItem>
-                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="weekly">This Week</SelectItem>
+                <SelectItem value="monthly">This Month</SelectItem>
                 <SelectItem value="custom">Custom Range</SelectItem>
               </SelectContent>
             </Select>
@@ -185,6 +199,7 @@ export default function ProfitLossPage() {
         </CardContent>
       </Card>
 
+      {/* P/L Summary Card */}
       <Card>
         <CardHeader>
           <CardTitle>Profit/Loss Report</CardTitle>
@@ -195,75 +210,59 @@ export default function ProfitLossPage() {
         <CardContent className="space-y-6">
           {isLoading ? (
             <div className="space-y-4">
-              <Skeleton className="h-8 w-3/4" />
-              <Skeleton className="h-6 w-1/2" />
-              <Skeleton className="h-6 w-1/2" />
-              <Skeleton className="h-6 w-1/2" />
-              <Skeleton className="h-8 w-3/4 mt-4" />
-              <Skeleton className="h-6 w-1/2" />
-              <Skeleton className="h-8 w-3/4 mt-4" />
-              <Skeleton className="h-6 w-1/2 mt-4" />
-              <Skeleton className="h-8 w-3/4 mt-4" />
+              <Skeleton className="h-8 w-3/4" /> <Skeleton className="h-6 w-1/2" />
+              {/* Add more skeletons for detailed P/L structure */}
             </div>
-          ) : plData ? (
+          ) : plData && plData.summary ? (
             <>
-              {/* Revenue Section */}
               <div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">Revenue</h3>
                 <div className="space-y-1 pl-4">
-                  <div className="flex justify-between"><span>Milk Sales:</span> <span className="font-medium">₹{plData.milkSales.toFixed(2)}</span></div>
-                  <div className="flex justify-between"><span>Ghee Sales:</span> <span className="font-medium">₹{plData.gheeSales.toFixed(2)}</span></div>
-                  <div className="flex justify-between"><span>Pashu Aahar Sales:</span> <span className="font-medium">₹{plData.pashuAaharSales.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Milk Sales:</span> <span className="font-medium">₹{plData.summary.milkSales.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Ghee Sales:</span> <span className="font-medium">₹{plData.summary.gheeSales.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Pashu Aahar Sales:</span> <span className="font-medium">₹{plData.summary.pashuAaharSales.toFixed(2)}</span></div>
                   <div className="flex justify-between border-t pt-1 mt-1">
                     <span className="font-semibold">Total Revenue:</span>
-                    <span className="font-bold text-chart-3">₹{plData.totalRevenue.toFixed(2)}</span>
+                    <span className="font-bold text-chart-3">₹{plData.summary.totalRevenue.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
-
-              {/* COGS Section */}
               <div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">Cost of Goods Sold (COGS)</h3>
                 <div className="space-y-1 pl-4">
-                  <div className="flex justify-between"><span>Milk Purchases:</span> <span className="font-medium">₹{plData.costOfGoodsSold.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Milk Purchases:</span> <span className="font-medium">₹{plData.summary.costOfGoodsSold.toFixed(2)}</span></div>
                   <div className="flex justify-between border-t pt-1 mt-1">
                     <span className="font-semibold">Total COGS:</span>
-                    <span className="font-bold text-chart-4">₹{plData.costOfGoodsSold.toFixed(2)}</span>
+                    <span className="font-bold text-chart-4">₹{plData.summary.costOfGoodsSold.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
-              
-              {/* Gross Profit Section */}
               <div className="border-t pt-4">
                 <div className="flex justify-between text-lg">
                   <span className="font-semibold text-foreground">Gross Profit:</span>
-                  <span className={`font-bold ${plData.grossProfit >= 0 ? 'text-chart-3' : 'text-chart-4'}`}>
-                    ₹{plData.grossProfit.toFixed(2)}
+                  <span className={`font-bold ${plData.summary.grossProfit >= 0 ? 'text-chart-3' : 'text-chart-4'}`}>
+                    ₹{plData.summary.grossProfit.toFixed(2)}
                   </span>
                 </div>
               </div>
-
-              {/* Operating Expenses Section */}
               <div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">Operating Expenses</h3>
                 <div className="space-y-1 pl-4">
-                  <div className="flex justify-between"><span>Simulated Expenses:</span> <span className="font-medium">₹{plData.operatingExpenses.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Simulated Expenses:</span> <span className="font-medium">₹{plData.summary.operatingExpenses.toFixed(2)}</span></div>
                    <div className="flex justify-between border-t pt-1 mt-1">
                     <span className="font-semibold">Total Operating Expenses:</span>
-                    <span className="font-bold text-chart-4">₹{plData.operatingExpenses.toFixed(2)}</span>
+                    <span className="font-bold text-chart-4">₹{plData.summary.operatingExpenses.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
-
-              {/* Net Profit/Loss Section */}
               <div className="border-t pt-4">
                 <div className="flex justify-between text-xl">
                   <span className="font-bold text-foreground">Net Profit / (Loss):</span>
-                  <span className={`font-extrabold ${plData.netProfitLoss >= 0 ? 'text-chart-3' : 'text-chart-4'}`}>
-                    ₹{plData.netProfitLoss.toFixed(2)}
+                  <span className={`font-extrabold ${plData.summary.netProfitLoss >= 0 ? 'text-chart-3' : 'text-chart-4'}`}>
+                    ₹{plData.summary.netProfitLoss.toFixed(2)}
                   </span>
                 </div>
-                {plData.netProfitLoss < 0 && <p className="text-sm text-chart-4 text-right">(Loss is shown in parentheses or with a minus sign)</p>}
+                {plData.summary.netProfitLoss < 0 && <p className="text-sm text-chart-4 text-right">(Loss is shown with a minus sign)</p>}
               </div>
             </>
           ) : (
@@ -271,9 +270,57 @@ export default function ProfitLossPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Trend Chart Card */}
+      {userRole === "admin" && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Net Profit/Loss Trend</CardTitle>
+            <CardDescription>
+              Daily net profit/loss for the period: {format(currentRange.startDate, "MMM dd, yyyy")} - {format(currentRange.endDate, "MMM dd, yyyy")}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="h-[300px] sm:h-[400px]">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Skeleton className="h-full w-full" />
+              </div>
+            ) : plData && plData.chartSeries && plData.chartSeries.length > 0 ? (
+              <ChartContainer config={chartConfig} className="w-full h-full">
+                <LineChart data={plData.chartSeries} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+                  <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
+                  <YAxis 
+                    tickLine={false} 
+                    axisLine={false} 
+                    tickMargin={8} 
+                    tickFormatter={(value) => `₹${value >= 1000 || value <= -1000 ? (value / 1000).toFixed(1) + 'k' : value.toFixed(0)}`}
+                    allowDecimals={false} 
+                  />
+                  <Tooltip 
+                    content={<ChartTooltipContent 
+                      indicator="line" 
+                      formatter={(value, name) => (
+                        <div className="flex flex-col">
+                          <span className="text-xs text-muted-foreground">{name} ({ (payload?.[0]?.payload as PlChartDataPoint | undefined)?.date})</span>
+                          <span className="font-bold">₹{Number(value).toFixed(2)}</span>
+                        </div>
+                      )}
+                    />} 
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="netProfit" stroke="var(--color-netProfit)" strokeWidth={2} dot={false} name="Net Profit/Loss" />
+                </LineChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-muted-foreground">No chart data available for the selected period.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
 
-
-    
