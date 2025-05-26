@@ -3,18 +3,18 @@ export interface MilkCollectionEntry {
   id: string;
   date: Date;
   time: string;
-  dealerName: string;
+  dealerName: string; // This might be changed to partyName or partyId later
   quantityLtr: number;
   fatPercentage: number;
-  ratePerLtr?: number; 
-  totalAmount?: number; 
+  ratePerLtr?: number;
+  totalAmount?: number;
 }
 
 export interface SaleEntry {
   id: string;
   date: Date;
   customerName: string;
-  productName: string; 
+  productName: string;
   quantity: number;
   unit: "Ltr" | "Kg" | "Bags";
   rate: number;
@@ -26,22 +26,28 @@ export interface PashuAaharTransaction {
   id: string;
   date: Date;
   type: "Purchase" | "Sale";
-  productName: string; 
-  supplierOrCustomerName?: string; 
+  productName: string;
+  supplierOrCustomerName?: string; // This might be changed to partyName or partyId later
   quantityBags: number;
   pricePerBag?: number;
   totalAmount: number;
 }
 
-export interface DealerLedgerEntry {
+export interface Party {
+  id: string;
+  name: string;
+  type: "Dealer" | "Customer" | "Supplier";
+}
+
+export interface PartyLedgerEntry {
   id: string;
   date: Date;
-  description: string; 
+  description: string;
   milkQuantityLtr?: number;
   fatPercentage?: number;
   rate?: number;
-  debit?: number; 
-  credit?: number; 
+  debit?: number;
+  credit?: number;
   balance: number;
 }
 
@@ -49,7 +55,7 @@ export interface PaymentEntry {
   id:string;
   date: Date;
   type: "Received" | "Paid";
-  partyName: string; 
+  partyName: string;
   partyType: "Dealer" | "Customer" | "Supplier";
   amount: number;
   mode: "Cash" | "Bank" | "UPI";

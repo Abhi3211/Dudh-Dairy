@@ -8,7 +8,7 @@ import {
   Milk,
   ShoppingCart,
   Package,
-  BookUser,
+  Users, // Changed from BookUser
   IndianRupee,
   type LucideIcon,
 } from "lucide-react";
@@ -17,11 +17,11 @@ import { cn } from "@/lib/utils";
 import {
   SidebarMenu,
   SidebarMenuItem,
-  SidebarMenuButton,
+  // SidebarMenuButton, // Not used directly if Button is used with asChild
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button"; // Import Button
-import { Logo } from "@/components/icons/logo"; // Import Logo
+import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/icons/logo";
 
 interface NavItem {
   href: string;
@@ -35,7 +35,7 @@ const navItems: NavItem[] = [
   { href: "/milk-collection", label: "Milk Collection", icon: Milk },
   { href: "/sales", label: "Sales Entry", icon: ShoppingCart },
   { href: "/pashu-aahar", label: "Pashu Aahar", icon: Package },
-  { href: "/dealer-ledger", label: "Dealer Ledger", icon: BookUser },
+  { href: "/parties", label: "Parties", icon: Users }, // Changed from Dealer Ledger
   { href: "/payments", label: "Payments", icon: IndianRupee },
 ];
 
@@ -51,7 +51,7 @@ export function SidebarNav() {
       <SidebarMenu className="flex-1 p-2">
         {navItems.map((item) => (
           <SidebarMenuItem key={item.href}>
-            <Button // Using Button for consistent styling and asChild pattern if Link is direct child
+            <Button
               asChild
               variant={pathname === item.href ? "default" : "ghost"}
               className={cn(
