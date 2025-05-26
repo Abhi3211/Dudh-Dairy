@@ -1,5 +1,5 @@
 
-"use client"; // This page contains a form, so it needs to be a client component or contain one.
+"use client";
 
 import { useState, type FormEvent, useEffect, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
@@ -15,96 +15,147 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarDays, Clock, User, Percent, Scale, IndianRupee, PlusCircle } from "lucide-react";
 import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
+import { useToast } from "@/hooks/use-toast";
 
 const initialEntries: MilkCollectionEntry[] = [
-  { id: "1", date: new Date(), time: "08:30", dealerName: "Rajesh Kumar", quantityLtr: 10.5, fatPercentage: 4.2, ratePerLtr: 40, totalAmount: 420 },
+  { id: "1", date: new Date(new Date().setDate(new Date().getDate() -1)), time: "08:30", dealerName: "Rajesh Kumar", quantityLtr: 10.5, fatPercentage: 4.2, ratePerLtr: 40, totalAmount: 420 },
   { id: "2", date: new Date(), time: "09:15", dealerName: "Sunita Devi", quantityLtr: 15.2, fatPercentage: 3.8, ratePerLtr: 38, totalAmount: 577.6 },
+  { id: "3", date: new Date(), time: "07:45", dealerName: "Rajesh Kumar", quantityLtr: 8.0, fatPercentage: 4.5, ratePerLtr: 42, totalAmount: 336 },
 ];
 
 export default function MilkCollectionPage() {
+  const { toast } = useToast();
   const [entries, setEntries] = useState<MilkCollectionEntry[]>(initialEntries);
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [time, setTime] = useState<string>("");
-  const [dealerName, setDealerName] = useState("");
+
+  // Dealer Name Autocomplete states
+  const [dealerNameInput, setDealerNameInput] = useState("");
+  const [dealerSuggestions, setDealerSuggestions] = useState<string[]>([]);
+  const [dealerPopoverOpen, setDealerPopoverOpen] = useState(false);
+
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
 
-  const [rateDisplay, setRateDisplay] = useState<string>("");
+  // Rate is now editable, defaults to 6.7 (or any other default)
+  const [rateInputValue, setRateInputValue] = useState<string>("6.7");
   const [totalAmountDisplay, setTotalAmountDisplay] = useState<string>("");
+
 
   // Effect to update time when component mounts, to avoid hydration mismatch for default time
   useEffect(() => {
     setTime(new Date().toTimeString().substring(0,5));
   }, []);
 
+  // Effect to calculate total amount based on quantity and the (editable) rate
   useEffect(() => {
-    const fat = parseFloat(fatPercentage);
     const quantity = parseFloat(quantityLtr);
-    let calculatedRate = 0;
+    const rate = parseFloat(rateInputValue);
 
-    if (!isNaN(fat) && fat > 0) {
-      // Placeholder rate calculation logic based on FAT
-      if (fat >= 4.5) {
-        calculatedRate = 42;
-      } else if (fat >= 4.0) {
-        calculatedRate = 40;
-      } else if (fat >= 3.5) {
-        calculatedRate = 38;
-      } else {
-        calculatedRate = 35; // Base rate for lower FAT
-      }
-    }
-    setRateDisplay(calculatedRate > 0 ? calculatedRate.toFixed(2) : "");
-
-    if (!isNaN(quantity) && quantity > 0 && calculatedRate > 0) {
-      setTotalAmountDisplay((quantity * calculatedRate).toFixed(2));
+    if (!isNaN(quantity) && quantity > 0 && !isNaN(rate) && rate > 0) {
+      setTotalAmountDisplay((quantity * rate).toFixed(2));
     } else {
       setTotalAmountDisplay("");
     }
-  }, [quantityLtr, fatPercentage]);
+  }, [quantityLtr, rateInputValue]);
 
+  // Filtered entries for the table based on the selected date in the form
+  const filteredEntries = useMemo(() => {
+    const sortedEntries = entries.sort((a, b) => {
+        const dateComparison = b.date.getTime() - a.date.getTime();
+        if (dateComparison !== 0) return dateComparison;
+        return b.time.localeCompare(a.time); // Secondary sort by time if dates are same
+    });
+
+    if (!date) return sortedEntries; // Show all sorted entries if no date is selected
+
+    return sortedEntries.filter(entry =>
+      entry.date.getFullYear() === date.getFullYear() &&
+      entry.date.getMonth() === date.getMonth() &&
+      entry.date.getDate() === date.getDate()
+    );
+  }, [entries, date]);
+
+  // Get unique dealer names for suggestions
+  const knownDealerNames = useMemo(() => {
+    const names = new Set(entries.map(e => e.dealerName).concat(initialEntries.map(e => e.dealerName)));
+    // In a real app, fetch this from your Parties data where type is 'Dealer'
+    return Array.from(names).sort();
+  }, [entries]);
+
+  const handleDealerNameChange = (value: string) => {
+    setDealerNameInput(value);
+    if (value.trim()) {
+      const filtered = knownDealerNames.filter(d =>
+        d.toLowerCase().includes(value.toLowerCase())
+      );
+      setDealerSuggestions(filtered);
+      setDealerPopoverOpen(filtered.length > 0 && value.length > 0);
+    } else {
+      setDealerSuggestions([]);
+      setDealerPopoverOpen(false);
+    }
+  };
+
+  const handleDealerSuggestionClick = (suggestion: string) => {
+    setDealerNameInput(suggestion);
+    setDealerSuggestions([]);
+    setDealerPopoverOpen(false);
+    // Optionally, trigger focus to the next field or other actions
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !time || !dealerName || !quantityLtr || !fatPercentage) {
-      alert("Please fill all fields."); // Replace with proper toast notification
+    if (!date || !time || !dealerNameInput.trim() || !quantityLtr || !fatPercentage || !rateInputValue) {
+      toast({ title: "Error", description: "Please fill all fields.", variant: "destructive" });
       return;
     }
 
     const qLtr = parseFloat(quantityLtr);
     const fatP = parseFloat(fatPercentage);
-    // Re-calculate rate and total amount to ensure consistency on submission
-    let currentRate = 0;
-    if (!isNaN(fatP) && fatP > 0) {
-        if (fatP >= 4.5) currentRate = 42;
-        else if (fatP >= 4.0) currentRate = 40;
-        else if (fatP >= 3.5) currentRate = 38;
-        else currentRate = 35;
-    }
-    const currentTotalAmount = (!isNaN(qLtr) && qLtr > 0 && currentRate > 0) ? qLtr * currentRate : undefined;
+    const finalRate = parseFloat(rateInputValue);
 
+    if (isNaN(qLtr) || qLtr <= 0) {
+      toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" });
+      return;
+    }
+    if (isNaN(fatP) || fatP < 0) { // FAT can be 0, but not negative
+        toast({ title: "Error", description: "Please enter a valid FAT percentage.", variant: "destructive" });
+        return;
+    }
+    if (isNaN(finalRate) || finalRate <= 0) {
+      toast({ title: "Error", description: "Please enter a valid rate.", variant: "destructive" });
+      return;
+    }
+
+    const finalTotalAmount = qLtr * finalRate;
 
     const newEntry: MilkCollectionEntry = {
       id: String(Date.now()),
       date,
       time,
-      dealerName,
+      dealerName: dealerNameInput.trim(),
       quantityLtr: qLtr,
       fatPercentage: fatP,
-      ratePerLtr: currentRate > 0 ? currentRate : undefined,
-      totalAmount: currentTotalAmount,
+      ratePerLtr: finalRate,
+      totalAmount: finalTotalAmount,
     };
-    setEntries(prevEntries => [newEntry, ...prevEntries].sort((a,b) => b.date.getTime() - a.date.getTime()));
+    setEntries(prevEntries => [newEntry, ...prevEntries]); // Sorting is handled by filteredEntries useMemo
+
+    toast({ title: "Success", description: "Milk collection entry added." });
+
     // Reset form
     // setDate(new Date()); // Keep date or reset as per preference
-    // setTime(new Date().toTimeString().substring(0,5)); // Keep time or reset
-    setDealerName("");
+    setTime(new Date().toTimeString().substring(0,5)); // Reset time to current
+    setDealerNameInput("");
     setQuantityLtr("");
     setFatPercentage("");
-    // Rate and Total Amount will reset via useEffect
+    setRateInputValue("6.7"); // Reset rate to default
+    // totalAmountDisplay will reset via useEffect
   };
 
   return (
@@ -134,7 +185,40 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="dealerName" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                <Input id="dealerName" value={dealerName} onChange={(e) => setDealerName(e.target.value)} placeholder="Enter dealer name" required />
+                <Popover open={dealerPopoverOpen} onOpenChange={setDealerPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Input
+                      id="dealerName"
+                      value={dealerNameInput}
+                      onChange={(e) => handleDealerNameChange(e.target.value)}
+                      placeholder="Enter dealer name"
+                      required
+                      autoComplete="off"
+                      className="w-full"
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[var(--radix-popover-trigger-width)] p-0"
+                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevents auto-focus on first item
+                    sideOffset={5}
+                  >
+                    {dealerSuggestions.length === 0 && dealerNameInput.trim() ? (
+                        <div className="p-2 text-sm text-muted-foreground">No dealers found.</div>
+                    ) : (
+                      <div className="max-h-48 overflow-auto">
+                        {dealerSuggestions.map(suggestion => (
+                          <div
+                            key={suggestion}
+                            className="p-2 hover:bg-accent cursor-pointer text-sm"
+                            onMouseDown={() => handleDealerSuggestionClick(suggestion)} // Use onMouseDown to fire before blur
+                          >
+                            {suggestion}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <Label htmlFor="quantityLtr" className="flex items-center mb-1">
@@ -150,13 +234,22 @@ export default function MilkCollectionPage() {
               </div>
               <div>
                 <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-2 text-muted-foreground" /> Rate (₹/Ltr)
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹/Ltr)
                 </Label>
-                <Input id="ratePerLtr" value={rateDisplay} readOnly className="font-semibold bg-muted/50" />
+                <Input 
+                  id="ratePerLtr" 
+                  type="number" 
+                  step="0.01" 
+                  value={rateInputValue} 
+                  onChange={(e) => setRateInputValue(e.target.value)} 
+                  placeholder="e.g., 6.7" 
+                  required 
+                  className="font-semibold"
+                />
               </div>
               <div>
                 <Label htmlFor="totalAmount" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-2 text-muted-foreground" /> Total Amount (₹)
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Total Amount (₹)
                 </Label>
                 <Input id="totalAmount" value={totalAmountDisplay} readOnly className="font-semibold bg-muted/50" />
               </div>
@@ -170,7 +263,9 @@ export default function MilkCollectionPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Recent Collections</CardTitle>
-            <CardDescription>List of recently added milk collections.</CardDescription>
+            <CardDescription>
+              {date ? `Showing collections for ${date.toLocaleDateString()}` : "Showing all recent collections."}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
@@ -186,12 +281,14 @@ export default function MilkCollectionPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {entries.length === 0 && (
+                {filteredEntries.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">No entries yet.</TableCell>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                      {date ? `No entries for ${date.toLocaleDateString()}.` : "No entries yet."}
+                    </TableCell>
                   </TableRow>
                 )}
-                {entries.map((entry) => (
+                {filteredEntries.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell>{entry.date.toLocaleDateString()}</TableCell>
                     <TableCell>{entry.time}</TableCell>
@@ -210,4 +307,3 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
-
