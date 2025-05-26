@@ -62,6 +62,14 @@ export interface PaymentEntry {
   notes?: string;
 }
 
+export interface ExpenseEntry {
+  id: string;
+  date: Date;
+  category: "Salary" | "Miscellaneous";
+  description: string;
+  amount: number;
+}
+
 export interface DailySummary {
   milkPurchasedLitres: number;
   milkPurchasedAmount: number;
@@ -83,4 +91,27 @@ export interface ChartDataPoint {
 export interface DashboardData {
   summary: DailySummary;
   chartSeries: ChartDataPoint[];
+}
+
+
+export interface ProfitLossSummaryData {
+  totalRevenue: number;
+  milkSales: number;
+  gheeSales: number;
+  pashuAaharSales: number;
+  costOfGoodsSold: number;
+  grossProfit: number;
+  operatingExpenses: number;
+  netProfitLoss: number;
+  periodDays: number;
+}
+
+export interface PlChartDataPoint {
+  date: string;
+  netProfit: number;
+}
+
+export interface FullProfitLossData {
+  summary: ProfitLossSummaryData;
+  chartSeries: PlChartDataPoint[];
 }
