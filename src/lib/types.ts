@@ -10,13 +10,13 @@ export interface MilkCollectionEntry {
   totalAmount?: number; // Optional, calculated
 }
 
-export type ProductName = "Milk" | "Ghee" | "Pashu Aahar";
+// ProductName type alias is removed as SaleEntry.productName is now a string.
 
 export interface SaleEntry {
   id: string;
   date: Date;
   customerName: string;
-  productName: ProductName;
+  productName: string; // Changed from ProductName to string
   quantity: number;
   unit: "Ltr" | "Kg" | "Bags";
   rate: number;
@@ -28,8 +28,8 @@ export interface PashuAaharTransaction {
   id: string;
   date: Date;
   type: "Purchase" | "Sale";
-  productName: string; // Added field for specific Pashu Aahar product name
-  supplierOrCustomerName?: string; // Supplier for Purchase, Customer for Sale
+  productName: string; 
+  supplierOrCustomerName?: string; 
   quantityBags: number;
   pricePerBag?: number;
   totalAmount: number;
@@ -38,12 +38,12 @@ export interface PashuAaharTransaction {
 export interface DealerLedgerEntry {
   id: string;
   date: Date;
-  description: string; // e.g., "Milk Collection", "Payment Received"
+  description: string; 
   milkQuantityLtr?: number;
   fatPercentage?: number;
   rate?: number;
-  debit?: number; // Amount due from dealer (e.g. for items sold to them)
-  credit?: number; // Amount paid by dealer or value of milk supplied
+  debit?: number; 
+  credit?: number; 
   balance: number;
 }
 
@@ -51,7 +51,7 @@ export interface PaymentEntry {
   id:string;
   date: Date;
   type: "Received" | "Paid";
-  partyName: string; // Dealer, Customer, Supplier
+  partyName: string; 
   partyType: "Dealer" | "Customer" | "Supplier";
   amount: number;
   mode: "Cash" | "Bank" | "UPI";

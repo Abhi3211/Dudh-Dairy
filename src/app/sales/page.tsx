@@ -23,31 +23,34 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { User, Package, IndianRupee, CreditCard, ShoppingCart, PlusCircle } from "lucide-react";
-import type { SaleEntry, ProductName } from "@/lib/types";
+import { User, Package, IndianRupee, CreditCard, ShoppingCart, PlusCircle, Tag } from "lucide-react";
+import type { SaleEntry } from "@/lib/types";
 
 const initialSales: SaleEntry[] = [
   { id: "1", date: new Date(), customerName: "Amit Singh", productName: "Milk", quantity: 5, unit: "Ltr", rate: 60, totalAmount: 300, paymentType: "Cash" },
   { id: "2", date: new Date(), customerName: "Priya Sharma", productName: "Ghee", quantity: 1, unit: "Kg", rate: 700, totalAmount: 700, paymentType: "Credit" },
-  { id: "3", date: new Date(), customerName: "Vijay Store", productName: "Pashu Aahar", quantity: 2, unit: "Bags", rate: 320, totalAmount: 640, paymentType: "Cash" },
+  { id: "3", date: new Date(), customerName: "Vijay Store", productName: "Gold Coin Feed", quantity: 2, unit: "Bags", rate: 320, totalAmount: 640, paymentType: "Cash" },
 ];
 
-const productOptions: { name: ProductName; unit: SaleEntry['unit'] }[] = [
-  { name: "Milk", unit: "Ltr" },
-  { name: "Ghee", unit: "Kg" },
-  { name: "Pashu Aahar", unit: "Bags" }, // Changed "Packet" to "Bags"
+// These are now product categories
+const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
+  { categoryName: "Milk", unit: "Ltr" },
+  { categoryName: "Ghee", unit: "Kg" },
+  { categoryName: "Pashu Aahar", unit: "Bags" },
 ];
 
 export default function SalesPage() {
   const [sales, setSales] = useState<SaleEntry[]>(initialSales);
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [customerName, setCustomerName] = useState("");
-  const [selectedProductIndex, setSelectedProductIndex] = useState<string>("0");
+  const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0"); // Index for productCategories
+  const [specificPashuAaharName, setSpecificPashuAaharName] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
   const [rate, setRate] = useState<string>("");
   const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Cash");
 
   const totalAmount = parseFloat(quantity) * parseFloat(rate) || 0;
+  const currentCategory = productCategories[parseInt(selectedCategoryIndex)]?.categoryName;
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -55,14 +58,27 @@ export default function SalesPage() {
       alert("Please fill all fields.");
       return;
     }
-    const product = productOptions[parseInt(selectedProductIndex)];
+
+    let finalProductName = "";
+    const categoryDetails = productCategories[parseInt(selectedCategoryIndex)];
+
+    if (categoryDetails.categoryName === "Pashu Aahar") {
+      if (!specificPashuAaharName.trim()) {
+        alert("Please enter the specific Pashu Aahar product name.");
+        return;
+      }
+      finalProductName = specificPashuAaharName.trim();
+    } else {
+      finalProductName = categoryDetails.categoryName;
+    }
+
     const newSale: SaleEntry = {
       id: String(Date.now()),
       date,
       customerName,
-      productName: product.name,
+      productName: finalProductName,
       quantity: parseFloat(quantity),
-      unit: product.unit,
+      unit: categoryDetails.unit,
       rate: parseFloat(rate),
       totalAmount: parseFloat(quantity) * parseFloat(rate),
       paymentType,
@@ -70,6 +86,7 @@ export default function SalesPage() {
     setSales(prevSales => [newSale, ...prevSales].sort((a,b) => b.date.getTime() - a.date.getTime()));
     // Reset form
     setCustomerName("");
+    setSpecificPashuAaharName("");
     setQuantity("");
     setRate("");
   };
@@ -93,22 +110,36 @@ export default function SalesPage() {
                 <Input id="customerName" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Customer name" required />
               </div>
               <div>
-                <Label htmlFor="productName" className="flex items-center mb-1"><Package className="h-4 w-4 mr-2 text-muted-foreground" />Product</Label>
-                <Select value={selectedProductIndex} onValueChange={setSelectedProductIndex}>
+                <Label htmlFor="productCategory" className="flex items-center mb-1"><Package className="h-4 w-4 mr-2 text-muted-foreground" />Product Category</Label>
+                <Select value={selectedCategoryIndex} onValueChange={setSelectedCategoryIndex}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select product" />
+                    <SelectValue placeholder="Select product category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {productOptions.map((p, index) => (
-                      <SelectItem key={p.name} value={String(index)}>{p.name} ({p.unit})</SelectItem>
+                    {productCategories.map((p, index) => (
+                      <SelectItem key={p.categoryName} value={String(index)}>{p.categoryName} ({p.unit})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+
+              {currentCategory === "Pashu Aahar" && (
+                <div>
+                  <Label htmlFor="specificPashuAaharName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Specific Pashu Aahar Name</Label>
+                  <Input 
+                    id="specificPashuAaharName" 
+                    value={specificPashuAaharName} 
+                    onChange={(e) => setSpecificPashuAaharName(e.target.value)} 
+                    placeholder="e.g., Gold Coin Feed" 
+                    required 
+                  />
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="quantity">Quantity</Label>
-                  <Input id="quantity" type="number" step={productOptions[parseInt(selectedProductIndex)]?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
+                  <Input id="quantity" type="number" step={productCategories[parseInt(selectedCategoryIndex)]?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
                 </div>
                 <div>
                   <Label htmlFor="rate" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Rate</Label>
@@ -117,7 +148,7 @@ export default function SalesPage() {
               </div>
               <div>
                 <Label>Total Amount</Label>
-                <Input value={`₹ ${totalAmount.toFixed(2)}`} readOnly className="font-semibold" />
+                <Input value={`₹ ${totalAmount.toFixed(2)}`} readOnly className="font-semibold bg-muted/50" />
               </div>
               <div>
                 <Label htmlFor="paymentType" className="flex items-center mb-1"><CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />Payment Type</Label>
