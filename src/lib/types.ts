@@ -6,17 +6,15 @@ export interface MilkCollectionEntry {
   dealerName: string;
   quantityLtr: number;
   fatPercentage: number;
-  ratePerLtr?: number; // Optional, might be set later or based on FAT
-  totalAmount?: number; // Optional, calculated
+  ratePerLtr?: number; 
+  totalAmount?: number; 
 }
-
-// ProductName type alias is removed as SaleEntry.productName is now a string.
 
 export interface SaleEntry {
   id: string;
   date: Date;
   customerName: string;
-  productName: string; // Changed from ProductName to string
+  productName: string; 
   quantity: number;
   unit: "Ltr" | "Kg" | "Bags";
   rate: number;
@@ -68,4 +66,15 @@ export interface DailySummary {
   totalCashIn: number;
   totalCreditOut: number;
   totalOutstandingAmount: number;
+}
+
+export interface ChartDataPoint {
+  date: string; // e.g., "Jan 01", "Mon", "Week 1"
+  purchasedValue?: number;
+  soldValue?: number;
+}
+
+export interface DashboardData {
+  summary: DailySummary;
+  chartSeries: ChartDataPoint[];
 }
