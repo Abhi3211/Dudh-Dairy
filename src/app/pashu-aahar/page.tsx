@@ -16,20 +16,22 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Package, Warehouse, ShoppingCart, IndianRupee, User, PlusCircle } from "lucide-react";
+import { Package, Warehouse, ShoppingCart, IndianRupee, User, PlusCircle, Tag } from "lucide-react";
 import type { PashuAaharTransaction } from "@/lib/types";
 
 const initialStockBags = 50; // Bags
 const initialTransactions: PashuAaharTransaction[] = [
-  { id: "1", date: new Date(Date.now() - 86400000 * 2), type: "Purchase", supplierOrCustomerName: "Shakti Feeds", quantityBags: 20, pricePerBag: 300, totalAmount: 6000 },
-  { id: "2", date: new Date(Date.now() - 86400000 * 1), type: "Sale", supplierOrCustomerName: "Ramesh Bhai", quantityBags: 5, pricePerBag: 350, totalAmount: 1750 },
+  { id: "1", date: new Date(Date.now() - 86400000 * 2), type: "Purchase", productName: "Gold Coin Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 20, pricePerBag: 300, totalAmount: 6000 },
+  { id: "2", date: new Date(Date.now() - 86400000 * 1), type: "Sale", productName: "Gold Coin Feed", supplierOrCustomerName: "Ramesh Bhai", quantityBags: 5, pricePerBag: 350, totalAmount: 1750 },
+  { id: "3", date: new Date(Date.now() - 86400000 * 3), type: "Purchase", productName: "Super Pallet", supplierOrCustomerName: "Kamdhenu Agro", quantityBags: 15, pricePerBag: 320, totalAmount: 4800 },
 ];
 
 export default function PashuAaharPage() {
   const [transactions, setTransactions] = useState<PashuAaharTransaction[]>(initialTransactions);
-  const [currentStock, setCurrentStock] = useState(0); // Will be calculated by useEffect
+  const [currentStock, setCurrentStock] = useState(0);
 
   const [date, setDate] = useState<Date | undefined>(new Date());
+  const [productName, setProductName] = useState(""); // New state for product name
   const [supplierName, setSupplierName] = useState("");
   const [quantityBags, setQuantityBags] = useState("");
   const [pricePerBag, setPricePerBag] = useState("");
@@ -46,7 +48,7 @@ export default function PashuAaharPage() {
 
   const handlePurchaseSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !supplierName || !quantityBags || !pricePerBag) {
+    if (!date || !productName || !supplierName || !quantityBags || !pricePerBag) {
       alert("Please fill all purchase fields.");
       return;
     }
@@ -54,6 +56,7 @@ export default function PashuAaharPage() {
       id: String(Date.now()),
       date,
       type: "Purchase",
+      productName, // Include productName
       supplierOrCustomerName: supplierName,
       quantityBags: parseInt(quantityBags),
       pricePerBag: parseFloat(pricePerBag),
@@ -61,6 +64,7 @@ export default function PashuAaharPage() {
     };
     setTransactions(prevTransactions => [newTransaction, ...prevTransactions].sort((a,b) => b.date.getTime() - a.date.getTime()));
     // Reset form
+    setProductName("");
     setSupplierName("");
     setQuantityBags("");
     setPricePerBag("");
@@ -72,12 +76,12 @@ export default function PashuAaharPage() {
       
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-lg font-semibold">Current Stock</CardTitle>
+          <CardTitle className="text-lg font-semibold">Current Stock (All Types)</CardTitle>
           <Warehouse className="h-6 w-6 text-primary" />
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold text-foreground">{currentStock.toFixed(0)} Bags</div>
-          <p className="text-xs text-muted-foreground">Available Pashu Aahar stock</p>
+          <p className="text-xs text-muted-foreground">Total available Pashu Aahar stock</p>
         </CardContent>
       </Card>
 
@@ -92,6 +96,10 @@ export default function PashuAaharPage() {
               <div>
                 <Label htmlFor="purchaseDate">Date</Label>
                 <DatePicker date={date} setDate={setDate} />
+              </div>
+              <div>
+                <Label htmlFor="productName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Product Name</Label>
+                <Input id="productName" value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="e.g., Gold Coin, Super Pallet" required />
               </div>
               <div>
                 <Label htmlFor="supplierName" className="flex items-center mb-1"><User className="h-4 w-4 mr-2 text-muted-foreground" />Supplier Name</Label>
@@ -125,7 +133,8 @@ export default function PashuAaharPage() {
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Party</TableHead>
+                  <TableHead>Product Name</TableHead>
+                  <TableHead>Supplier/Customer</TableHead>
                   <TableHead className="text-right">Qty (Bags)</TableHead>
                   <TableHead className="text-right">Amount (₹)</TableHead>
                 </TableRow>
@@ -139,11 +148,17 @@ export default function PashuAaharPage() {
                         {tx.type}
                       </span>
                     </TableCell>
+                    <TableCell>{tx.productName}</TableCell>
                     <TableCell>{tx.supplierOrCustomerName}</TableCell>
                     <TableCell className="text-right">{tx.quantityBags.toFixed(0)}</TableCell>
                     <TableCell className="text-right">{tx.totalAmount.toFixed(2)}</TableCell>
                   </TableRow>
                 ))}
+                {transactions.length === 0 && (
+                    <TableRow>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground">No transactions yet.</TableCell>
+                    </TableRow>
+                )}
               </TableBody>
             </Table>
           </CardContent>

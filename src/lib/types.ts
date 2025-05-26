@@ -18,7 +18,7 @@ export interface SaleEntry {
   customerName: string;
   productName: ProductName;
   quantity: number;
-  unit: "Ltr" | "Kg" | "Bags"; // Changed "Packet" to "Bags"
+  unit: "Ltr" | "Kg" | "Bags";
   rate: number;
   totalAmount: number;
   paymentType: "Cash" | "Credit";
@@ -28,9 +28,10 @@ export interface PashuAaharTransaction {
   id: string;
   date: Date;
   type: "Purchase" | "Sale";
+  productName: string; // Added field for specific Pashu Aahar product name
   supplierOrCustomerName?: string; // Supplier for Purchase, Customer for Sale
-  quantityBags: number; // Changed from quantityKg
-  pricePerBag?: number; // Changed from purchasePricePerKg and consolidated salePricePerKg
+  quantityBags: number;
+  pricePerBag?: number;
   totalAmount: number;
 }
 
