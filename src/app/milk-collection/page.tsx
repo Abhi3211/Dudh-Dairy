@@ -93,7 +93,7 @@ export default function MilkCollectionPage() {
         d.toLowerCase().includes(value.toLowerCase())
       );
       setDealerSuggestions(filtered);
-      setDealerPopoverOpen(filtered.length > 0 && value.length > 0);
+      setDealerPopoverOpen(filtered.length > 0); // Simplified condition
     } else {
       setDealerSuggestions([]);
       setDealerPopoverOpen(false);
@@ -146,15 +146,18 @@ export default function MilkCollectionPage() {
       ratePerLtr: finalRate,
       totalAmount: finalTotalAmount,
     };
-    setEntries(prevEntries => [newEntry, ...prevEntries]); 
+    setEntries(prevEntries => [newEntry, ...prevEntries].sort((a,b) => b.date.getTime() - a.date.getTime() || b.time.localeCompare(a.time))); 
 
     toast({ title: "Success", description: "Milk collection entry added." });
 
-    setTime(new Date().toTimeString().substring(0,5)); 
+    // Reset some fields, keep date and time for quick subsequent entries
+    // setTime(new Date().toTimeString().substring(0,5)); // Optionally reset time
     setDealerNameInput("");
     setQuantityLtr("");
     setFatPercentage("");
     setRateInputValue("6.7"); 
+    setDealerSuggestions([]);
+    setDealerPopoverOpen(false);
   };
 
   return (
