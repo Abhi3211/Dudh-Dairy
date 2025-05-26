@@ -21,9 +21,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { User, Package, IndianRupee, CreditCard, ShoppingCart, PlusCircle, Tag } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag } from "lucide-react";
 import type { SaleEntry } from "@/lib/types";
 
 const initialSales: SaleEntry[] = [
@@ -32,25 +33,66 @@ const initialSales: SaleEntry[] = [
   { id: "3", date: new Date(), customerName: "Vijay Store", productName: "Gold Coin Feed", quantity: 2, unit: "Bags", rate: 320, totalAmount: 640, paymentType: "Cash" },
 ];
 
-// These are now product categories
 const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
   { categoryName: "Milk", unit: "Ltr" },
   { categoryName: "Ghee", unit: "Kg" },
   { categoryName: "Pashu Aahar", unit: "Bags" },
 ];
 
+// For suggestion feature - in a real app, this would come from stock/purchase data
+const knownPashuAaharProducts: string[] = [
+  "Gold Coin Feed",
+  "Super Pallet",
+  "Nutri Plus Feed",
+  "Kisan Special Churi",
+  "Dairy Delight Mix",
+];
+
 export default function SalesPage() {
   const [sales, setSales] = useState<SaleEntry[]>(initialSales);
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [customerName, setCustomerName] = useState("");
-  const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0"); // Index for productCategories
+  const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
   const [specificPashuAaharName, setSpecificPashuAaharName] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
   const [rate, setRate] = useState<string>("");
   const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Cash");
 
+  const [filteredPashuAaharSuggestions, setFilteredPashuAaharSuggestions] = useState<string[]>([]);
+  const [popoverOpenForPashuAahar, setPopoverOpenForPashuAahar] = useState(false);
+
   const totalAmount = parseFloat(quantity) * parseFloat(rate) || 0;
-  const currentCategory = productCategories[parseInt(selectedCategoryIndex)]?.categoryName;
+  const currentCategoryDetails = productCategories[parseInt(selectedCategoryIndex)];
+  const currentCategoryName = currentCategoryDetails?.categoryName;
+
+  useEffect(() => {
+    // Reset specific pashu aahar name if category changes away from Pashu Aahar
+    if (currentCategoryName !== "Pashu Aahar") {
+      setSpecificPashuAaharName("");
+      setFilteredPashuAaharSuggestions([]);
+      setPopoverOpenForPashuAahar(false);
+    }
+  }, [currentCategoryName]);
+
+  const handlePashuAaharNameChange = (value: string) => {
+    setSpecificPashuAaharName(value);
+    if (value.trim()) {
+      const filtered = knownPashuAaharProducts.filter(p =>
+        p.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredPashuAaharSuggestions(filtered);
+      setPopoverOpenForPashuAahar(filtered.length > 0);
+    } else {
+      setFilteredPashuAaharSuggestions([]);
+      setPopoverOpenForPashuAahar(false);
+    }
+  };
+
+  const handlePashuAaharSuggestionClick = (suggestion: string) => {
+    setSpecificPashuAaharName(suggestion);
+    setFilteredPashuAaharSuggestions([]);
+    setPopoverOpenForPashuAahar(false);
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -60,16 +102,19 @@ export default function SalesPage() {
     }
 
     let finalProductName = "";
-    const categoryDetails = productCategories[parseInt(selectedCategoryIndex)];
+    if (!currentCategoryDetails) {
+        alert("Please select a product category.");
+        return;
+    }
 
-    if (categoryDetails.categoryName === "Pashu Aahar") {
+    if (currentCategoryDetails.categoryName === "Pashu Aahar") {
       if (!specificPashuAaharName.trim()) {
-        alert("Please enter the specific Pashu Aahar product name.");
+        alert("Please enter or select the specific Pashu Aahar product name.");
         return;
       }
       finalProductName = specificPashuAaharName.trim();
     } else {
-      finalProductName = categoryDetails.categoryName;
+      finalProductName = currentCategoryDetails.categoryName;
     }
 
     const newSale: SaleEntry = {
@@ -78,17 +123,18 @@ export default function SalesPage() {
       customerName,
       productName: finalProductName,
       quantity: parseFloat(quantity),
-      unit: categoryDetails.unit,
+      unit: currentCategoryDetails.unit,
       rate: parseFloat(rate),
       totalAmount: parseFloat(quantity) * parseFloat(rate),
       paymentType,
     };
     setSales(prevSales => [newSale, ...prevSales].sort((a,b) => b.date.getTime() - a.date.getTime()));
-    // Reset form
     setCustomerName("");
     setSpecificPashuAaharName("");
     setQuantity("");
     setRate("");
+    setFilteredPashuAaharSuggestions([]);
+    setPopoverOpenForPashuAahar(false);
   };
 
   return (
@@ -123,23 +169,55 @@ export default function SalesPage() {
                 </Select>
               </div>
 
-              {currentCategory === "Pashu Aahar" && (
+              {currentCategoryName === "Pashu Aahar" && (
                 <div>
                   <Label htmlFor="specificPashuAaharName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Specific Pashu Aahar Name</Label>
-                  <Input 
-                    id="specificPashuAaharName" 
-                    value={specificPashuAaharName} 
-                    onChange={(e) => setSpecificPashuAaharName(e.target.value)} 
-                    placeholder="e.g., Gold Coin Feed" 
-                    required 
-                  />
+                  <Popover open={popoverOpenForPashuAahar} onOpenChange={setPopoverOpenForPashuAahar}>
+                    <PopoverTrigger asChild>
+                      <Input 
+                        id="specificPashuAaharName" 
+                        value={specificPashuAaharName} 
+                        onChange={(e) => handlePashuAaharNameChange(e.target.value)}
+                        onFocus={() => {
+                          if (specificPashuAaharName.trim() && filteredPashuAaharSuggestions.length > 0) {
+                            setPopoverOpenForPashuAahar(true);
+                          }
+                        }}
+                        placeholder="Type to search Pashu Aahar" 
+                        required 
+                        autoComplete="off"
+                        className="w-full"
+                      />
+                    </PopoverTrigger>
+                    <PopoverContent 
+                      className="w-[var(--radix-popover-trigger-width)] p-0" 
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                      sideOffset={5}
+                    >
+                      {filteredPashuAaharSuggestions.length === 0 && specificPashuAaharName.trim() ? (
+                         <div className="p-2 text-sm text-muted-foreground">No products found.</div>
+                      ) : (
+                        <div className="max-h-48 overflow-auto"> {/* Scrollable suggestions */}
+                          {filteredPashuAaharSuggestions.map(suggestion => (
+                            <div
+                              key={suggestion}
+                              className="p-2 hover:bg-accent cursor-pointer text-sm"
+                              onMouseDown={() => handlePashuAaharSuggestionClick(suggestion)}
+                            >
+                              {suggestion}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="quantity">Quantity</Label>
-                  <Input id="quantity" type="number" step={productCategories[parseInt(selectedCategoryIndex)]?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
+                  <Input id="quantity" type="number" step={currentCategoryDetails?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
                 </div>
                 <div>
                   <Label htmlFor="rate" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Rate</Label>
@@ -206,3 +284,4 @@ export default function SalesPage() {
     </div>
   );
 }
+
