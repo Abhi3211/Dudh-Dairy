@@ -23,6 +23,7 @@ const initialTransactions: PashuAaharTransaction[] = [
   { id: "1", date: new Date(Date.now() - 86400000 * 2), type: "Purchase", productName: "Gold Coin Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 20, pricePerBag: 300, totalAmount: 6000 },
   { id: "2", date: new Date(Date.now() - 86400000 * 1), type: "Sale", productName: "Gold Coin Feed", supplierOrCustomerName: "Ramesh Bhai", quantityBags: 5, pricePerBag: 350, totalAmount: 1750 },
   { id: "3", date: new Date(Date.now() - 86400000 * 3), type: "Purchase", productName: "Super Pallet", supplierOrCustomerName: "Kamdhenu Agro", quantityBags: 15, pricePerBag: 320, totalAmount: 4800 },
+  { id: "4", date: new Date(Date.now() - 86400000 * 1), type: "Purchase", productName: "Nutri Plus Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 10, pricePerBag: 310, totalAmount: 3100 },
 ];
 
 export default function PashuAaharPage() {
@@ -37,14 +38,18 @@ export default function PashuAaharPage() {
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
-    transactions.forEach(tx => {
+    // Sort transactions by date to ensure correct stock calculation sequence
+    const sortedTransactions = [...transactions].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    sortedTransactions.forEach(tx => {
       if (!stockCalc[tx.productName]) {
         stockCalc[tx.productName] = 0;
       }
       if (tx.type === "Purchase") {
         stockCalc[tx.productName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
-        stockCalc[tx.productName] -= tx.quantityBags;
+        // Ensure stock doesn't go negative, though ideally sales shouldn't exceed stock
+        stockCalc[tx.productName] = Math.max(0, stockCalc[tx.productName] - tx.quantityBags);
       }
     });
     setCurrentStockByProduct(stockCalc);
@@ -61,13 +66,13 @@ export default function PashuAaharPage() {
       id: String(Date.now()),
       date,
       type: "Purchase",
-      productName,
+      productName: productName.trim(),
       supplierOrCustomerName: supplierName,
       quantityBags: parseInt(quantityBags),
       pricePerBag: parseFloat(pricePerBag),
       totalAmount: parseInt(quantityBags) * parseFloat(pricePerBag),
     };
-    setTransactions(prevTransactions => [newTransaction, ...prevTransactions].sort((a,b) => b.date.getTime() - a.date.getTime()));
+    setTransactions(prevTransactions => [...prevTransactions, newTransaction].sort((a,b) => b.date.getTime() - a.date.getTime()));
     // Reset form
     setProductName("");
     setSupplierName("");
@@ -80,24 +85,38 @@ export default function PashuAaharPage() {
       <PageHeader title="Pashu Aahar Stock" description="Track stock levels and record purchases in bags." />
       
       <Card className="mb-6">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-lg font-semibold">Current Stock by Product</CardTitle>
-          <Warehouse className="h-6 w-6 text-primary" />
+        <CardHeader>
+          <div className="flex flex-row items-center justify-between space-y-0 pb-1">
+            <CardTitle className="text-lg font-semibold">Current Stock by Product</CardTitle>
+            <Warehouse className="h-6 w-6 text-primary" />
+          </div>
+          <CardDescription className="text-sm text-muted-foreground">
+            Breakdown of available Pashu Aahar stock.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4">
           {Object.keys(currentStockByProduct).length === 0 ? (
             <p className="text-sm text-muted-foreground">No stock data available. Record a purchase to begin.</p>
           ) : (
-            <div className="space-y-2 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {Object.entries(currentStockByProduct).map(([prodName, stock]) => (
-                <div key={prodName} className="flex justify-between items-center p-2 rounded-md border bg-card even:bg-muted/30">
-                  <span className="text-sm font-medium text-foreground">{prodName}</span>
-                  <span className="text-sm font-bold text-primary">{stock.toFixed(0)} Bags</span>
-                </div>
+                <Card key={prodName} className="shadow-sm">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4 px-4">
+                    <CardTitle className="text-sm font-medium text-muted-foreground truncate" title={prodName}>
+                      {prodName}
+                    </CardTitle>
+                    <Package className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent className="pb-4 px-4">
+                    <div className="text-2xl font-bold text-foreground">
+                      {stock.toFixed(0)}
+                      <span className="text-base font-normal text-muted-foreground ml-1">Bags</span>
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           )}
-          <p className="text-xs text-muted-foreground mt-3">Total available Pashu Aahar stock per product type.</p>
         </CardContent>
       </Card>
 
@@ -138,7 +157,7 @@ export default function PashuAaharPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Transaction History</CardTitle>
             <CardDescription>Pashu Aahar purchases and sales affecting stock.</CardDescription>
@@ -152,13 +171,14 @@ export default function PashuAaharPage() {
                   <TableHead>Product Name</TableHead>
                   <TableHead>Supplier/Customer</TableHead>
                   <TableHead className="text-right">Qty (Bags)</TableHead>
-                  <TableHead className="text-right">Amount (₹)</TableHead>
+                  <TableHead className="text-right">Price/Bag (₹)</TableHead>
+                  <TableHead className="text-right">Total (₹)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {transactions.length === 0 && (
                     <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground">No transactions yet.</TableCell>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground">No transactions yet.</TableCell>
                     </TableRow>
                 )}
                 {transactions.map((tx) => (
@@ -172,6 +192,7 @@ export default function PashuAaharPage() {
                     <TableCell>{tx.productName}</TableCell>
                     <TableCell>{tx.supplierOrCustomerName}</TableCell>
                     <TableCell className="text-right">{tx.quantityBags.toFixed(0)}</TableCell>
+                    <TableCell className="text-right">{tx.pricePerBag ? tx.pricePerBag.toFixed(2) : "-"}</TableCell>
                     <TableCell className="text-right">{tx.totalAmount.toFixed(2)}</TableCell>
                   </TableRow>
                 ))}
