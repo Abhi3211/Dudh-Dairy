@@ -15,7 +15,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarDays, Clock, User, Percent, Scale, IndianRupee, PlusCircle } from "lucide-react";
 import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -32,15 +31,9 @@ export default function MilkCollectionPage() {
   const [entries, setEntries] = useState<MilkCollectionEntry[]>(initialEntries);
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [time, setTime] = useState<string>("");
-
-  // Dealer Name Autocomplete states
-  const [dealerNameInput, setDealerNameInput] = useState("");
-  const [dealerSuggestions, setDealerSuggestions] = useState<string[]>([]);
-  const [dealerPopoverOpen, setDealerPopoverOpen] = useState(false);
-
+  const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
-
   const [rateInputValue, setRateInputValue] = useState<string>("6.7");
   const [totalAmountDisplay, setTotalAmountDisplay] = useState<string>("");
 
@@ -80,31 +73,6 @@ export default function MilkCollectionPage() {
       entry.date.getDate() === date.getDate()
     );
   }, [entries, date]);
-
-  const knownDealerNames = useMemo(() => {
-    const names = new Set(entries.map(e => e.dealerName).concat(initialEntries.map(e => e.dealerName)));
-    return Array.from(names).sort();
-  }, [entries]);
-
-  const handleDealerNameChange = (value: string) => {
-    setDealerNameInput(value);
-    if (value.trim()) {
-      const filtered = knownDealerNames.filter(d =>
-        d.toLowerCase().includes(value.toLowerCase())
-      );
-      setDealerSuggestions(filtered);
-      setDealerPopoverOpen(filtered.length > 0); // Simplified condition
-    } else {
-      setDealerSuggestions([]);
-      setDealerPopoverOpen(false);
-    }
-  };
-
-  const handleDealerSuggestionClick = (suggestion: string) => {
-    setDealerNameInput(suggestion);
-    setDealerSuggestions([]);
-    setDealerPopoverOpen(false);
-  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -150,14 +118,10 @@ export default function MilkCollectionPage() {
 
     toast({ title: "Success", description: "Milk collection entry added." });
 
-    // Reset some fields, keep date and time for quick subsequent entries
-    // setTime(new Date().toTimeString().substring(0,5)); // Optionally reset time
     setDealerNameInput("");
     setQuantityLtr("");
     setFatPercentage("");
     setRateInputValue("6.7"); 
-    setDealerSuggestions([]);
-    setDealerPopoverOpen(false);
   };
 
   return (
@@ -187,40 +151,15 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="dealerName" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                <Popover open={dealerPopoverOpen} onOpenChange={setDealerPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Input
-                      id="dealerName"
-                      value={dealerNameInput}
-                      onChange={(e) => handleDealerNameChange(e.target.value)}
-                      placeholder="Enter dealer name"
-                      required
-                      autoComplete="off"
-                      className="w-full"
-                    />
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()} 
-                    sideOffset={5}
-                  >
-                    {dealerSuggestions.length === 0 && dealerNameInput.trim() ? (
-                        <div className="p-2 text-sm text-muted-foreground">No dealers found.</div>
-                    ) : (
-                      <div className="max-h-48 overflow-auto">
-                        {dealerSuggestions.map(suggestion => (
-                          <div
-                            key={suggestion}
-                            className="p-2 hover:bg-accent cursor-pointer text-sm"
-                            onMouseDown={() => handleDealerSuggestionClick(suggestion)} 
-                          >
-                            {suggestion}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </PopoverContent>
-                </Popover>
+                <Input
+                  id="dealerName"
+                  value={dealerNameInput}
+                  onChange={(e) => setDealerNameInput(e.target.value)}
+                  placeholder="Enter dealer name"
+                  required
+                  autoComplete="off"
+                  className="w-full"
+                />
               </div>
               <div>
                 <Label htmlFor="quantityLtr" className="flex items-center mb-1">
