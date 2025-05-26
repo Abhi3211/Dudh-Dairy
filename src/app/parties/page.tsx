@@ -22,7 +22,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { DatePicker } from "@/components/ui/date-picker";
+// DatePicker is not used in the payment form anymore, but kept for ledger entries
+// import { DatePicker } from "@/components/ui/date-picker"; 
 import { User, Milk, IndianRupee, TrendingUp, TrendingDown, PlusCircle, Trash2 } from "lucide-react";
 import type { Party, PartyLedgerEntry } from "@/lib/types";
 import {
@@ -34,8 +35,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+} from "@/components/ui/alert-dialog"; // AlertDialogTrigger removed as it's used directly on Button
 import { useToast } from "@/hooks/use-toast";
 
 // Initial mock data for parties
@@ -78,12 +78,9 @@ const partyTypes: Party['type'][] = ["Dealer", "Customer", "Supplier"];
 export default function PartiesPage() {
   const { toast } = useToast();
   const [parties, setParties] = useState<Party[]>(initialPartiesData);
-  const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(parties[0]?.id);
+  const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined); // Default to undefined
   const [ledgerEntries, setLedgerEntries] = useState<PartyLedgerEntry[]>([]);
   
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentDate, setPaymentDate] = useState<Date | undefined>(new Date());
-
   const [newPartyName, setNewPartyName] = useState("");
   const [newPartyType, setNewPartyType] = useState<Party['type']>("Dealer");
 
@@ -107,7 +104,7 @@ export default function PartiesPage() {
     } else {
       setLedgerEntries([]);
     }
-  }, [selectedPartyId, parties]); // Add parties to dependency array
+  }, [selectedPartyId, parties]);
 
   const partySummary = ledgerEntries.reduce((acc, entry) => {
       if (selectedParty?.type === "Dealer") {
@@ -122,34 +119,6 @@ export default function PartiesPage() {
 
   const netPayableToDealer = selectedParty?.type === "Dealer" ? partySummary.totalPayableToDealer - partySummary.totalPaidToDealer : 0;
   const currentOverallBalance = ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0;
-
-  const handlePaymentSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!selectedPartyId || !paymentAmount || !paymentDate) {
-      toast({ title: "Error", description: "Please select party, enter amount and date.", variant: "destructive" });
-      return;
-    }
-
-    const amount = parseFloat(paymentAmount);
-    const newPaymentEntry: PartyLedgerEntry = {
-      id: String(Date.now()),
-      date: paymentDate,
-      description: `Payment Made to ${selectedParty?.name || 'Party'}`,
-      debit: amount, 
-      balance: 0 
-    };
-    
-    const updatedEntries = [...ledgerEntries, newPaymentEntry].sort((a, b) => a.date.getTime() - b.date.getTime());
-    let runningBalance = 0;
-    const finalEntries = updatedEntries.map(entry => {
-      runningBalance = runningBalance + (entry.debit || 0) - (entry.credit || 0);
-      return { ...entry, balance: runningBalance };
-    });
-
-    setLedgerEntries(finalEntries);
-    setPaymentAmount("");
-    toast({ title: "Success", description: "Payment recorded." });
-  };
 
   const handleAddPartySubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -204,13 +173,15 @@ export default function PartiesPage() {
         </Select>
       </div>
 
+      {/* Ledger Section - Only shows if a party is selected */}
       {selectedPartyId && selectedParty && (
         <div className="mb-8">
-          <CardHeader className="px-0 pt-0">
+          <CardHeader className="px-0 pt-0 pb-4"> {/* Adjusted padding */}
              <CardTitle className="text-xl">Ledger for: {selectedParty.name} ({selectedParty.type})</CardTitle>
           </CardHeader>
+          
           {selectedParty.type === "Dealer" && (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 my-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6"> {/* mb-6 instead of my-4 */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Milk Supplied</CardTitle><Milk className="h-4 w-4 text-muted-foreground" /></CardHeader>
                 <CardContent><div className="text-2xl font-bold">{partySummary.totalMilk.toFixed(1)} Ltr</div></CardContent>
@@ -230,69 +201,53 @@ export default function PartiesPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card className="lg:col-span-1">
-              <CardHeader><CardTitle>Record Payment to {selectedParty.name}</CardTitle></CardHeader>
-              <CardContent>
-                <form onSubmit={handlePaymentSubmit} className="space-y-4">
-                  <div>
-                    <Label htmlFor="paymentDate">Payment Date</Label>
-                    <DatePicker date={paymentDate} setDate={setPaymentDate} />
-                  </div>
-                  <div>
-                    <Label htmlFor="paymentAmount" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Amount Paid</Label>
-                    <Input id="paymentAmount" type="number" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="Enter amount" required />
-                  </div>
-                  <Button type="submit" className="w-full"><PlusCircle className="h-4 w-4 mr-2" />Record Payment</Button>
-                </form>
-              </CardContent>
-            </Card>
-
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle>Transaction History for {selectedParty.name}</CardTitle>
-                <CardDescription>
-                  Current Balance: ₹{currentOverallBalance.toFixed(2)} 
-                  {currentOverallBalance > 0 && " (Party Owes Us)"}
-                  {currentOverallBalance < 0 && " (We Owe Party)"}
-                  {currentOverallBalance === 0 && " (Settled)"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead className="text-right">Debit (₹)</TableHead>
-                      <TableHead className="text-right">Credit (₹)</TableHead>
-                      <TableHead className="text-right">Balance (₹)</TableHead>
+          <Card> {/* Transaction History Card */}
+            <CardHeader>
+              <CardTitle>Transaction History for {selectedParty.name}</CardTitle>
+              <CardDescription>
+                Current Balance: ₹{currentOverallBalance.toFixed(2)} 
+                {currentOverallBalance > 0 && " (Party Owes Us)"}
+                {currentOverallBalance < 0 && " (We Owe Party)"}
+                {currentOverallBalance === 0 && " (Settled)"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right">Debit (₹)</TableHead>
+                    <TableHead className="text-right">Credit (₹)</TableHead>
+                    <TableHead className="text-right">Balance (₹)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {ledgerEntries.length === 0 && (
+                      <TableRow><TableCell colSpan={5} className="text-center">No transactions for this party.</TableCell></TableRow>
+                  )}
+                  {ledgerEntries.map(entry => (
+                    <TableRow key={entry.id}>
+                      <TableCell>{entry.date.toLocaleDateString()}</TableCell>
+                      <TableCell>{entry.description} {entry.milkQuantityLtr && selectedParty.type === 'Dealer' ? `(${entry.milkQuantityLtr}L)` : ''}</TableCell>
+                      <TableCell className="text-right text-chart-4">{entry.debit?.toFixed(2) || "-"}</TableCell>
+                      <TableCell className="text-right text-chart-3">{entry.credit?.toFixed(2) || "-"}</TableCell>
+                      <TableCell className="text-right font-medium">{entry.balance.toFixed(2)}</TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {ledgerEntries.length === 0 && (
-                        <TableRow><TableCell colSpan={5} className="text-center">No transactions for this party.</TableCell></TableRow>
-                    )}
-                    {ledgerEntries.map(entry => (
-                      <TableRow key={entry.id}>
-                        <TableCell>{entry.date.toLocaleDateString()}</TableCell>
-                        <TableCell>{entry.description} {entry.milkQuantityLtr && selectedParty.type === 'Dealer' ? `(${entry.milkQuantityLtr}L)` : ''}</TableCell>
-                        <TableCell className="text-right text-chart-4">{entry.debit?.toFixed(2) || "-"}</TableCell>
-                        <TableCell className="text-right text-chart-3">{entry.credit?.toFixed(2) || "-"}</TableCell>
-                        <TableCell className="text-right font-medium">{entry.balance.toFixed(2)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </div>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
       )}
-      {!selectedPartyId && parties.length > 0 && (
-        <p className="text-center text-muted-foreground mt-8">Please select a party to view their ledger.</p>
+      
+      {/* Message if no party selected (but parties exist) and ledger is not being shown */}
+      {!selectedParty && parties.length > 0 && (
+        <p className="text-center text-muted-foreground my-8">Please select a party to view their ledger.</p>
       )}
       
+      {/* Party Management Section - Always visible */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         <Card>
           <CardHeader>
@@ -389,3 +344,5 @@ export default function PartiesPage() {
     </div>
   );
 }
+
+    
