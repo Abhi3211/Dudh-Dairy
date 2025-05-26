@@ -41,7 +41,6 @@ export default function MilkCollectionPage() {
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
 
-  // Rate is now editable, defaults to 6.7 (or any other default)
   const [rateInputValue, setRateInputValue] = useState<string>("6.7");
   const [totalAmountDisplay, setTotalAmountDisplay] = useState<string>("");
 
@@ -53,8 +52,11 @@ export default function MilkCollectionPage() {
 
   // Effect to calculate total amount based on quantity and the (editable) rate
   useEffect(() => {
-    const quantity = parseFloat(quantityLtr);
-    const rate = parseFloat(rateInputValue);
+    const quantityStr = quantityLtr.replace(',', '.');
+    const rateStr = rateInputValue.replace(',', '.');
+    
+    const quantity = parseFloat(quantityStr);
+    const rate = parseFloat(rateStr);
 
     if (!isNaN(quantity) && quantity > 0 && !isNaN(rate) && rate > 0) {
       setTotalAmountDisplay((quantity * rate).toFixed(2));
@@ -63,15 +65,14 @@ export default function MilkCollectionPage() {
     }
   }, [quantityLtr, rateInputValue]);
 
-  // Filtered entries for the table based on the selected date in the form
   const filteredEntries = useMemo(() => {
     const sortedEntries = entries.sort((a, b) => {
         const dateComparison = b.date.getTime() - a.date.getTime();
         if (dateComparison !== 0) return dateComparison;
-        return b.time.localeCompare(a.time); // Secondary sort by time if dates are same
+        return b.time.localeCompare(a.time); 
     });
 
-    if (!date) return sortedEntries; // Show all sorted entries if no date is selected
+    if (!date) return sortedEntries; 
 
     return sortedEntries.filter(entry =>
       entry.date.getFullYear() === date.getFullYear() &&
@@ -80,10 +81,8 @@ export default function MilkCollectionPage() {
     );
   }, [entries, date]);
 
-  // Get unique dealer names for suggestions
   const knownDealerNames = useMemo(() => {
     const names = new Set(entries.map(e => e.dealerName).concat(initialEntries.map(e => e.dealerName)));
-    // In a real app, fetch this from your Parties data where type is 'Dealer'
     return Array.from(names).sort();
   }, [entries]);
 
@@ -105,7 +104,6 @@ export default function MilkCollectionPage() {
     setDealerNameInput(suggestion);
     setDealerSuggestions([]);
     setDealerPopoverOpen(false);
-    // Optionally, trigger focus to the next field or other actions
   };
 
   const handleSubmit = (e: FormEvent) => {
@@ -115,15 +113,19 @@ export default function MilkCollectionPage() {
       return;
     }
 
-    const qLtr = parseFloat(quantityLtr);
-    const fatP = parseFloat(fatPercentage);
-    const finalRate = parseFloat(rateInputValue);
+    const qLtrStr = quantityLtr.replace(',', '.');
+    const fatPStr = fatPercentage.replace(',', '.');
+    const finalRateStr = rateInputValue.replace(',', '.');
+
+    const qLtr = parseFloat(qLtrStr);
+    const fatP = parseFloat(fatPStr);
+    const finalRate = parseFloat(finalRateStr);
 
     if (isNaN(qLtr) || qLtr <= 0) {
       toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" });
       return;
     }
-    if (isNaN(fatP) || fatP < 0) { // FAT can be 0, but not negative
+    if (isNaN(fatP) || fatP < 0) { 
         toast({ title: "Error", description: "Please enter a valid FAT percentage.", variant: "destructive" });
         return;
     }
@@ -144,18 +146,15 @@ export default function MilkCollectionPage() {
       ratePerLtr: finalRate,
       totalAmount: finalTotalAmount,
     };
-    setEntries(prevEntries => [newEntry, ...prevEntries]); // Sorting is handled by filteredEntries useMemo
+    setEntries(prevEntries => [newEntry, ...prevEntries]); 
 
     toast({ title: "Success", description: "Milk collection entry added." });
 
-    // Reset form
-    // setDate(new Date()); // Keep date or reset as per preference
-    setTime(new Date().toTimeString().substring(0,5)); // Reset time to current
+    setTime(new Date().toTimeString().substring(0,5)); 
     setDealerNameInput("");
     setQuantityLtr("");
     setFatPercentage("");
-    setRateInputValue("6.7"); // Reset rate to default
-    // totalAmountDisplay will reset via useEffect
+    setRateInputValue("6.7"); 
   };
 
   return (
@@ -199,7 +198,7 @@ export default function MilkCollectionPage() {
                   </PopoverTrigger>
                   <PopoverContent
                     className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevents auto-focus on first item
+                    onOpenAutoFocus={(e) => e.preventDefault()} 
                     sideOffset={5}
                   >
                     {dealerSuggestions.length === 0 && dealerNameInput.trim() ? (
@@ -210,7 +209,7 @@ export default function MilkCollectionPage() {
                           <div
                             key={suggestion}
                             className="p-2 hover:bg-accent cursor-pointer text-sm"
-                            onMouseDown={() => handleDealerSuggestionClick(suggestion)} // Use onMouseDown to fire before blur
+                            onMouseDown={() => handleDealerSuggestionClick(suggestion)} 
                           >
                             {suggestion}
                           </div>
