@@ -300,12 +300,15 @@ export default function ProfitLossPage() {
                   <Tooltip 
                     content={<ChartTooltipContent 
                       indicator="line" 
-                      formatter={(value, name) => (
-                        <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground">{name} ({ (payload?.[0]?.payload as PlChartDataPoint | undefined)?.date})</span>
-                          <span className="font-bold">₹{Number(value).toFixed(2)}</span>
-                        </div>
-                      )}
+                      formatter={(value, name, entry) => { // Changed here: added 'entry' parameter
+                        const dataPoint = entry.payload as PlChartDataPoint | undefined; // Access payload from 'entry'
+                        return (
+                          <div className="flex flex-col">
+                            <span className="text-xs text-muted-foreground">{name} ({dataPoint?.date})</span>
+                            <span className="font-bold">₹{Number(value).toFixed(2)}</span>
+                          </div>
+                        );
+                      }}
                     />} 
                   />
                   <Legend />
