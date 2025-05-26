@@ -1,7 +1,7 @@
 
 "use client"; // This page contains a form, so it needs to be a client component or contain one.
 
-import { useState, type FormEvent, useEffect } from "react";
+import { useState, type FormEvent, useEffect, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,16 +15,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, Clock, User, Percent, Scale, PlusCircle } from "lucide-react";
+import { CalendarDays, Clock, User, Percent, Scale, IndianRupee, PlusCircle } from "lucide-react";
 import type { MilkCollectionEntry } from "@/lib/types";
-import { DatePicker } from "@/components/ui/date-picker"; // Assuming a DatePicker component exists or will be created
-
-// Placeholder for DatePicker if not already available
-// If you have a shadcn date picker, use that. Otherwise, a simple input type="date"
-// const DatePicker = ({ date, setDate }: { date?: Date, setDate: (date?: Date) => void }) => (
-//   <Input type="date" value={date ? date.toISOString().split('T')[0] : ''} onChange={(e) => setDate(e.target.value ? new Date(e.target.value) : undefined)} />
-// );
-
+import { DatePicker } from "@/components/ui/date-picker";
 
 const initialEntries: MilkCollectionEntry[] = [
   { id: "1", date: new Date(), time: "08:30", dealerName: "Rajesh Kumar", quantityLtr: 10.5, fatPercentage: 4.2, ratePerLtr: 40, totalAmount: 420 },
@@ -34,39 +27,84 @@ const initialEntries: MilkCollectionEntry[] = [
 export default function MilkCollectionPage() {
   const [entries, setEntries] = useState<MilkCollectionEntry[]>(initialEntries);
   const [date, setDate] = useState<Date | undefined>(new Date());
-  const [time, setTime] = useState<string>(new Date().toTimeString().substring(0,5));
+  const [time, setTime] = useState<string>("");
   const [dealerName, setDealerName] = useState("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
+
+  const [rateDisplay, setRateDisplay] = useState<string>("");
+  const [totalAmountDisplay, setTotalAmountDisplay] = useState<string>("");
 
   // Effect to update time when component mounts, to avoid hydration mismatch for default time
   useEffect(() => {
     setTime(new Date().toTimeString().substring(0,5));
   }, []);
 
+  useEffect(() => {
+    const fat = parseFloat(fatPercentage);
+    const quantity = parseFloat(quantityLtr);
+    let calculatedRate = 0;
+
+    if (!isNaN(fat) && fat > 0) {
+      // Placeholder rate calculation logic based on FAT
+      if (fat >= 4.5) {
+        calculatedRate = 42;
+      } else if (fat >= 4.0) {
+        calculatedRate = 40;
+      } else if (fat >= 3.5) {
+        calculatedRate = 38;
+      } else {
+        calculatedRate = 35; // Base rate for lower FAT
+      }
+    }
+    setRateDisplay(calculatedRate > 0 ? calculatedRate.toFixed(2) : "");
+
+    if (!isNaN(quantity) && quantity > 0 && calculatedRate > 0) {
+      setTotalAmountDisplay((quantity * calculatedRate).toFixed(2));
+    } else {
+      setTotalAmountDisplay("");
+    }
+  }, [quantityLtr, fatPercentage]);
+
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !dealerName || !quantityLtr || !fatPercentage) {
+    if (!date || !time || !dealerName || !quantityLtr || !fatPercentage) {
       alert("Please fill all fields."); // Replace with proper toast notification
       return;
     }
+
+    const qLtr = parseFloat(quantityLtr);
+    const fatP = parseFloat(fatPercentage);
+    // Re-calculate rate and total amount to ensure consistency on submission
+    let currentRate = 0;
+    if (!isNaN(fatP) && fatP > 0) {
+        if (fatP >= 4.5) currentRate = 42;
+        else if (fatP >= 4.0) currentRate = 40;
+        else if (fatP >= 3.5) currentRate = 38;
+        else currentRate = 35;
+    }
+    const currentTotalAmount = (!isNaN(qLtr) && qLtr > 0 && currentRate > 0) ? qLtr * currentRate : undefined;
+
+
     const newEntry: MilkCollectionEntry = {
       id: String(Date.now()),
       date,
       time,
       dealerName,
-      quantityLtr: parseFloat(quantityLtr),
-      fatPercentage: parseFloat(fatPercentage),
-      // Rate and TotalAmount can be calculated later or on server
+      quantityLtr: qLtr,
+      fatPercentage: fatP,
+      ratePerLtr: currentRate > 0 ? currentRate : undefined,
+      totalAmount: currentTotalAmount,
     };
-    setEntries([newEntry, ...entries]);
+    setEntries(prevEntries => [newEntry, ...prevEntries].sort((a,b) => b.date.getTime() - a.date.getTime()));
     // Reset form
     // setDate(new Date()); // Keep date or reset as per preference
     // setTime(new Date().toTimeString().substring(0,5)); // Keep time or reset
     setDealerName("");
     setQuantityLtr("");
     setFatPercentage("");
+    // Rate and Total Amount will reset via useEffect
   };
 
   return (
@@ -84,9 +122,7 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="date" className="flex items-center mb-1">
                   <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date
                 </Label>
-                {/* If using ShadCN Date Picker component: */}
                  <DatePicker date={date} setDate={setDate} />
-                {/* Or simplified: <Input id="date" type="date" value={date ? date.toISOString().split('T')[0] : ''} onChange={(e) => setDate(e.target.value ? new Date(e.target.value) : undefined)} required /> */}
               </div>
               <div>
                 <Label htmlFor="time" className="flex items-center mb-1">
@@ -112,6 +148,18 @@ export default function MilkCollectionPage() {
                 </Label>
                 <Input id="fatPercentage" type="number" step="0.1" value={fatPercentage} onChange={(e) => setFatPercentage(e.target.value)} placeholder="e.g., 3.8" required />
               </div>
+              <div>
+                <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
+                  <IndianRupee className="h-4 w-4 mr-2 text-muted-foreground" /> Rate (₹/Ltr)
+                </Label>
+                <Input id="ratePerLtr" value={rateDisplay} readOnly className="font-semibold bg-muted/50" />
+              </div>
+              <div>
+                <Label htmlFor="totalAmount" className="flex items-center mb-1">
+                  <IndianRupee className="h-4 w-4 mr-2 text-muted-foreground" /> Total Amount (₹)
+                </Label>
+                <Input id="totalAmount" value={totalAmountDisplay} readOnly className="font-semibold bg-muted/50" />
+              </div>
               <Button type="submit" className="w-full">
                 <PlusCircle className="h-4 w-4 mr-2" /> Add Entry
               </Button>
@@ -133,13 +181,14 @@ export default function MilkCollectionPage() {
                   <TableHead>Dealer</TableHead>
                   <TableHead className="text-right">Qty (Ltr)</TableHead>
                   <TableHead className="text-right">FAT (%)</TableHead>
+                  <TableHead className="text-right">Rate (₹/Ltr)</TableHead>
                   <TableHead className="text-right">Amount (₹)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {entries.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">No entries yet.</TableCell>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">No entries yet.</TableCell>
                   </TableRow>
                 )}
                 {entries.map((entry) => (
@@ -149,6 +198,7 @@ export default function MilkCollectionPage() {
                     <TableCell>{entry.dealerName}</TableCell>
                     <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
                     <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
+                    <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
                     <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
                   </TableRow>
                 ))}
