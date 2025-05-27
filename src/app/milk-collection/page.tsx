@@ -37,16 +37,18 @@ export default function MilkCollectionPage() {
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateInputValue, setRateInputValue] = useState<string>("6.7");
-  const [totalAmountDisplay, setTotalAmountDisplay] = useState<string>("");
+  // const [totalAmountDisplay, setTotalAmountDisplay] = useState<string>(""); // Replaced by useMemo
 
-  const [dealerNameSuggestions, setDealerNameSuggestions] = useState<string[]>([]);
-  const [dealerPopoverOpen, setDealerPopoverOpen] = useState(false);
+  // const [dealerNameSuggestions, setDealerNameSuggestions] = useState<string[]>([]); // Popover removed
+  // const [dealerPopoverOpen, setDealerPopoverOpen] = useState(false); // Popover removed
   
   const knownDealerNames = useMemo(() => Array.from(new Set(entries.map(e => e.dealerName))), [entries]);
 
   useEffect(() => {
+    // Defer date initialization to client-side
     setDate(new Date());
     setTime(new Date().toTimeString().substring(0,5));
+
     const processedEntries = rawInitialEntries.map(e => {
       const entryDate = new Date();
       entryDate.setDate(entryDate.getDate() + e.dateOffset);
@@ -59,7 +61,7 @@ export default function MilkCollectionPage() {
     setEntries(processedEntries);
   }, []);
 
-  useEffect(() => {
+  const totalAmountDisplay = useMemo(() => {
     const quantityStr = quantityLtr.replace(',', '.');
     const rateStr = rateInputValue.replace(',', '.');
     
@@ -67,14 +69,14 @@ export default function MilkCollectionPage() {
     const rate = parseFloat(rateStr);
 
     if (!isNaN(quantity) && quantity > 0 && !isNaN(rate) && rate > 0) {
-      setTotalAmountDisplay((quantity * rate).toFixed(2));
-    } else {
-      setTotalAmountDisplay("");
+      return (quantity * rate).toFixed(2);
     }
+    return "";
   }, [quantityLtr, rateInputValue]);
 
+
   const filteredEntries = useMemo(() => {
-    const sortedEntries = [...entries].sort((a, b) => { // Create a new sorted array from entries
+    const sortedEntries = [...entries].sort((a, b) => { 
         const dateComparison = b.date.getTime() - a.date.getTime();
         if (dateComparison !== 0) return dateComparison;
         return b.time.localeCompare(a.time); 
@@ -89,25 +91,9 @@ export default function MilkCollectionPage() {
     );
   }, [entries, date]);
 
-  const handleDealerNameChange = (value: string) => {
-    setDealerNameInput(value);
-    if (value.trim()) {
-      const filtered = knownDealerNames.filter(name =>
-        name.toLowerCase().includes(value.toLowerCase())
-      );
-      setDealerNameSuggestions(filtered);
-      setDealerPopoverOpen(filtered.length > 0);
-    } else {
-      setDealerNameSuggestions([]);
-      setDealerPopoverOpen(false);
-    }
-  };
-
-  const handleDealerSuggestionClick = (name: string) => {
-    setDealerNameInput(name);
-    setDealerNameSuggestions([]);
-    setDealerPopoverOpen(false);
-  };
+  // Popover related handlers removed
+  // const handleDealerNameChange = (value: string) => { ... };
+  // const handleDealerSuggestionClick = (name: string) => { ... };
 
 
   const handleSubmit = (e: FormEvent) => {
@@ -153,10 +139,6 @@ export default function MilkCollectionPage() {
     
     setEntries(prevEntries => {
       const updatedEntries = [newEntry, ...prevEntries];
-      // Update knownDealerNames if a new dealer is added
-      if (!knownDealerNames.includes(newEntry.dealerName)) {
-         // This will trigger useMemo for knownDealerNames if it depends on entries
-      }
       return updatedEntries.sort((a,b) => b.date.getTime() - a.date.getTime() || b.time.localeCompare(a.time));
     });
 
@@ -167,6 +149,7 @@ export default function MilkCollectionPage() {
     setFatPercentage("");
     setRateInputValue("6.7"); 
     setTime(new Date().toTimeString().substring(0,5));
+    // setDate(new Date()); // Date picker will hold its value, or can be reset if desired.
   };
 
   return (
@@ -196,39 +179,16 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="dealerName" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                <Popover open={dealerPopoverOpen} onOpenChange={setDealerPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Input
-                      id="dealerName"
-                      value={dealerNameInput}
-                      onChange={(e) => handleDealerNameChange(e.target.value)}
-                      placeholder="Enter dealer name"
-                      required
-                      autoComplete="off"
-                      className="w-full"
-                    />
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()}
-                    sideOffset={5}
-                  >
-                    {dealerNameSuggestions.length > 0 ? (
-                      dealerNameSuggestions.map(name => (
-                        <div
-                          key={name}
-                          className="p-2 hover:bg-accent cursor-pointer text-sm"
-                          onMouseDown={() => handleDealerSuggestionClick(name)}
-                        >
-                          {name}
-                        </div>
-                      ))
-                    ) : (
-                      dealerNameInput.trim() && knownDealerNames.length > 0 && <div className="p-2 text-sm text-muted-foreground">No suggestions found.</div>
-                    )}
-                    {knownDealerNames.length === 0 && dealerNameInput.trim() && <div className="p-2 text-sm text-muted-foreground">No known dealers yet.</div>}
-                  </PopoverContent>
-                </Popover>
+                {/* Popover removed, simple input now */}
+                <Input
+                    id="dealerName"
+                    value={dealerNameInput}
+                    onChange={(e) => setDealerNameInput(e.target.value)}
+                    placeholder="Enter dealer name"
+                    required
+                    autoComplete="off"
+                    className="w-full"
+                />
               </div>
               <div>
                 <Label htmlFor="quantityLtr" className="flex items-center mb-1">
@@ -317,5 +277,3 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
-
-    

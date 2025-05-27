@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useCallback } from "react";
+import { useState, type FormEvent, useEffect, useCallback, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +50,6 @@ const initialMockParties: Party[] = [
 const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   if (!party) return [];
   
-  // Use an array of raw ledger entries with date offsets
   const rawLedgerEntries: (Omit<PartyLedgerEntry, 'id'|'date'|'balance'> & {tempId: string, dateOffset: number})[] = [];
 
   if (party.type === "Dealer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) {
@@ -77,7 +76,7 @@ const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   return rawLedgerEntries.map(entry => {
     const date = new Date();
     date.setDate(date.getDate() + entry.dateOffset);
-    return { ...entry, id: entry.tempId, date, balance: 0 }; // Initial balance, will be calculated later
+    return { ...entry, id: entry.tempId, date, balance: 0 }; 
   });
 };
 
@@ -86,8 +85,8 @@ const partyTypes: Party['type'][] = ["Dealer", "Customer", "Supplier", "Employee
 
 export default function PartiesPage() {
   const { toast } = useToast();
-  const [parties, setParties] = useState<Party[]>(initialMockParties);
-  const [isLoadingParties, setIsLoadingParties] = useState(false); 
+  const [parties, setParties] = useState<Party[]>([]);
+  const [isLoadingParties, setIsLoadingParties] = useState(true); 
   const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined);
   const [ledgerEntries, setLedgerEntries] = useState<PartyLedgerEntry[]>([]);
 
@@ -97,12 +96,17 @@ export default function PartiesPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [partyToDelete, setPartyToDelete] = useState<Party | null>(null);
 
-  const selectedParty = parties.find(p => p.id === selectedPartyId);
+  useEffect(() => {
+    // Simulate fetching parties or loading initial mock data
+    setParties(initialMockParties.sort((a, b) => a.name.localeCompare(b.name)));
+    setIsLoadingParties(false);
+  }, []);
+
+  const selectedParty = useMemo(() => parties.find(p => p.id === selectedPartyId), [parties, selectedPartyId]);
 
   useEffect(() => {
-    if (selectedPartyId) {
-      const party = parties.find(p => p.id === selectedPartyId);
-      const initialLedger = getPartyLedger(party); // This now returns dates created with new Date() for relative offsets
+    if (selectedParty) {
+      const initialLedger = getPartyLedger(selectedParty); 
       let runningBalance = 0;
       const calculatedEntries = initialLedger
         .sort((a, b) => a.date.getTime() - b.date.getTime())
@@ -114,21 +118,29 @@ export default function PartiesPage() {
     } else {
       setLedgerEntries([]);
     }
-  }, [selectedPartyId, parties]);
+  }, [selectedParty]);
 
-  const partySummary = ledgerEntries.reduce((acc, entry) => {
-      if (selectedParty?.type === "Dealer") {
-        acc.totalMilk += entry.milkQuantityLtr || 0;
-        acc.totalPayableToDealer += entry.credit || 0;
-        acc.totalPaidToDealer += entry.debit || 0;
-      }
-      acc.totalDebits += entry.debit || 0;
-      acc.totalCredits += entry.credit || 0;
-      return acc;
-  }, { totalMilk: 0, totalPayableToDealer: 0, totalPaidToDealer: 0, totalDebits: 0, totalCredits: 0 });
+  const partySummary = useMemo(() => {
+    return ledgerEntries.reduce((acc, entry) => {
+        if (selectedParty?.type === "Dealer") {
+          acc.totalMilk += entry.milkQuantityLtr || 0;
+          acc.totalPayableToDealer += entry.credit || 0;
+          acc.totalPaidToDealer += entry.debit || 0;
+        }
+        acc.totalDebits += entry.debit || 0;
+        acc.totalCredits += entry.credit || 0;
+        return acc;
+    }, { totalMilk: 0, totalPayableToDealer: 0, totalPaidToDealer: 0, totalDebits: 0, totalCredits: 0 });
+  }, [ledgerEntries, selectedParty]);
 
-  const netPayableToDealer = selectedParty?.type === "Dealer" ? partySummary.totalPayableToDealer - partySummary.totalPaidToDealer : 0;
-  const currentOverallBalance = ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0;
+  const netPayableToDealer = useMemo(() => {
+    return selectedParty?.type === "Dealer" ? partySummary.totalPayableToDealer - partySummary.totalPaidToDealer : 0;
+  }, [selectedParty, partySummary]);
+
+  const currentOverallBalance = useMemo(() => {
+    return ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0;
+  }, [ledgerEntries]);
+
 
   const handleAddPartySubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -293,5 +305,3 @@ export default function PartiesPage() {
     </div>
   );
 }
-
-    

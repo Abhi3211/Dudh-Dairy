@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -18,8 +18,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 // Simulated data fetching function
 const getDashboardData = async (startDate: Date, endDate: Date): Promise<DashboardData> => {
-  // Simulate API call delay
-  await new Promise(resolve => setTimeout(resolve, 500));
+  // Simulate API call delay - REMOVED for faster mock loading
+  // await new Promise(resolve => setTimeout(resolve, 500));
 
   const summary: DailySummary = {
     milkPurchasedLitres: 0,
@@ -109,11 +109,10 @@ export default function DashboardPage() {
         end = endOfMonth(today);
         break;
       case "custom":
-        start = customStartDate || subDays(today, 7); // Fallback for initial undefined state
-        end = customEndDate || today; // Fallback for initial undefined state
+        start = customStartDate || subDays(today, 7); 
+        end = customEndDate || today; 
         break;
     }
-     // Ensure endDate is not before startDate for custom ranges if dates are set
     if (filterType === 'custom' && start && end && end < start) {
         end = start;
     }
@@ -132,51 +131,50 @@ export default function DashboardPage() {
     const formattedEndDate = format(endDate, "MMM dd, yyyy");
     let periodPrefix = "";
     if (filterType === 'daily' && formattedStartDate === formattedEndDate) {
-      periodPrefix = "today";
+      periodPrefix = "today's";
     } else if (filterType === 'daily') {
        periodPrefix = `for ${formattedStartDate}`;
     } else {
       periodPrefix = `the selected ${filterType}`;
     }
     setDisplayedDateRangeString(
-      `Showing ${periodPrefix} period: ${formattedStartDate} - ${formattedEndDate}`
+      `Showing data for ${periodPrefix}: ${formattedStartDate}${startDate.getTime() !== endDate.getTime() ? ` - ${formattedEndDate}` : ''}`
     );
 
     setIsLoading(false);
   }, [calculateDateRange, filterType]);
 
   useEffect(() => {
-    // Initialize custom dates on client mount if they are undefined
-    // This helps prevent hydration issues with new Date()
     if (customStartDate === undefined) {
       setCustomStartDate(subDays(new Date(), 7));
     }
     if (customEndDate === undefined) {
       setCustomEndDate(new Date());
     }
-    // Fetch data once custom dates are potentially set, or if filterType changes
-  }, []); // Runs once on mount
+  }, []); 
 
 
   useEffect(() => {
-    // Only fetch if custom dates are set when filterType is custom, or for other filter types
     if (filterType === 'custom' && (!customStartDate || !customEndDate)) {
-      return; // Don't fetch if custom dates are not ready
+      return; 
     }
     fetchData();
-  }, [fetchData, filterType, customStartDate, customEndDate]); // Added customStartDate and customEndDate here too
+  }, [fetchData, filterType, customStartDate, customEndDate]); 
 
-  const summaryItems = summary ? [
-    { title: "Milk Purchased (Ltr)", value: summary.milkPurchasedLitres.toFixed(1), icon: Milk, unit: "Ltr" },
-    { title: "Milk Purchased (Value)", value: summary.milkPurchasedAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
-    { title: "Milk Sold (Ltr)", value: summary.milkSoldLitres.toFixed(1), icon: Milk, unit: "Ltr" },
-    { title: "Milk Sold (Value)", value: summary.milkSoldAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
-    { title: "Ghee Sales", value: summary.gheeSalesAmount.toFixed(2), icon: Package, unit: "₹" },
-    { title: "Pashu Aahar Sales", value: summary.pashuAaharSalesAmount.toFixed(2), icon: Package, unit: "₹" },
-    { title: "Total Cash In", value: summary.totalCashIn.toFixed(2), icon: TrendingUp, unit: "₹" },
-    { title: "Total Credit Out", value: summary.totalCreditOut.toFixed(2), icon: TrendingDown, unit: "₹" },
-    { title: "Total Outstanding", value: summary.totalOutstandingAmount.toFixed(2), icon: AlertCircle, unit: "₹", highlight: true },
-  ] : [];
+  const summaryItems = useMemo(() => {
+    if (!summary) return [];
+    return [
+      { title: "Milk Purchased (Ltr)", value: summary.milkPurchasedLitres.toFixed(1), icon: Milk, unit: "Ltr" },
+      { title: "Milk Purchased (Value)", value: summary.milkPurchasedAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
+      { title: "Milk Sold (Ltr)", value: summary.milkSoldLitres.toFixed(1), icon: Milk, unit: "Ltr" },
+      { title: "Milk Sold (Value)", value: summary.milkSoldAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
+      { title: "Ghee Sales", value: summary.gheeSalesAmount.toFixed(2), icon: Package, unit: "₹" },
+      { title: "Pashu Aahar Sales", value: summary.pashuAaharSalesAmount.toFixed(2), icon: Package, unit: "₹" },
+      { title: "Total Cash In", value: summary.totalCashIn.toFixed(2), icon: TrendingUp, unit: "₹" },
+      { title: "Total Credit Out", value: summary.totalCreditOut.toFixed(2), icon: TrendingDown, unit: "₹" },
+      { title: "Total Outstanding", value: summary.totalOutstandingAmount.toFixed(2), icon: AlertCircle, unit: "₹", highlight: true },
+    ];
+  }, [summary]);
 
   return (
     <div>
