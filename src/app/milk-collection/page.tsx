@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useMemo } from "react";
+import { useState, type FormEvent, useEffect, useMemo, useCallback } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,47 +19,42 @@ import { CalendarDays, Clock, User, Percent, Scale, IndianRupee, PlusCircle } fr
 import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
-
-const rawInitialEntries: (Omit<MilkCollectionEntry, 'id' | 'date'> & { tempId: string, dateOffset: number })[] = [
-  { tempId: "1", dateOffset: -1, time: "08:30", dealerName: "Rajesh Kumar", quantityLtr: 10.5, fatPercentage: 4.2, ratePerLtr: 40, totalAmount: 420 },
-  { tempId: "2", dateOffset: 0, time: "09:15", dealerName: "Sunita Devi", quantityLtr: 15.2, fatPercentage: 3.8, ratePerLtr: 38, totalAmount: 577.6 },
-  { tempId: "3", dateOffset: 0, time: "07:45", dealerName: "Rajesh Kumar", quantityLtr: 8.0, fatPercentage: 4.5, ratePerLtr: 42, totalAmount: 336 },
-];
+import { Skeleton } from "@/components/ui/skeleton";
+import { addMilkCollectionEntryToFirestore, getMilkCollectionEntriesFromFirestore } from "./actions";
 
 export default function MilkCollectionPage() {
   const { toast } = useToast();
-  const [entries, setEntries] = useState<MilkCollectionEntry[]>([]);
+  const [allEntries, setAllEntries] = useState<MilkCollectionEntry[]>([]);
+  const [isLoadingEntries, setIsLoadingEntries] = useState(true);
+  
+  // Form state
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [time, setTime] = useState<string>("");
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
-  const [rateInputValue, setRateInputValue] = useState<string>("6.7");
-  // const [totalAmountDisplay, setTotalAmountDisplay] = useState<string>(""); // Replaced by useMemo
+  const [rateInputValue, setRateInputValue] = useState<string>("6.7"); // Default rate
 
-  // const [dealerNameSuggestions, setDealerNameSuggestions] = useState<string[]>([]); // Popover removed
-  // const [dealerPopoverOpen, setDealerPopoverOpen] = useState(false); // Popover removed
-  
-  const knownDealerNames = useMemo(() => Array.from(new Set(entries.map(e => e.dealerName))), [entries]);
+  const fetchEntries = useCallback(async () => {
+    setIsLoadingEntries(true);
+    try {
+      const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
+      setAllEntries(fetchedEntries);
+    } catch (error) {
+      console.error("Failed to fetch milk collection entries:", error);
+      toast({ title: "Error", description: "Could not fetch milk collection entries.", variant: "destructive" });
+    } finally {
+      setIsLoadingEntries(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
-    // Defer date initialization to client-side
+    // Initialize date and time for the form on client mount
     setDate(new Date());
-    setTime(new Date().toTimeString().substring(0,5));
-
-    const processedEntries = rawInitialEntries.map(e => {
-      const entryDate = new Date();
-      entryDate.setDate(entryDate.getDate() + e.dateOffset);
-      return { ...e, id: e.tempId, date: entryDate };
-    }).sort((a,b) => {
-        const dateComparison = b.date.getTime() - a.date.getTime();
-        if (dateComparison !== 0) return dateComparison;
-        return b.time.localeCompare(a.time);
-    });
-    setEntries(processedEntries);
-  }, []);
+    setTime(new Date().toTimeString().substring(0, 5));
+    fetchEntries();
+  }, [fetchEntries]);
 
   const totalAmountDisplay = useMemo(() => {
     const quantityStr = quantityLtr.replace(',', '.');
@@ -74,29 +69,19 @@ export default function MilkCollectionPage() {
     return "";
   }, [quantityLtr, rateInputValue]);
 
-
   const filteredEntries = useMemo(() => {
-    const sortedEntries = [...entries].sort((a, b) => { 
-        const dateComparison = b.date.getTime() - a.date.getTime();
-        if (dateComparison !== 0) return dateComparison;
-        return b.time.localeCompare(a.time); 
-    });
+    // Sorting is now handled by the Firestore query (date desc, time desc)
+    // If a date is selected in the form's date picker, filter by that date
+    if (!date) return allEntries;
 
-    if (!date) return sortedEntries; 
-
-    return sortedEntries.filter(entry =>
+    return allEntries.filter(entry =>
       entry.date.getFullYear() === date.getFullYear() &&
       entry.date.getMonth() === date.getMonth() &&
       entry.date.getDate() === date.getDate()
     );
-  }, [entries, date]);
+  }, [allEntries, date]);
 
-  // Popover related handlers removed
-  // const handleDealerNameChange = (value: string) => { ... };
-  // const handleDealerSuggestionClick = (name: string) => { ... };
-
-
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!date || !time || !dealerNameInput.trim() || !quantityLtr || !fatPercentage || !rateInputValue) {
       toast({ title: "Error", description: "Please fill all fields.", variant: "destructive" });
@@ -126,9 +111,8 @@ export default function MilkCollectionPage() {
 
     const finalTotalAmount = qLtr * finalRate;
 
-    const newEntry: MilkCollectionEntry = {
-      id: String(Date.now()),
-      date,
+    const newEntryData: Omit<MilkCollectionEntry, 'id'> = {
+      date, // JS Date object
       time,
       dealerName: dealerNameInput.trim(),
       quantityLtr: qLtr,
@@ -137,19 +121,23 @@ export default function MilkCollectionPage() {
       totalAmount: finalTotalAmount,
     };
     
-    setEntries(prevEntries => {
-      const updatedEntries = [newEntry, ...prevEntries];
-      return updatedEntries.sort((a,b) => b.date.getTime() - a.date.getTime() || b.time.localeCompare(a.time));
-    });
-
-    toast({ title: "Success", description: "Milk collection entry added." });
-
-    setDealerNameInput("");
-    setQuantityLtr("");
-    setFatPercentage("");
-    setRateInputValue("6.7"); 
-    setTime(new Date().toTimeString().substring(0,5));
-    // setDate(new Date()); // Date picker will hold its value, or can be reset if desired.
+    setIsLoadingEntries(true); // Show loading indicator while adding
+    const result = await addMilkCollectionEntryToFirestore(newEntryData);
+    
+    if (result.success) {
+      toast({ title: "Success", description: "Milk collection entry added." });
+      // Reset form fields
+      setDealerNameInput("");
+      setQuantityLtr("");
+      setFatPercentage("");
+      setRateInputValue("6.7"); 
+      setTime(new Date().toTimeString().substring(0,5));
+      // setDate(new Date()); // Keep current form date or reset as preferred
+      await fetchEntries(); // Re-fetch entries to update the list
+    } else {
+      toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
+      setIsLoadingEntries(false); // Stop loading if add failed
+    }
   };
 
   return (
@@ -179,7 +167,6 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="dealerName" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                {/* Popover removed, simple input now */}
                 <Input
                     id="dealerName"
                     value={dealerNameInput}
@@ -223,8 +210,8 @@ export default function MilkCollectionPage() {
                 </Label>
                 <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay}` : ""} readOnly className="font-semibold bg-muted/50" />
               </div>
-              <Button type="submit" className="w-full">
-                <PlusCircle className="h-4 w-4 mr-2" /> Add Entry
+              <Button type="submit" className="w-full" disabled={isLoadingEntries}>
+                <PlusCircle className="h-4 w-4 mr-2" /> {isLoadingEntries && !allEntries.length ? 'Loading...' : (isLoadingEntries ? 'Adding...' : 'Add Entry')}
               </Button>
             </form>
           </CardContent>
@@ -235,42 +222,52 @@ export default function MilkCollectionPage() {
             <CardTitle>Recent Collections</CardTitle>
             <CardDescription>
               {date ? `Showing collections for ${format(date, 'PPP')}` : "Showing all recent collections."}
+              {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Dealer</TableHead>
-                  <TableHead className="text-right">Qty (Ltr)</TableHead>
-                  <TableHead className="text-right">FAT (%)</TableHead>
-                  <TableHead className="text-right">Rate (₹/Ltr)</TableHead>
-                  <TableHead className="text-right">Amount (₹)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredEntries.length === 0 && (
+            {isLoadingEntries && allEntries.length === 0 ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
-                      {date ? `No entries for ${format(date, 'P')}.` : "No entries yet."}
-                    </TableCell>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Dealer</TableHead>
+                    <TableHead className="text-right">Qty (Ltr)</TableHead>
+                    <TableHead className="text-right">FAT (%)</TableHead>
+                    <TableHead className="text-right">Rate (₹/Ltr)</TableHead>
+                    <TableHead className="text-right">Amount (₹)</TableHead>
                   </TableRow>
-                )}
-                {filteredEntries.map((entry) => (
-                  <TableRow key={entry.id}>
-                    <TableCell>{format(entry.date, 'P')}</TableCell>
-                    <TableCell>{entry.time}</TableCell>
-                    <TableCell>{entry.dealerName}</TableCell>
-                    <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
-                    <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
-                    <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
-                    <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredEntries.length === 0 && !isLoadingEntries ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground">
+                        {date ? `No entries for ${format(date, 'P')}.` : "No entries yet."}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredEntries.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell>{format(entry.date, 'P')}</TableCell>
+                        <TableCell>{entry.time}</TableCell>
+                        <TableCell>{entry.dealerName}</TableCell>
+                        <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
+                        <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
+                        <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
+                        <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>
