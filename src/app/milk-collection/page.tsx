@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarDays, Clock, User, Percent, Scale, IndianRupee, PlusCircle } from "lucide-react";
 import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -22,6 +23,9 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { addMilkCollectionEntryToFirestore, getMilkCollectionEntriesFromFirestore } from "./actions";
+
+// Static list of some dealer names for initial suggestions
+const MOCK_DEALER_NAMES = ["Rajesh Dairy", "Suresh Milk Co.", "Anand Farms", "Krishna Dairy"];
 
 export default function MilkCollectionPage() {
   const { toast } = useToast();
@@ -34,13 +38,17 @@ export default function MilkCollectionPage() {
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
-  const [rateInputValue, setRateInputValue] = useState<string>("6.7"); // Default rate
+  const [rateInputValue, setRateInputValue] = useState<string>("6.7"); 
+
+  // Dealer name suggestions state
+  const [dealerSuggestions, setDealerSuggestions] = useState<string[]>([]);
+  const [isDealerPopoverOpen, setIsDealerPopoverOpen] = useState(false);
 
   const fetchEntries = useCallback(async () => {
     setIsLoadingEntries(true);
     try {
       const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
-      console.log('Client: Fetched entries from Firestore:', JSON.stringify(fetchedEntries.map(e => ({...e, date: e.date.toISOString()})), null, 2)); // Added detailed log
+      console.log('Client: Fetched entries from Firestore:', JSON.stringify(fetchedEntries.map(e => ({...e, date: e.date.toISOString()})), null, 2));
       setAllEntries(fetchedEntries);
     } catch (error) {
       console.error("Failed to fetch milk collection entries:", error);
@@ -51,11 +59,40 @@ export default function MilkCollectionPage() {
   }, [toast]);
 
   useEffect(() => {
-    // Initialize date and time for the form on client mount
     setDate(new Date());
     setTime(new Date().toTimeString().substring(0, 5));
     fetchEntries();
   }, [fetchEntries]);
+
+  const uniqueDealerNamesFromEntries = useMemo(() => {
+    const names = new Set(allEntries.map(entry => entry.dealerName));
+    return Array.from(names);
+  }, [allEntries]);
+
+  const allKnownDealerNames = useMemo(() => {
+    return Array.from(new Set([...MOCK_DEALER_NAMES, ...uniqueDealerNamesFromEntries]));
+  }, [uniqueDealerNamesFromEntries]);
+
+  const handleDealerNameChange = (value: string) => {
+    setDealerNameInput(value);
+    if (value.trim()) {
+      const filtered = allKnownDealerNames.filter(name =>
+        name.toLowerCase().includes(value.toLowerCase())
+      );
+      setDealerSuggestions(filtered);
+      setIsDealerPopoverOpen(filtered.length > 0 && value.trim().length > 0);
+    } else {
+      setDealerSuggestions([]);
+      setIsDealerPopoverOpen(false);
+    }
+  };
+
+  const handleDealerSuggestionClick = (suggestion: string) => {
+    setDealerNameInput(suggestion);
+    setDealerSuggestions([]);
+    setIsDealerPopoverOpen(false);
+  };
+
 
   const totalAmountDisplay = useMemo(() => {
     const quantityStr = quantityLtr.replace(',', '.');
@@ -130,7 +167,6 @@ export default function MilkCollectionPage() {
       setFatPercentage("");
       setRateInputValue("6.7"); 
       setTime(new Date().toTimeString().substring(0,5));
-      // Date state for filtering should remain the same, so user sees the newly added entry
       await fetchEntries(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
@@ -165,15 +201,40 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="dealerName" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                <Input
-                    id="dealerName"
-                    value={dealerNameInput}
-                    onChange={(e) => setDealerNameInput(e.target.value)}
-                    placeholder="Enter dealer name"
-                    required
-                    autoComplete="off"
-                    className="w-full"
-                />
+                <Popover open={isDealerPopoverOpen} onOpenChange={setIsDealerPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Input
+                        id="dealerName"
+                        value={dealerNameInput}
+                        onChange={(e) => handleDealerNameChange(e.target.value)}
+                        placeholder="Type to search dealer"
+                        required
+                        autoComplete="off"
+                        className="w-full"
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent 
+                    className="w-[var(--radix-popover-trigger-width)] p-0"
+                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevents auto-focusing first item
+                    sideOffset={5}
+                  >
+                    {dealerSuggestions.length === 0 && dealerNameInput.trim() ? (
+                        <div className="p-2 text-sm text-muted-foreground">No dealers found.</div>
+                    ) : (
+                      <div className="max-h-48 overflow-auto">
+                        {dealerSuggestions.map(suggestion => (
+                          <div
+                            key={suggestion}
+                            className="p-2 hover:bg-accent cursor-pointer text-sm"
+                            onMouseDown={() => handleDealerSuggestionClick(suggestion)} // Use onMouseDown to fire before blur
+                          >
+                            {suggestion}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <Label htmlFor="quantityLtr" className="flex items-center mb-1">
@@ -274,3 +335,4 @@ export default function MilkCollectionPage() {
   );
 }
 
+    
