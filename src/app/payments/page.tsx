@@ -32,19 +32,23 @@ const initialPayments: PaymentEntry[] = [
   { id: "P2", date: new Date(Date.now() - 86400000), type: "Paid", partyName: "Rajesh Kumar", partyType: "Dealer", amount: 1200, mode: "Bank", notes: "Weekly settlement" },
 ];
 
-const partyTypes: PaymentEntry['partyType'][] = ["Customer", "Dealer", "Supplier"];
+const partyTypes: PaymentEntry['partyType'][] = ["Customer", "Dealer", "Supplier", "Employee"];
 const paymentModes: PaymentEntry['mode'][] = ["Cash", "Bank", "UPI"];
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<PaymentEntry[]>(initialPayments);
 
-  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [date, setDate] = useState<Date | undefined>(undefined);
   const [type, setType] = useState<"Received" | "Paid">("Received");
   const [partyName, setPartyName] = useState("");
   const [partyType, setPartyType] = useState<PaymentEntry['partyType']>("Customer");
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState<PaymentEntry['mode']>("Cash");
   const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    setDate(new Date());
+  }, []);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -67,6 +71,7 @@ export default function PaymentsPage() {
     setPartyName("");
     setAmount("");
     setNotes("");
+    setDate(new Date()); // Reset date for next entry
   };
 
   return (
@@ -163,4 +168,3 @@ export default function PaymentsPage() {
     </div>
   );
 }
-

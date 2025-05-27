@@ -19,6 +19,7 @@ import { CalendarDays, Clock, User, Percent, Scale, IndianRupee, PlusCircle } fr
 import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const initialEntries: MilkCollectionEntry[] = [
   { id: "1", date: new Date(new Date().setDate(new Date().getDate() -1)), time: "08:30", dealerName: "Rajesh Kumar", quantityLtr: 10.5, fatPercentage: 4.2, ratePerLtr: 40, totalAmount: 420 },
@@ -26,10 +27,13 @@ const initialEntries: MilkCollectionEntry[] = [
   { id: "3", date: new Date(), time: "07:45", dealerName: "Rajesh Kumar", quantityLtr: 8.0, fatPercentage: 4.5, ratePerLtr: 42, totalAmount: 336 },
 ];
 
+const knownDealerNames = Array.from(new Set(initialEntries.map(e => e.dealerName)));
+
+
 export default function MilkCollectionPage() {
   const { toast } = useToast();
   const [entries, setEntries] = useState<MilkCollectionEntry[]>(initialEntries);
-  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [date, setDate] = useState<Date | undefined>(undefined);
   const [time, setTime] = useState<string>("");
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
@@ -37,9 +41,12 @@ export default function MilkCollectionPage() {
   const [rateInputValue, setRateInputValue] = useState<string>("6.7");
   const [totalAmountDisplay, setTotalAmountDisplay] = useState<string>("");
 
+  const [dealerNameSuggestions, setDealerNameSuggestions] = useState<string[]>([]);
+  const [dealerPopoverOpen, setDealerPopoverOpen] = useState(false);
 
-  // Effect to update time when component mounts, to avoid hydration mismatch for default time
+  // Effect to update time and date when component mounts, to avoid hydration mismatch for default time
   useEffect(() => {
+    setDate(new Date());
     setTime(new Date().toTimeString().substring(0,5));
   }, []);
 
@@ -73,6 +80,27 @@ export default function MilkCollectionPage() {
       entry.date.getDate() === date.getDate()
     );
   }, [entries, date]);
+
+  const handleDealerNameChange = (value: string) => {
+    setDealerNameInput(value);
+    if (value.trim()) {
+      const filtered = knownDealerNames.filter(name =>
+        name.toLowerCase().includes(value.toLowerCase())
+      );
+      setDealerNameSuggestions(filtered);
+      setDealerPopoverOpen(filtered.length > 0); // Simplified condition
+    } else {
+      setDealerNameSuggestions([]);
+      setDealerPopoverOpen(false);
+    }
+  };
+
+  const handleDealerSuggestionClick = (name: string) => {
+    setDealerNameInput(name);
+    setDealerNameSuggestions([]);
+    setDealerPopoverOpen(false);
+  };
+
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -122,6 +150,8 @@ export default function MilkCollectionPage() {
     setQuantityLtr("");
     setFatPercentage("");
     setRateInputValue("6.7"); 
+    setTime(new Date().toTimeString().substring(0,5)); // Reset time for next entry
+    // Date is not reset to allow multiple entries for the same day easily
   };
 
   return (
@@ -151,27 +181,50 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="dealerName" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                <Input
-                  id="dealerName"
-                  value={dealerNameInput}
-                  onChange={(e) => setDealerNameInput(e.target.value)}
-                  placeholder="Enter dealer name"
-                  required
-                  autoComplete="off"
-                  className="w-full"
-                />
+                <Popover open={dealerPopoverOpen} onOpenChange={setDealerPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Input
+                      id="dealerName"
+                      value={dealerNameInput}
+                      onChange={(e) => handleDealerNameChange(e.target.value)}
+                      placeholder="Enter dealer name"
+                      required
+                      autoComplete="off"
+                      className="w-full"
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[var(--radix-popover-trigger-width)] p-0"
+                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevent auto-focus stealing focus from input
+                    sideOffset={5}
+                  >
+                    {dealerNameSuggestions.length > 0 ? (
+                      dealerNameSuggestions.map(name => (
+                        <div
+                          key={name}
+                          className="p-2 hover:bg-accent cursor-pointer text-sm"
+                          onMouseDown={() => handleDealerSuggestionClick(name)} // Use onMouseDown to prevent input blur before click
+                        >
+                          {name}
+                        </div>
+                      ))
+                    ) : (
+                      dealerNameInput.trim() && <div className="p-2 text-sm text-muted-foreground">No suggestions found.</div>
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <Label htmlFor="quantityLtr" className="flex items-center mb-1">
                   <Scale className="h-4 w-4 mr-2 text-muted-foreground" /> Quantity (Ltr)
                 </Label>
-                <Input id="quantityLtr" type="number" step="0.1" value={quantityLtr} onChange={(e) => setQuantityLtr(e.target.value)} placeholder="e.g., 10.5" required />
+                <Input id="quantityLtr" type="text" inputMode="decimal" value={quantityLtr} onChange={(e) => setQuantityLtr(e.target.value)} placeholder="e.g., 10.5" required />
               </div>
               <div>
                 <Label htmlFor="fatPercentage" className="flex items-center mb-1">
                   <Percent className="h-4 w-4 mr-2 text-muted-foreground" /> FAT (%)
                 </Label>
-                <Input id="fatPercentage" type="number" step="0.1" value={fatPercentage} onChange={(e) => setFatPercentage(e.target.value)} placeholder="e.g., 3.8" required />
+                <Input id="fatPercentage" type="text" inputMode="decimal" value={fatPercentage} onChange={(e) => setFatPercentage(e.target.value)} placeholder="e.g., 3.8" required />
               </div>
               <div>
                 <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
@@ -179,8 +232,8 @@ export default function MilkCollectionPage() {
                 </Label>
                 <Input 
                   id="ratePerLtr" 
-                  type="number" 
-                  step="0.01" 
+                  type="text" 
+                  inputMode="decimal"
                   value={rateInputValue} 
                   onChange={(e) => setRateInputValue(e.target.value)} 
                   placeholder="e.g., 6.7" 
@@ -192,7 +245,7 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="totalAmount" className="flex items-center mb-1">
                   <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Total Amount (₹)
                 </Label>
-                <Input id="totalAmount" value={totalAmountDisplay} readOnly className="font-semibold bg-muted/50" />
+                <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay}` : ""} readOnly className="font-semibold bg-muted/50" />
               </div>
               <Button type="submit" className="w-full">
                 <PlusCircle className="h-4 w-4 mr-2" /> Add Entry

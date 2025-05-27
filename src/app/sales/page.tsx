@@ -50,7 +50,7 @@ const knownPashuAaharProducts: string[] = [
 
 export default function SalesPage() {
   const [sales, setSales] = useState<SaleEntry[]>(initialSales);
-  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [date, setDate] = useState<Date | undefined>(undefined);
   const [customerName, setCustomerName] = useState("");
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
   const [specificPashuAaharName, setSpecificPashuAaharName] = useState<string>("");
@@ -60,6 +60,10 @@ export default function SalesPage() {
 
   const [filteredPashuAaharSuggestions, setFilteredPashuAaharSuggestions] = useState<string[]>([]);
   const [popoverOpenForPashuAahar, setPopoverOpenForPashuAahar] = useState(false);
+
+  useEffect(() => {
+    setDate(new Date());
+  }, []);
 
   const totalAmount = parseFloat(quantity) * parseFloat(rate) || 0;
   const currentCategoryDetails = productCategories[parseInt(selectedCategoryIndex)];
@@ -81,7 +85,7 @@ export default function SalesPage() {
         p.toLowerCase().includes(value.toLowerCase())
       );
       setFilteredPashuAaharSuggestions(filtered);
-      setPopoverOpenForPashuAahar(filtered.length > 0);
+      setPopoverOpenForPashuAahar(filtered.length > 0 && value.trim().length > 0);
     } else {
       setFilteredPashuAaharSuggestions([]);
       setPopoverOpenForPashuAahar(false);
@@ -170,7 +174,7 @@ export default function SalesPage() {
               </div>
 
               {currentCategoryName === "Pashu Aahar" && (
-                <div>
+                 <div key="pashu-aahar-specific-name-section"> {/* Added key here */}
                   <Label htmlFor="specificPashuAaharName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Specific Pashu Aahar Name</Label>
                   <Popover open={popoverOpenForPashuAahar} onOpenChange={setPopoverOpenForPashuAahar}>
                     <PopoverTrigger asChild>
@@ -197,7 +201,7 @@ export default function SalesPage() {
                             <div
                               key={suggestion}
                               className="p-2 hover:bg-accent cursor-pointer text-sm"
-                              onMouseDown={() => handlePashuAaharSuggestionClick(suggestion)}
+                              onMouseDown={() => handlePashuAaharSuggestionClick(suggestion)} // Changed to onMouseDown
                             >
                               {suggestion}
                             </div>
@@ -279,4 +283,3 @@ export default function SalesPage() {
     </div>
   );
 }
-

@@ -48,11 +48,15 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<ExpenseEntry[]>(initialExpenses);
   const [availableParties] = useState<Party[]>(mockParties); // Using mock parties
 
-  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [date, setDate] = useState<Date | undefined>(undefined);
   const [category, setCategory] = useState<ExpenseEntry['category']>("Miscellaneous");
   const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined);
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+
+  useEffect(() => {
+    setDate(new Date());
+  }, []);
 
   useEffect(() => {
     // If category changes away from Salary, clear selected party
@@ -106,7 +110,7 @@ export default function ExpensesPage() {
     setAmount("");
     setCategory("Miscellaneous"); // Resets party selection due to useEffect
     setSelectedPartyId(undefined);
-    setDate(new Date());
+    setDate(new Date()); // Reset date to current date for next entry
   };
 
   return (

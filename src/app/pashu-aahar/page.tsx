@@ -30,11 +30,15 @@ export default function PashuAaharPage() {
   const [transactions, setTransactions] = useState<PashuAaharTransaction[]>(initialTransactions);
   const [currentStockByProduct, setCurrentStockByProduct] = useState<Record<string, number>>({});
 
-  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [date, setDate] = useState<Date | undefined>(undefined);
   const [productName, setProductName] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [quantityBags, setQuantityBags] = useState("");
   const [pricePerBag, setPricePerBag] = useState("");
+
+  useEffect(() => {
+    setDate(new Date());
+  }, []);
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
@@ -76,6 +80,7 @@ export default function PashuAaharPage() {
     setSupplierName("");
     setQuantityBags("");
     setPricePerBag("");
+    setDate(new Date()); // Reset date for next entry
   };
   
   return (
@@ -108,7 +113,7 @@ export default function PashuAaharPage() {
                   <CardContent className="px-3 pt-1 pb-3">
                     <div className="text-2xl font-bold text-foreground">
                       {stock.toFixed(0)}
-                      <span className="text-base font-normal text-muted-foreground ml-1"> Bags</span>
+                      <span className="text-base font-normal text-muted-foreground ml-1">Bags</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -155,7 +160,7 @@ export default function PashuAaharPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2"> {/* Changed from md:col-span-2 to lg:col-span-2 for better layout */}
           <CardHeader>
             <CardTitle>Transaction History</CardTitle>
             <CardDescription>Pashu Aahar purchases and sales affecting stock.</CardDescription>

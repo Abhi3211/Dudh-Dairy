@@ -81,12 +81,14 @@ const chartConfig = {
 
 export default function DashboardPage() {
   const [filterType, setFilterType] = useState<string>("daily");
-  const [customStartDate, setCustomStartDate] = useState<Date | undefined>(subDays(new Date(), 7));
-  const [customEndDate, setCustomEndDate] = useState<Date | undefined>(new Date());
+  const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
+  const [customEndDate, setCustomEndDate] = useState<Date | undefined>(undefined);
   
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [displayedDateRangeString, setDisplayedDateRangeString] = useState<string>("Loading date range...");
+
 
   const calculateDateRange = useCallback(() => {
     const today = new Date();
@@ -107,9 +109,13 @@ export default function DashboardPage() {
         end = endOfMonth(today);
         break;
       case "custom":
-        start = customStartDate || subDays(today, 7);
-        end = customEndDate || today;
+        start = customStartDate || subDays(today, 7); // Fallback for initial undefined state
+        end = customEndDate || today; // Fallback for initial undefined state
         break;
+    }
+     // Ensure endDate is not before startDate for custom ranges if dates are set
+    if (filterType === 'custom' && start && end && end < start) {
+        end = start;
     }
     return { startDate: start, endDate: end };
   }, [filterType, customStartDate, customEndDate]);
@@ -118,21 +124,47 @@ export default function DashboardPage() {
     setIsLoading(true);
     const { startDate, endDate } = calculateDateRange();
     
-    // Ensure endDate is not before startDate for custom ranges
-    let effectiveEndDate = endDate;
-    if (filterType === 'custom' && startDate && endDate && endDate < startDate) {
-        effectiveEndDate = startDate;
-    }
-
-    const data = await getDashboardData(startDate, effectiveEndDate);
+    const data = await getDashboardData(startDate, endDate);
     setSummary(data.summary);
     setChartData(data.chartSeries);
+
+    const formattedStartDate = format(startDate, "MMM dd, yyyy");
+    const formattedEndDate = format(endDate, "MMM dd, yyyy");
+    let periodPrefix = "";
+    if (filterType === 'daily' && formattedStartDate === formattedEndDate) {
+      periodPrefix = "today";
+    } else if (filterType === 'daily') {
+       periodPrefix = `for ${formattedStartDate}`;
+    } else {
+      periodPrefix = `the selected ${filterType}`;
+    }
+    setDisplayedDateRangeString(
+      `Showing ${periodPrefix} period: ${formattedStartDate} - ${formattedEndDate}`
+    );
+
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); // Added filterType here
+  }, [calculateDateRange, filterType]);
 
   useEffect(() => {
+    // Initialize custom dates on client mount if they are undefined
+    // This helps prevent hydration issues with new Date()
+    if (customStartDate === undefined) {
+      setCustomStartDate(subDays(new Date(), 7));
+    }
+    if (customEndDate === undefined) {
+      setCustomEndDate(new Date());
+    }
+    // Fetch data once custom dates are potentially set, or if filterType changes
+  }, []); // Runs once on mount
+
+
+  useEffect(() => {
+    // Only fetch if custom dates are set when filterType is custom, or for other filter types
+    if (filterType === 'custom' && (!customStartDate || !customEndDate)) {
+      return; // Don't fetch if custom dates are not ready
+    }
     fetchData();
-  }, [fetchData]); // fetchData already includes dependencies like filterType
+  }, [fetchData, filterType, customStartDate, customEndDate]); // Added customStartDate and customEndDate here too
 
   const summaryItems = summary ? [
     { title: "Milk Purchased (Ltr)", value: summary.milkPurchasedLitres.toFixed(1), icon: Milk, unit: "Ltr" },
@@ -181,7 +213,6 @@ export default function DashboardPage() {
               </div>
             </>
           )}
-          {/* Manual apply button is removed, fetchData triggers on dependency change */}
         </CardContent>
       </Card>
 
@@ -220,7 +251,7 @@ export default function DashboardPage() {
         <CardHeader>
           <CardTitle>Purchase vs. Sale Value Trends</CardTitle>
           <CardDescription>
-            Showing {filterType === 'daily' ? 'today' : `the selected ${filterType}`} period: {format(calculateDateRange().startDate, "MMM dd, yyyy")} - {format(calculateDateRange().endDate, "MMM dd, yyyy")}
+            {displayedDateRangeString}
           </CardDescription>
         </CardHeader>
         <CardContent className="h-[300px] sm:h-[400px]">
