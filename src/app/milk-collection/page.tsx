@@ -59,6 +59,7 @@ export default function MilkCollectionPage() {
   }, [toast]);
 
   useEffect(() => {
+    // Initialize date and time client-side to avoid hydration issues
     setDate(new Date());
     setTime(new Date().toTimeString().substring(0, 5));
     fetchEntries();
@@ -74,16 +75,18 @@ export default function MilkCollectionPage() {
   }, [uniqueDealerNamesFromEntries]);
 
   const handleDealerNameChange = (value: string) => {
-    setDealerNameInput(value);
-    if (value.trim()) {
+    setDealerNameInput(value); // Update input state immediately
+    const trimmedValue = value.trim(); // Trim once
+
+    if (trimmedValue) {
       const filtered = allKnownDealerNames.filter(name =>
-        name.toLowerCase().includes(value.toLowerCase())
+        name.toLowerCase().includes(trimmedValue.toLowerCase()) // Use trimmedValue for filtering
       );
       setDealerSuggestions(filtered);
-      setIsDealerPopoverOpen(filtered.length > 0 && value.trim().length > 0);
+      setIsDealerPopoverOpen(filtered.length > 0); // Open if there are suggestions
     } else {
       setDealerSuggestions([]);
-      setIsDealerPopoverOpen(false);
+      setIsDealerPopoverOpen(false); // Close if input is empty
     }
   };
 
@@ -108,12 +111,12 @@ export default function MilkCollectionPage() {
   }, [quantityLtr, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
-    if (!date) return allEntries;
-
+    if (!date) return []; // Return empty if no date selected to avoid showing all on initial load
+    
     const targetDateStr = format(date, 'yyyy-MM-dd');
     return allEntries.filter(entry => {
-      const entryDateStr = format(entry.date, 'yyyy-MM-dd');
-      return entryDateStr === targetDateStr;
+        const entryDateStr = format(entry.date, 'yyyy-MM-dd');
+        return entryDateStr === targetDateStr;
     });
   }, [allEntries, date]);
 
@@ -165,7 +168,7 @@ export default function MilkCollectionPage() {
       setDealerNameInput("");
       setQuantityLtr("");
       setFatPercentage("");
-      setRateInputValue("6.7"); 
+      // setRateInputValue("6.7"); // Keep rate as user might want to reuse for next entry.
       setTime(new Date().toTimeString().substring(0,5));
       await fetchEntries(); 
     } else {
@@ -215,7 +218,7 @@ export default function MilkCollectionPage() {
                   </PopoverTrigger>
                   <PopoverContent 
                     className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevents auto-focusing first item
+                    onOpenAutoFocus={(e) => e.preventDefault()} 
                     sideOffset={5}
                   >
                     {dealerSuggestions.length === 0 && dealerNameInput.trim() ? (
@@ -226,7 +229,7 @@ export default function MilkCollectionPage() {
                           <div
                             key={suggestion}
                             className="p-2 hover:bg-accent cursor-pointer text-sm"
-                            onMouseDown={() => handleDealerSuggestionClick(suggestion)} // Use onMouseDown to fire before blur
+                            onMouseDown={() => handleDealerSuggestionClick(suggestion)} 
                           >
                             {suggestion}
                           </div>
@@ -280,7 +283,7 @@ export default function MilkCollectionPage() {
           <CardHeader>
             <CardTitle>Recent Collections</CardTitle>
             <CardDescription>
-              {date ? `Showing collections for ${format(date, 'PPP')}` : "Showing all recent collections."}
+              {date ? `Showing collections for ${format(date, 'PPP')}` : "Select a date to view collections."}
               {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
             </CardDescription>
           </CardHeader>
@@ -308,7 +311,7 @@ export default function MilkCollectionPage() {
                   {filteredEntries.length === 0 && !isLoadingEntries ? (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground">
-                        {date ? `No entries for ${format(date, 'P')}.` : "No entries yet."}
+                        {date ? `No entries for ${format(date, 'P')}.` : "Select a date to view entries."}
                         {date && allEntries.length > 0 && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
                     </TableRow>
@@ -334,5 +337,4 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
-
     
