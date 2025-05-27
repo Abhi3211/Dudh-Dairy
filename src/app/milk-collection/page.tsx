@@ -75,18 +75,18 @@ export default function MilkCollectionPage() {
   }, [uniqueDealerNamesFromEntries]);
 
   const handleDealerNameChange = (value: string) => {
-    setDealerNameInput(value); // Update input state immediately
-    const trimmedValue = value.trim(); // Trim once
+    setDealerNameInput(value); 
+    const trimmedValue = value.trim(); 
 
     if (trimmedValue) {
       const filtered = allKnownDealerNames.filter(name =>
-        name.toLowerCase().includes(trimmedValue.toLowerCase()) // Use trimmedValue for filtering
+        name.toLowerCase().includes(trimmedValue.toLowerCase()) 
       );
       setDealerSuggestions(filtered);
-      setIsDealerPopoverOpen(filtered.length > 0); // Open if there are suggestions
+      setIsDealerPopoverOpen(filtered.length > 0); 
     } else {
       setDealerSuggestions([]);
-      setIsDealerPopoverOpen(false); // Close if input is empty
+      setIsDealerPopoverOpen(false); 
     }
   };
 
@@ -111,7 +111,7 @@ export default function MilkCollectionPage() {
   }, [quantityLtr, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
-    if (!date) return []; // Return empty if no date selected to avoid showing all on initial load
+    if (!date) return [];
     
     const targetDateStr = format(date, 'yyyy-MM-dd');
     return allEntries.filter(entry => {
@@ -218,7 +218,7 @@ export default function MilkCollectionPage() {
                   </PopoverTrigger>
                   <PopoverContent 
                     className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()} 
+                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevents focus stealing on open
                     sideOffset={5}
                   >
                     {dealerSuggestions.length === 0 && dealerNameInput.trim() ? (
@@ -229,7 +229,7 @@ export default function MilkCollectionPage() {
                           <div
                             key={suggestion}
                             className="p-2 hover:bg-accent cursor-pointer text-sm"
-                            onMouseDown={() => handleDealerSuggestionClick(suggestion)} 
+                            onClick={() => handleDealerSuggestionClick(suggestion)} // Changed from onMouseDown
                           >
                             {suggestion}
                           </div>
@@ -285,6 +285,7 @@ export default function MilkCollectionPage() {
             <CardDescription>
               {date ? `Showing collections for ${format(date, 'PPP')}` : "Select a date to view collections."}
               {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
+              {!isLoadingEntries && date && filteredEntries.length === 0 && allEntries.length > 0 && ` (Checked ${allEntries.length} total entries)`}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -312,7 +313,7 @@ export default function MilkCollectionPage() {
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground">
                         {date ? `No entries for ${format(date, 'P')}.` : "Select a date to view entries."}
-                        {date && allEntries.length > 0 && ` (Checked ${allEntries.length} total entries)`}
+                        {date && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
                     </TableRow>
                   ) : (
