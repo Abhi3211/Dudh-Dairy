@@ -27,26 +27,25 @@ import { Textarea } from "@/components/ui/textarea";
 import { IndianRupee, ListChecks, FileText, PlusCircle, CalendarDays, Users } from "lucide-react";
 import type { ExpenseEntry, Party } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 
-// Mock data for parties - in a real app, this would be fetched
 const mockParties: Party[] = [
   { id: "1", name: "Rajesh Kumar", type: "Dealer" },
   { id: "EMP1", name: "Anita Sharma (Accountant)", type: "Employee" },
   { id: "C1", name: "Local Cafe", type: "Customer" },
 ];
 
-
-const initialExpenses: ExpenseEntry[] = [
-  { id: "E1", date: new Date(new Date().setDate(new Date().getDate() - 1)), category: "Salary", description: "Helper wages - April", amount: 5000, partyId: "EMP1", partyName: "Anita Sharma (Accountant)" },
-  { id: "E2", date: new Date(), category: "Miscellaneous", description: "Office stationary", amount: 250 },
+const rawInitialExpenses: (Omit<ExpenseEntry, 'id' | 'date'> & { tempId: string, dateOffset: number })[] = [
+  { tempId: "E1", dateOffset: -1, category: "Salary", description: "Helper wages - April", amount: 5000, partyId: "EMP1", partyName: "Anita Sharma (Accountant)" },
+  { tempId: "E2", dateOffset: 0, category: "Miscellaneous", description: "Office stationary", amount: 250 },
 ];
 
 const expenseCategories: ExpenseEntry['category'][] = ["Salary", "Miscellaneous"];
 
 export default function ExpensesPage() {
   const { toast } = useToast();
-  const [expenses, setExpenses] = useState<ExpenseEntry[]>(initialExpenses);
-  const [availableParties] = useState<Party[]>(mockParties); // Using mock parties
+  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+  const [availableParties] = useState<Party[]>(mockParties); 
 
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [category, setCategory] = useState<ExpenseEntry['category']>("Miscellaneous");
@@ -56,10 +55,15 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     setDate(new Date());
+    const processedExpenses = rawInitialExpenses.map(e => {
+      const entryDate = new Date();
+      entryDate.setDate(entryDate.getDate() + e.dateOffset);
+      return { ...e, id: e.tempId, date: entryDate };
+    }).sort((a,b) => b.date.getTime() - a.date.getTime());
+    setExpenses(processedExpenses);
   }, []);
 
   useEffect(() => {
-    // If category changes away from Salary, clear selected party
     if (category !== "Salary") {
       setSelectedPartyId(undefined);
     }
@@ -92,7 +96,6 @@ export default function ExpensesPage() {
       return;
     }
 
-
     const newExpense: ExpenseEntry = {
       id: String(Date.now()),
       date,
@@ -105,12 +108,11 @@ export default function ExpensesPage() {
     
     toast({ title: "Success", description: "Expense recorded."});
 
-    // Reset form
     setDescription("");
     setAmount("");
-    setCategory("Miscellaneous"); // Resets party selection due to useEffect
+    setCategory("Miscellaneous"); 
     setSelectedPartyId(undefined);
-    setDate(new Date()); // Reset date to current date for next entry
+    setDate(new Date()); 
   };
 
   return (
@@ -226,7 +228,7 @@ export default function ExpensesPage() {
                 ) : (
                     expenses.map((exp) => (
                     <TableRow key={exp.id}>
-                        <TableCell>{exp.date.toLocaleDateString()}</TableCell>
+                        <TableCell>{format(exp.date, 'P')}</TableCell>
                         <TableCell>{exp.category}</TableCell>
                         <TableCell>{exp.description}</TableCell>
                         <TableCell>{exp.partyName || "-"}</TableCell>
@@ -242,3 +244,5 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
+    

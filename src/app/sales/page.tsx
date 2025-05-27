@@ -26,11 +26,14 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag } from "lucide-react";
 import type { SaleEntry } from "@/lib/types";
+import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 
-const initialSales: SaleEntry[] = [
-  { id: "1", date: new Date(), customerName: "Amit Singh", productName: "Milk", quantity: 5, unit: "Ltr", rate: 60, totalAmount: 300, paymentType: "Cash" },
-  { id: "2", date: new Date(), customerName: "Priya Sharma", productName: "Ghee", quantity: 1, unit: "Kg", rate: 700, totalAmount: 700, paymentType: "Credit" },
-  { id: "3", date: new Date(), customerName: "Vijay Store", productName: "Gold Coin Feed", quantity: 2, unit: "Bags", rate: 320, totalAmount: 640, paymentType: "Cash" },
+// Raw data for initial sales, dates processed in useEffect
+const rawInitialSales: (Omit<SaleEntry, 'id' | 'date'> & { tempId: string, dateOffset?: number })[] = [
+  { tempId: "1", customerName: "Amit Singh", productName: "Milk", quantity: 5, unit: "Ltr", rate: 60, totalAmount: 300, paymentType: "Cash", dateOffset: 0 },
+  { tempId: "2", customerName: "Priya Sharma", productName: "Ghee", quantity: 1, unit: "Kg", rate: 700, totalAmount: 700, paymentType: "Credit", dateOffset: 0 },
+  { tempId: "3", customerName: "Vijay Store", productName: "Gold Coin Feed", quantity: 2, unit: "Bags", rate: 320, totalAmount: 640, paymentType: "Cash", dateOffset: 0 },
 ];
 
 const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
@@ -39,7 +42,6 @@ const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: 
   { categoryName: "Pashu Aahar", unit: "Bags" },
 ];
 
-// For suggestion feature - in a real app, this would come from stock/purchase data
 const knownPashuAaharProducts: string[] = [
   "Gold Coin Feed",
   "Super Pallet",
@@ -49,7 +51,8 @@ const knownPashuAaharProducts: string[] = [
 ];
 
 export default function SalesPage() {
-  const [sales, setSales] = useState<SaleEntry[]>(initialSales);
+  const { toast } = useToast();
+  const [sales, setSales] = useState<SaleEntry[]>([]);
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [customerName, setCustomerName] = useState("");
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
@@ -63,6 +66,14 @@ export default function SalesPage() {
 
   useEffect(() => {
     setDate(new Date());
+    const processedSales = rawInitialSales.map(s => {
+      const entryDate = new Date();
+      if (s.dateOffset !== undefined) {
+        entryDate.setDate(entryDate.getDate() + s.dateOffset);
+      }
+      return { ...s, id: s.tempId, date: entryDate };
+    }).sort((a,b) => b.date.getTime() - a.date.getTime());
+    setSales(processedSales);
   }, []);
 
   const totalAmount = parseFloat(quantity) * parseFloat(rate) || 0;
@@ -70,7 +81,6 @@ export default function SalesPage() {
   const currentCategoryName = currentCategoryDetails?.categoryName;
 
   useEffect(() => {
-    // Reset specific pashu aahar name if category changes away from Pashu Aahar
     if (currentCategoryName !== "Pashu Aahar") {
       setSpecificPashuAaharName("");
       setFilteredPashuAaharSuggestions([]);
@@ -101,19 +111,19 @@ export default function SalesPage() {
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!date || !customerName || !quantity || !rate) {
-      alert("Please fill all fields.");
+      toast({ title: "Error", description: "Please fill all fields.", variant: "destructive" });
       return;
     }
 
     let finalProductName = "";
     if (!currentCategoryDetails) {
-        alert("Please select a product category.");
+        toast({ title: "Error", description: "Please select a product category.", variant: "destructive" });
         return;
     }
 
     if (currentCategoryDetails.categoryName === "Pashu Aahar") {
       if (!specificPashuAaharName.trim()) {
-        alert("Please enter or select the specific Pashu Aahar product name.");
+        toast({ title: "Error", description: "Please enter or select the specific Pashu Aahar product name.", variant: "destructive" });
         return;
       }
       finalProductName = specificPashuAaharName.trim();
@@ -133,12 +143,16 @@ export default function SalesPage() {
       paymentType,
     };
     setSales(prevSales => [newSale, ...prevSales].sort((a,b) => b.date.getTime() - a.date.getTime()));
+    
+    toast({ title: "Success", description: "Sale entry added." });
+
     setCustomerName("");
     setSpecificPashuAaharName("");
     setQuantity("");
     setRate("");
     setFilteredPashuAaharSuggestions([]);
     setPopoverOpenForPashuAahar(false);
+    setDate(new Date()); // Reset date for next entry
   };
 
   return (
@@ -174,7 +188,7 @@ export default function SalesPage() {
               </div>
 
               {currentCategoryName === "Pashu Aahar" && (
-                 <div key="pashu-aahar-specific-name-section"> {/* Added key here */}
+                 <div key="pashu-aahar-specific-name-section">
                   <Label htmlFor="specificPashuAaharName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Specific Pashu Aahar Name</Label>
                   <Popover open={popoverOpenForPashuAahar} onOpenChange={setPopoverOpenForPashuAahar}>
                     <PopoverTrigger asChild>
@@ -196,12 +210,12 @@ export default function SalesPage() {
                       {filteredPashuAaharSuggestions.length === 0 && specificPashuAaharName.trim() ? (
                          <div className="p-2 text-sm text-muted-foreground">No products found.</div>
                       ) : (
-                        <div className="max-h-48 overflow-auto"> {/* Scrollable suggestions */}
+                        <div className="max-h-48 overflow-auto">
                           {filteredPashuAaharSuggestions.map(suggestion => (
                             <div
                               key={suggestion}
                               className="p-2 hover:bg-accent cursor-pointer text-sm"
-                              onMouseDown={() => handlePashuAaharSuggestionClick(suggestion)} // Changed to onMouseDown
+                              onMouseDown={() => handlePashuAaharSuggestionClick(suggestion)}
                             >
                               {suggestion}
                             </div>
@@ -264,17 +278,23 @@ export default function SalesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sales.map((sale) => (
-                  <TableRow key={sale.id}>
-                    <TableCell>{sale.date.toLocaleDateString()}</TableCell>
-                    <TableCell>{sale.customerName}</TableCell>
-                    <TableCell>{sale.productName}</TableCell>
-                    <TableCell className="text-right">{sale.quantity} {sale.unit}</TableCell>
-                    <TableCell className="text-right">{sale.rate.toFixed(2)}</TableCell>
-                    <TableCell className="text-right">{sale.totalAmount.toFixed(2)}</TableCell>
-                    <TableCell>{sale.paymentType}</TableCell>
-                  </TableRow>
-                ))}
+                {sales.length === 0 ? (
+                    <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground">No sales recorded yet.</TableCell>
+                    </TableRow>
+                ) : (
+                    sales.map((sale) => (
+                    <TableRow key={sale.id}>
+                        <TableCell>{format(sale.date, 'P')}</TableCell>
+                        <TableCell>{sale.customerName}</TableCell>
+                        <TableCell>{sale.productName}</TableCell>
+                        <TableCell className="text-right">{sale.quantity} {sale.unit}</TableCell>
+                        <TableCell className="text-right">{sale.rate.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">{sale.totalAmount.toFixed(2)}</TableCell>
+                        <TableCell>{sale.paymentType}</TableCell>
+                    </TableRow>
+                    ))
+                )}
               </TableBody>
             </Table>
           </CardContent>
@@ -283,3 +303,5 @@ export default function SalesPage() {
     </div>
   );
 }
+
+    

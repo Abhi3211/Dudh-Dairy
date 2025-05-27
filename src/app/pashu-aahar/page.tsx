@@ -18,16 +18,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { DatePicker } from "@/components/ui/date-picker";
 import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag } from "lucide-react";
 import type { PashuAaharTransaction } from "@/lib/types";
+import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 
-const initialTransactions: PashuAaharTransaction[] = [
-  { id: "1", date: new Date(Date.now() - 86400000 * 2), type: "Purchase", productName: "Gold Coin Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 20, pricePerBag: 300, totalAmount: 6000 },
-  { id: "2", date: new Date(Date.now() - 86400000 * 1), type: "Sale", productName: "Gold Coin Feed", supplierOrCustomerName: "Ramesh Bhai", quantityBags: 5, pricePerBag: 350, totalAmount: 1750 },
-  { id: "3", date: new Date(Date.now() - 86400000 * 3), type: "Purchase", productName: "Super Pallet", supplierOrCustomerName: "Kamdhenu Agro", quantityBags: 15, pricePerBag: 320, totalAmount: 4800 },
-  { id: "4", date: new Date(Date.now() - 86400000 * 1), type: "Purchase", productName: "Nutri Plus Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 10, pricePerBag: 310, totalAmount: 3100 },
+const rawInitialTransactions: (Omit<PashuAaharTransaction, 'id' | 'date'> & { tempId: string, dateOffsetDays: number })[] = [
+  { tempId: "1", dateOffsetDays: -2, type: "Purchase", productName: "Gold Coin Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 20, pricePerBag: 300, totalAmount: 6000 },
+  { tempId: "2", dateOffsetDays: -1, type: "Sale", productName: "Gold Coin Feed", supplierOrCustomerName: "Ramesh Bhai", quantityBags: 5, pricePerBag: 350, totalAmount: 1750 },
+  { tempId: "3", dateOffsetDays: -3, type: "Purchase", productName: "Super Pallet", supplierOrCustomerName: "Kamdhenu Agro", quantityBags: 15, pricePerBag: 320, totalAmount: 4800 },
+  { tempId: "4", dateOffsetDays: -1, type: "Purchase", productName: "Nutri Plus Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 10, pricePerBag: 310, totalAmount: 3100 },
 ];
 
 export default function PashuAaharPage() {
-  const [transactions, setTransactions] = useState<PashuAaharTransaction[]>(initialTransactions);
+  const { toast } = useToast();
+  const [transactions, setTransactions] = useState<PashuAaharTransaction[]>([]);
   const [currentStockByProduct, setCurrentStockByProduct] = useState<Record<string, number>>({});
 
   const [date, setDate] = useState<Date | undefined>(undefined);
@@ -38,13 +41,19 @@ export default function PashuAaharPage() {
 
   useEffect(() => {
     setDate(new Date());
+    const processedTransactions = rawInitialTransactions.map(tx => {
+      const entryDate = new Date();
+      entryDate.setDate(entryDate.getDate() + tx.dateOffsetDays);
+      return { ...tx, id: tx.tempId, date: entryDate };
+    }).sort((a,b) => b.date.getTime() - a.date.getTime());
+    setTransactions(processedTransactions);
   }, []);
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
-    const sortedTransactions = [...transactions].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const sortedTransactionsForStock = [...transactions].sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    sortedTransactions.forEach(tx => {
+    sortedTransactionsForStock.forEach(tx => {
       const pName = tx.productName.trim();
       if (!stockCalc[pName]) {
         stockCalc[pName] = 0;
@@ -61,26 +70,42 @@ export default function PashuAaharPage() {
 
   const handlePurchaseSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !productName || !supplierName || !quantityBags || !pricePerBag) {
-      alert("Please fill all purchase fields."); // TODO: Replace with toast
+    if (!date || !productName.trim() || !supplierName.trim() || !quantityBags || !pricePerBag) {
+      toast({ title: "Error", description: "Please fill all purchase fields.", variant: "destructive" });
       return;
     }
+    const parsedQuantityBags = parseInt(quantityBags);
+    const parsedPricePerBag = parseFloat(pricePerBag);
+
+    if (isNaN(parsedQuantityBags) || parsedQuantityBags <= 0) {
+      toast({ title: "Error", description: "Quantity must be a positive number.", variant: "destructive" });
+      return;
+    }
+    if (isNaN(parsedPricePerBag) || parsedPricePerBag <= 0) {
+      toast({ title: "Error", description: "Price per bag must be a positive number.", variant: "destructive" });
+      return;
+    }
+
+
     const newTransaction: PashuAaharTransaction = {
       id: String(Date.now()),
       date,
       type: "Purchase",
       productName: productName.trim(),
-      supplierOrCustomerName: supplierName,
-      quantityBags: parseInt(quantityBags),
-      pricePerBag: parseFloat(pricePerBag),
-      totalAmount: parseInt(quantityBags) * parseFloat(pricePerBag),
+      supplierOrCustomerName: supplierName.trim(),
+      quantityBags: parsedQuantityBags,
+      pricePerBag: parsedPricePerBag,
+      totalAmount: parsedQuantityBags * parsedPricePerBag,
     };
     setTransactions(prevTransactions => [...prevTransactions, newTransaction].sort((a,b) => b.date.getTime() - a.date.getTime()));
+    
+    toast({ title: "Success", description: "Pashu Aahar purchase recorded." });
+    
     setProductName("");
     setSupplierName("");
     setQuantityBags("");
     setPricePerBag("");
-    setDate(new Date()); // Reset date for next entry
+    setDate(new Date()); 
   };
   
   return (
@@ -98,7 +123,9 @@ export default function PashuAaharPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
-          {Object.keys(currentStockByProduct).length === 0 ? (
+          {Object.keys(currentStockByProduct).length === 0 && transactions.length > 0 ? (
+             <p className="text-sm text-muted-foreground">Calculating stock...</p>
+          ) : Object.keys(currentStockByProduct).length === 0 ? (
             <p className="text-sm text-muted-foreground">No stock data available. Record a purchase to begin.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -160,7 +187,7 @@ export default function PashuAaharPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2"> {/* Changed from md:col-span-2 to lg:col-span-2 for better layout */}
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Transaction History</CardTitle>
             <CardDescription>Pashu Aahar purchases and sales affecting stock.</CardDescription>
@@ -186,7 +213,7 @@ export default function PashuAaharPage() {
                 )}
                 {transactions.map((tx) => (
                   <TableRow key={tx.id}>
-                    <TableCell>{tx.date.toLocaleDateString()}</TableCell>
+                    <TableCell>{format(tx.date, 'P')}</TableCell>
                     <TableCell>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.type === "Purchase" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
                         {tx.type}
@@ -207,4 +234,5 @@ export default function PashuAaharPage() {
     </div>
   );
 }
+
     

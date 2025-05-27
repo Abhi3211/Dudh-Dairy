@@ -26,17 +26,20 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription }from "@/comp
 import { DatePicker } from "@/components/ui/date-picker";
 import { IndianRupee, ArrowRightLeft, User, Banknote, StickyNote, PlusCircle } from "lucide-react";
 import type { PaymentEntry } from "@/lib/types";
+import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 
-const initialPayments: PaymentEntry[] = [
-  { id: "P1", date: new Date(), type: "Received", partyName: "Cash Sale", partyType: "Customer", amount: 500, mode: "Cash", notes: "Retail milk sale" },
-  { id: "P2", date: new Date(Date.now() - 86400000), type: "Paid", partyName: "Rajesh Kumar", partyType: "Dealer", amount: 1200, mode: "Bank", notes: "Weekly settlement" },
+const rawInitialPayments: (Omit<PaymentEntry, 'id' | 'date'> & { tempId: string, dateIsToday: boolean, dateTimestamp?: number })[] = [
+  { tempId: "P1", dateIsToday: true, type: "Received", partyName: "Cash Sale", partyType: "Customer", amount: 500, mode: "Cash", notes: "Retail milk sale" },
+  { tempId: "P2", dateIsToday: false, dateTimestamp: Date.now() - 86400000, type: "Paid", partyName: "Rajesh Kumar", partyType: "Dealer", amount: 1200, mode: "Bank", notes: "Weekly settlement" },
 ];
 
 const partyTypes: PaymentEntry['partyType'][] = ["Customer", "Dealer", "Supplier", "Employee"];
 const paymentModes: PaymentEntry['mode'][] = ["Cash", "Bank", "UPI"];
 
 export default function PaymentsPage() {
-  const [payments, setPayments] = useState<PaymentEntry[]>(initialPayments);
+  const { toast } = useToast();
+  const [payments, setPayments] = useState<PaymentEntry[]>([]);
 
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [type, setType] = useState<"Received" | "Paid">("Received");
@@ -48,30 +51,46 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     setDate(new Date());
+    const processedPayments = rawInitialPayments.map(p => {
+      const entryDate = p.dateIsToday ? new Date() : new Date(p.dateTimestamp!);
+      return { ...p, id: p.tempId, date: entryDate };
+    }).sort((a,b) => b.date.getTime() - a.date.getTime());
+    setPayments(processedPayments);
   }, []);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !partyName || !amount) {
-      alert("Please fill all required fields.");
+    if (!date || !partyName.trim() || !amount) {
+      toast({ title: "Error", description: "Please fill all required fields (Date, Party Name, Amount).", variant: "destructive" });
       return;
     }
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        toast({ title: "Error", description: "Please enter a valid amount.", variant: "destructive" });
+        return;
+    }
+
     const newPayment: PaymentEntry = {
       id: String(Date.now()),
       date,
       type,
-      partyName,
+      partyName: partyName.trim(),
       partyType,
-      amount: parseFloat(amount),
+      amount: parsedAmount,
       mode,
       notes,
     };
     setPayments(prevPayments => [newPayment, ...prevPayments].sort((a,b) => b.date.getTime() - a.date.getTime()));
-    // Reset form
+    
+    toast({ title: "Success", description: "Payment recorded." });
+
     setPartyName("");
     setAmount("");
     setNotes("");
-    setDate(new Date()); // Reset date for next entry
+    setDate(new Date());
+    setPartyType("Customer");
+    setMode("Cash");
+    setType("Received");
   };
 
   return (
@@ -134,7 +153,7 @@ export default function PaymentsPage() {
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Recent Payments</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Recent Payments</CardTitle><CardDescription>List of payments sorted by most recent.</CardDescription></CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
@@ -147,19 +166,25 @@ export default function PaymentsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {payments.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell>{p.date.toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.type === "Received" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
-                        {p.type}
-                      </span>
-                    </TableCell>
-                    <TableCell>{p.partyName} <span className="text-xs text-muted-foreground">({p.partyType})</span></TableCell>
-                    <TableCell className="text-right">{p.amount.toFixed(2)}</TableCell>
-                    <TableCell>{p.mode}</TableCell>
-                  </TableRow>
-                ))}
+                {payments.length === 0 ? (
+                     <TableRow>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground">No payments recorded yet.</TableCell>
+                    </TableRow>
+                ) : (
+                    payments.map((p) => (
+                    <TableRow key={p.id}>
+                        <TableCell>{format(p.date, 'P')}</TableCell>
+                        <TableCell>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.type === "Received" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
+                            {p.type}
+                        </span>
+                        </TableCell>
+                        <TableCell>{p.partyName} <span className="text-xs text-muted-foreground">({p.partyType})</span></TableCell>
+                        <TableCell className="text-right">{p.amount.toFixed(2)}</TableCell>
+                        <TableCell>{p.mode}</TableCell>
+                    </TableRow>
+                    ))
+                )}
               </TableBody>
             </Table>
           </CardContent>
@@ -168,3 +193,5 @@ export default function PaymentsPage() {
     </div>
   );
 }
+
+    

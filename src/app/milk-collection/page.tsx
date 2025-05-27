@@ -20,19 +20,17 @@ import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
 
-const initialEntries: MilkCollectionEntry[] = [
-  { id: "1", date: new Date(new Date().setDate(new Date().getDate() -1)), time: "08:30", dealerName: "Rajesh Kumar", quantityLtr: 10.5, fatPercentage: 4.2, ratePerLtr: 40, totalAmount: 420 },
-  { id: "2", date: new Date(), time: "09:15", dealerName: "Sunita Devi", quantityLtr: 15.2, fatPercentage: 3.8, ratePerLtr: 38, totalAmount: 577.6 },
-  { id: "3", date: new Date(), time: "07:45", dealerName: "Rajesh Kumar", quantityLtr: 8.0, fatPercentage: 4.5, ratePerLtr: 42, totalAmount: 336 },
+const rawInitialEntries: (Omit<MilkCollectionEntry, 'id' | 'date'> & { tempId: string, dateOffset: number })[] = [
+  { tempId: "1", dateOffset: -1, time: "08:30", dealerName: "Rajesh Kumar", quantityLtr: 10.5, fatPercentage: 4.2, ratePerLtr: 40, totalAmount: 420 },
+  { tempId: "2", dateOffset: 0, time: "09:15", dealerName: "Sunita Devi", quantityLtr: 15.2, fatPercentage: 3.8, ratePerLtr: 38, totalAmount: 577.6 },
+  { tempId: "3", dateOffset: 0, time: "07:45", dealerName: "Rajesh Kumar", quantityLtr: 8.0, fatPercentage: 4.5, ratePerLtr: 42, totalAmount: 336 },
 ];
-
-const knownDealerNames = Array.from(new Set(initialEntries.map(e => e.dealerName)));
-
 
 export default function MilkCollectionPage() {
   const { toast } = useToast();
-  const [entries, setEntries] = useState<MilkCollectionEntry[]>(initialEntries);
+  const [entries, setEntries] = useState<MilkCollectionEntry[]>([]);
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [time, setTime] = useState<string>("");
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
@@ -43,14 +41,24 @@ export default function MilkCollectionPage() {
 
   const [dealerNameSuggestions, setDealerNameSuggestions] = useState<string[]>([]);
   const [dealerPopoverOpen, setDealerPopoverOpen] = useState(false);
+  
+  const knownDealerNames = useMemo(() => Array.from(new Set(entries.map(e => e.dealerName))), [entries]);
 
-  // Effect to update time and date when component mounts, to avoid hydration mismatch for default time
   useEffect(() => {
     setDate(new Date());
     setTime(new Date().toTimeString().substring(0,5));
+    const processedEntries = rawInitialEntries.map(e => {
+      const entryDate = new Date();
+      entryDate.setDate(entryDate.getDate() + e.dateOffset);
+      return { ...e, id: e.tempId, date: entryDate };
+    }).sort((a,b) => {
+        const dateComparison = b.date.getTime() - a.date.getTime();
+        if (dateComparison !== 0) return dateComparison;
+        return b.time.localeCompare(a.time);
+    });
+    setEntries(processedEntries);
   }, []);
 
-  // Effect to calculate total amount based on quantity and the (editable) rate
   useEffect(() => {
     const quantityStr = quantityLtr.replace(',', '.');
     const rateStr = rateInputValue.replace(',', '.');
@@ -66,7 +74,7 @@ export default function MilkCollectionPage() {
   }, [quantityLtr, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
-    const sortedEntries = entries.sort((a, b) => {
+    const sortedEntries = [...entries].sort((a, b) => { // Create a new sorted array from entries
         const dateComparison = b.date.getTime() - a.date.getTime();
         if (dateComparison !== 0) return dateComparison;
         return b.time.localeCompare(a.time); 
@@ -88,7 +96,7 @@ export default function MilkCollectionPage() {
         name.toLowerCase().includes(value.toLowerCase())
       );
       setDealerNameSuggestions(filtered);
-      setDealerPopoverOpen(filtered.length > 0); // Simplified condition
+      setDealerPopoverOpen(filtered.length > 0);
     } else {
       setDealerNameSuggestions([]);
       setDealerPopoverOpen(false);
@@ -142,7 +150,15 @@ export default function MilkCollectionPage() {
       ratePerLtr: finalRate,
       totalAmount: finalTotalAmount,
     };
-    setEntries(prevEntries => [newEntry, ...prevEntries].sort((a,b) => b.date.getTime() - a.date.getTime() || b.time.localeCompare(a.time))); 
+    
+    setEntries(prevEntries => {
+      const updatedEntries = [newEntry, ...prevEntries];
+      // Update knownDealerNames if a new dealer is added
+      if (!knownDealerNames.includes(newEntry.dealerName)) {
+         // This will trigger useMemo for knownDealerNames if it depends on entries
+      }
+      return updatedEntries.sort((a,b) => b.date.getTime() - a.date.getTime() || b.time.localeCompare(a.time));
+    });
 
     toast({ title: "Success", description: "Milk collection entry added." });
 
@@ -150,8 +166,7 @@ export default function MilkCollectionPage() {
     setQuantityLtr("");
     setFatPercentage("");
     setRateInputValue("6.7"); 
-    setTime(new Date().toTimeString().substring(0,5)); // Reset time for next entry
-    // Date is not reset to allow multiple entries for the same day easily
+    setTime(new Date().toTimeString().substring(0,5));
   };
 
   return (
@@ -195,7 +210,7 @@ export default function MilkCollectionPage() {
                   </PopoverTrigger>
                   <PopoverContent
                     className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevent auto-focus stealing focus from input
+                    onOpenAutoFocus={(e) => e.preventDefault()}
                     sideOffset={5}
                   >
                     {dealerNameSuggestions.length > 0 ? (
@@ -203,14 +218,15 @@ export default function MilkCollectionPage() {
                         <div
                           key={name}
                           className="p-2 hover:bg-accent cursor-pointer text-sm"
-                          onMouseDown={() => handleDealerSuggestionClick(name)} // Use onMouseDown to prevent input blur before click
+                          onMouseDown={() => handleDealerSuggestionClick(name)}
                         >
                           {name}
                         </div>
                       ))
                     ) : (
-                      dealerNameInput.trim() && <div className="p-2 text-sm text-muted-foreground">No suggestions found.</div>
+                      dealerNameInput.trim() && knownDealerNames.length > 0 && <div className="p-2 text-sm text-muted-foreground">No suggestions found.</div>
                     )}
+                    {knownDealerNames.length === 0 && dealerNameInput.trim() && <div className="p-2 text-sm text-muted-foreground">No known dealers yet.</div>}
                   </PopoverContent>
                 </Popover>
               </div>
@@ -258,7 +274,7 @@ export default function MilkCollectionPage() {
           <CardHeader>
             <CardTitle>Recent Collections</CardTitle>
             <CardDescription>
-              {date ? `Showing collections for ${date.toLocaleDateString()}` : "Showing all recent collections."}
+              {date ? `Showing collections for ${format(date, 'PPP')}` : "Showing all recent collections."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -278,13 +294,13 @@ export default function MilkCollectionPage() {
                 {filteredEntries.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-muted-foreground">
-                      {date ? `No entries for ${date.toLocaleDateString()}.` : "No entries yet."}
+                      {date ? `No entries for ${format(date, 'P')}.` : "No entries yet."}
                     </TableCell>
                   </TableRow>
                 )}
                 {filteredEntries.map((entry) => (
                   <TableRow key={entry.id}>
-                    <TableCell>{entry.date.toLocaleDateString()}</TableCell>
+                    <TableCell>{format(entry.date, 'P')}</TableCell>
                     <TableCell>{entry.time}</TableCell>
                     <TableCell>{entry.dealerName}</TableCell>
                     <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
@@ -301,3 +317,5 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+
+    

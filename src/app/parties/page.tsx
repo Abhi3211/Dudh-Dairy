@@ -36,8 +36,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import { format } from "date-fns";
 
-// Mock data for parties - this will be used now instead of Firestore
 const initialMockParties: Party[] = [
   { id: "D1", name: "Rajesh Kumar", type: "Dealer" },
   { id: "D2", name: "Sunita Devi", type: "Dealer" },
@@ -47,30 +47,38 @@ const initialMockParties: Party[] = [
   { id: "E2", name: "Vijay Singh", type: "Employee" },
 ];
 
-// Mock function to get ledger entries for a party
 const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   if (!party) return [];
-  // console.log("Fetching mock ledger for party:", party.name, party.id);
+  
+  // Use an array of raw ledger entries with date offsets
+  const rawLedgerEntries: (Omit<PartyLedgerEntry, 'id'|'date'|'balance'> & {tempId: string, dateOffset: number})[] = [];
+
   if (party.type === "Dealer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) {
-    return [
-      { id: "L1", date: new Date(Date.now() - 86400000 * 2), description: "Milk Collection", milkQuantityLtr: 10.5, credit: 420, balance: 0 },
-      { id: "L2", date: new Date(Date.now() - 86400000 * 1), description: "Payment to Party", debit: 300, balance: 0 },
-      { id: "L3", date: new Date(), description: "Milk Collection", milkQuantityLtr: 12.0, credit: 480, balance: 0 },
-    ];
+    rawLedgerEntries.push(
+      { tempId: "L1", dateOffset: -2, description: "Milk Collection", milkQuantityLtr: 10.5, credit: 420 },
+      { tempId: "L2", dateOffset: -1, description: "Payment to Party", debit: 300 },
+      { tempId: "L3", dateOffset: 0, description: "Milk Collection", milkQuantityLtr: 12.0, credit: 480 }
+    );
   }
   if (party.type === "Customer" && party.name.includes("Cafe")) {
-    return [
-        { id: "CL1", date: new Date(Date.now() - 86400000 * 1), description: "Milk Sold on Credit", debit: 600, balance: 0 },
-        { id: "CL2", date: new Date(), description: "Payment Received", credit: 500, balance: 0 },
-    ];
+     rawLedgerEntries.push(
+        { tempId: "CL1", dateOffset: -1, description: "Milk Sold on Credit", debit: 600 },
+        { tempId: "CL2", dateOffset: 0, description: "Payment Received", credit: 500 }
+    );
   }
   if (party.type === "Supplier" && party.name.includes("Feeds")) {
-    return [
-        { id: "SL1", date: new Date(Date.now() - 86400000 * 2), description: "Pashu Aahar Purchase", credit: 5000, balance: 0 },
-        { id: "SL2", date: new Date(Date.now() - 86400000 * 1), description: "Payment Made", debit: 4000, balance: 0 },
-    ];
+    rawLedgerEntries.push(
+        { tempId: "SL1", dateOffset: -2, description: "Pashu Aahar Purchase", credit: 5000 },
+        { tempId: "SL2", dateOffset: -1, description: "Payment Made", debit: 4000 }
+    );
   }
-  return [];
+
+  // Process raw entries to create Date objects
+  return rawLedgerEntries.map(entry => {
+    const date = new Date();
+    date.setDate(date.getDate() + entry.dateOffset);
+    return { ...entry, id: entry.tempId, date, balance: 0 }; // Initial balance, will be calculated later
+  });
 };
 
 const partyTypes: Party['type'][] = ["Dealer", "Customer", "Supplier", "Employee"];
@@ -79,7 +87,7 @@ const partyTypes: Party['type'][] = ["Dealer", "Customer", "Supplier", "Employee
 export default function PartiesPage() {
   const { toast } = useToast();
   const [parties, setParties] = useState<Party[]>(initialMockParties);
-  const [isLoadingParties, setIsLoadingParties] = useState(false); // Set to false as data is local
+  const [isLoadingParties, setIsLoadingParties] = useState(false); 
   const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined);
   const [ledgerEntries, setLedgerEntries] = useState<PartyLedgerEntry[]>([]);
 
@@ -94,7 +102,7 @@ export default function PartiesPage() {
   useEffect(() => {
     if (selectedPartyId) {
       const party = parties.find(p => p.id === selectedPartyId);
-      const initialLedger = getPartyLedger(party);
+      const initialLedger = getPartyLedger(party); // This now returns dates created with new Date() for relative offsets
       let runningBalance = 0;
       const calculatedEntries = initialLedger
         .sort((a, b) => a.date.getTime() - b.date.getTime())
@@ -129,7 +137,7 @@ export default function PartiesPage() {
       return;
     }
     const newParty: Party = {
-      id: String(Date.now()), // Simple ID generation for client-side
+      id: String(Date.now()), 
       name: newPartyName.trim(),
       type: newPartyType,
     };
@@ -211,7 +219,7 @@ export default function PartiesPage() {
                   {ledgerEntries.length === 0 && (<TableRow><TableCell colSpan={5} className="text-center">No transactions for this party.</TableCell></TableRow>)}
                   {ledgerEntries.map(entry => (
                     <TableRow key={entry.id}>
-                      <TableCell>{entry.date.toLocaleDateString()}</TableCell>
+                      <TableCell>{format(entry.date, 'P')}</TableCell>
                       <TableCell>{entry.description} {entry.milkQuantityLtr && selectedParty.type === 'Dealer' ? `(${entry.milkQuantityLtr}L)` : ''}</TableCell>
                       <TableCell className="text-right text-chart-4">{entry.debit?.toFixed(2) || "-"}</TableCell>
                       <TableCell className="text-right text-chart-3">{entry.credit?.toFixed(2) || "-"}</TableCell>
@@ -285,3 +293,5 @@ export default function PartiesPage() {
     </div>
   );
 }
+
+    
