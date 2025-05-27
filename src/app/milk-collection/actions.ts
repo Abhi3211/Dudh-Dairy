@@ -4,7 +4,7 @@
 import { db } from '@/lib/firebase';
 import type { MilkCollectionEntry } from '@/lib/types';
 import { collection, addDoc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
-import { revalidatePath } from 'next/cache';
+// import { revalidatePath } from 'next/cache'; // Removed for client-side re-fetch
 
 export async function addMilkCollectionEntryToFirestore(
   entryData: Omit<MilkCollectionEntry, 'id'>
@@ -14,7 +14,7 @@ export async function addMilkCollectionEntryToFirestore(
     // Firestore SDK converts JS Date to Timestamp automatically
     const docRef = await addDoc(collection(db, 'milkCollections'), entryData);
     console.log("Milk collection entry successfully added to Firestore with ID:", docRef.id);
-    revalidatePath('/milk-collection');
+    // revalidatePath('/milk-collection'); // Removed: client will re-fetch
     return { success: true, id: docRef.id };
   } catch (error) {
     console.error("Error adding milk collection entry to Firestore:", error);
@@ -40,10 +40,11 @@ export async function getMilkCollectionEntriesFromFirestore(): Promise<MilkColle
         date: (data.date as Timestamp).toDate(), // Convert Firestore Timestamp to JS Date
       } as MilkCollectionEntry;
     });
-    console.log("Successfully fetched milk collection entries:", entryList.length);
+    console.log("Successfully fetched milk collection entries from Firestore, count:", entryList.length);
     return entryList;
   } catch (error) {
     console.error("Error fetching milk collection entries from Firestore:", error);
     return [];
   }
 }
+

@@ -40,6 +40,7 @@ export default function MilkCollectionPage() {
     setIsLoadingEntries(true);
     try {
       const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
+      console.log('Client: Fetched entries from Firestore:', JSON.stringify(fetchedEntries.map(e => ({...e, date: e.date.toISOString()})), null, 2)); // Added detailed log
       setAllEntries(fetchedEntries);
     } catch (error) {
       console.error("Failed to fetch milk collection entries:", error);
@@ -70,15 +71,13 @@ export default function MilkCollectionPage() {
   }, [quantityLtr, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
-    // Sorting is now handled by the Firestore query (date desc, time desc)
-    // If a date is selected in the form's date picker, filter by that date
     if (!date) return allEntries;
 
-    return allEntries.filter(entry =>
-      entry.date.getFullYear() === date.getFullYear() &&
-      entry.date.getMonth() === date.getMonth() &&
-      entry.date.getDate() === date.getDate()
-    );
+    const targetDateStr = format(date, 'yyyy-MM-dd');
+    return allEntries.filter(entry => {
+      const entryDateStr = format(entry.date, 'yyyy-MM-dd');
+      return entryDateStr === targetDateStr;
+    });
   }, [allEntries, date]);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -112,7 +111,7 @@ export default function MilkCollectionPage() {
     const finalTotalAmount = qLtr * finalRate;
 
     const newEntryData: Omit<MilkCollectionEntry, 'id'> = {
-      date, // JS Date object
+      date, 
       time,
       dealerName: dealerNameInput.trim(),
       quantityLtr: qLtr,
@@ -121,22 +120,21 @@ export default function MilkCollectionPage() {
       totalAmount: finalTotalAmount,
     };
     
-    setIsLoadingEntries(true); // Show loading indicator while adding
+    setIsLoadingEntries(true); 
     const result = await addMilkCollectionEntryToFirestore(newEntryData);
     
     if (result.success) {
       toast({ title: "Success", description: "Milk collection entry added." });
-      // Reset form fields
       setDealerNameInput("");
       setQuantityLtr("");
       setFatPercentage("");
       setRateInputValue("6.7"); 
       setTime(new Date().toTimeString().substring(0,5));
-      // setDate(new Date()); // Keep current form date or reset as preferred
-      await fetchEntries(); // Re-fetch entries to update the list
+      // Date state for filtering should remain the same, so user sees the newly added entry
+      await fetchEntries(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
-      setIsLoadingEntries(false); // Stop loading if add failed
+      setIsLoadingEntries(false); 
     }
   };
 
@@ -250,6 +248,7 @@ export default function MilkCollectionPage() {
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground">
                         {date ? `No entries for ${format(date, 'P')}.` : "No entries yet."}
+                        {date && allEntries.length > 0 && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -274,3 +273,4 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+
