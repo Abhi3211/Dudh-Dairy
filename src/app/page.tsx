@@ -19,7 +19,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 // Simulated data fetching function
 const getDashboardData = async (startDate: Date, endDate: Date): Promise<DashboardData> => {
   // Simulate API call delay - REMOVED for faster mock loading
-  // await new Promise(resolve => setTimeout(resolve, 500));
 
   const summary: DailySummary = {
     milkPurchasedLitres: 0,
@@ -142,24 +141,26 @@ export default function DashboardPage() {
     );
 
     setIsLoading(false);
-  }, [calculateDateRange, filterType]);
+  }, [calculateDateRange, filterType]); // filterType added as it affects periodPrefix
 
   useEffect(() => {
+    // Initialize custom dates on client mount to avoid hydration issues with new Date()
     if (customStartDate === undefined) {
       setCustomStartDate(subDays(new Date(), 7));
     }
     if (customEndDate === undefined) {
       setCustomEndDate(new Date());
     }
-  }, []); 
+  }, []); // Empty dependency array ensures this runs once on mount
 
 
   useEffect(() => {
+    // Ensure custom dates are set before fetching if filterType is 'custom'
     if (filterType === 'custom' && (!customStartDate || !customEndDate)) {
-      return; 
+      return; // Don't fetch if custom dates are not ready
     }
     fetchData();
-  }, [fetchData, filterType, customStartDate, customEndDate]); 
+  }, [fetchData, filterType, customStartDate, customEndDate]); // Dependencies for re-fetching
 
   const summaryItems = useMemo(() => {
     if (!summary) return [];

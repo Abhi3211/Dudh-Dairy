@@ -20,7 +20,7 @@ const userRole: "admin" | "accountant" = "admin";
 
 // Simulated data fetching function
 const getPlData = async (startDate: Date, endDate: Date): Promise<FullProfitLossData> => {
-  await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay
+  // await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay - REMOVED
 
   const periodDays = Math.max(1, differenceInDays(endDate, startDate) + 1);
   
@@ -84,11 +84,13 @@ const chartConfig = {
 
 export default function ProfitLossPage() {
   const [filterType, setFilterType] = useState<string>("monthly");
-  const [customStartDate, setCustomStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
-  const [customEndDate, setCustomEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
+  const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
+  const [customEndDate, setCustomEndDate] = useState<Date | undefined>(undefined);
   
   const [plData, setPlData] = useState<FullProfitLossData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [displayedDateRangeString, setDisplayedDateRangeString] = useState<string>("Loading date range...");
+
 
   const calculateDateRange = useCallback(() => {
     const today = new Date();
@@ -111,7 +113,7 @@ export default function ProfitLossPage() {
       case "custom":
         start = customStartDate || subDays(today, 7);
         end = customEndDate || today;
-        if (start > end) end = start; // Ensure end is not before start
+        if (start > end) end = start; 
         break;
     }
     return { startDate: start, endDate: end };
@@ -126,12 +128,41 @@ export default function ProfitLossPage() {
     const { startDate, endDate } = calculateDateRange();
     const data = await getPlData(startDate, endDate);
     setPlData(data);
+
+    const formattedStartDate = format(startDate, "MMM dd, yyyy");
+    const formattedEndDate = format(endDate, "MMM dd, yyyy");
+    let periodPrefix = "";
+     if (filterType === 'daily' && formattedStartDate === formattedEndDate) {
+      periodPrefix = "today's";
+    } else if (filterType === 'daily') {
+       periodPrefix = `for ${formattedStartDate}`;
+    } else {
+      periodPrefix = `the selected ${filterType}`;
+    }
+    setDisplayedDateRangeString(
+      `Showing data for ${periodPrefix}: ${formattedStartDate}${startDate.getTime() !== endDate.getTime() ? ` - ${formattedEndDate}` : ''}`
+    );
+
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); // filterType is included as it's a dependency of calculateDateRange indirectly.
+  }, [calculateDateRange, filterType]); // filterType added as it affects periodPrefix
+
 
   useEffect(() => {
+    // Initialize custom dates on client mount
+    if (customStartDate === undefined) {
+      setCustomStartDate(startOfMonth(new Date()));
+    }
+    if (customEndDate === undefined) {
+      setCustomEndDate(endOfMonth(new Date()));
+    }
+  }, []);
+
+  useEffect(() => {
+     if (filterType === 'custom' && (!customStartDate || !customEndDate)) {
+      return; 
+    }
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, filterType, customStartDate, customEndDate]);
 
   if (userRole !== "admin") {
     return (
@@ -157,14 +188,11 @@ export default function ProfitLossPage() {
     );
   }
 
-  const currentRange = calculateDateRange();
-  const formattedPeriod = `${format(currentRange.startDate, "MMM dd, yyyy")} - ${format(currentRange.endDate, "MMM dd, yyyy")}`;
-
   return (
     <div>
       <PageHeader
         title="Profit & Loss Statement"
-        description={`Financial performance for the period: ${formattedPeriod}`}
+        description={displayedDateRangeString.replace("Showing data for ", "Financial performance for the period: ")}
       />
       
       <Card className="mb-6">
@@ -204,14 +232,19 @@ export default function ProfitLossPage() {
         <CardHeader>
           <CardTitle>Profit/Loss Report</CardTitle>
           <CardDescription>
-            Showing data for {filterType === 'daily' ? 'today' : `the selected ${filterType}`} period.
+            {displayedDateRangeString}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {isLoading ? (
             <div className="space-y-4">
-              <Skeleton className="h-8 w-3/4" /> <Skeleton className="h-6 w-1/2" />
-              {/* Add more skeletons for detailed P/L structure */}
+              <Skeleton className="h-8 w-3/4 mb-2" /> 
+              <Skeleton className="h-6 w-1/2 mb-1" />
+              <Skeleton className="h-6 w-1/2 mb-1" />
+              <Skeleton className="h-6 w-1/2 mb-4" />
+              <Skeleton className="h-8 w-3/4 mb-2" />
+              <Skeleton className="h-6 w-1/2 mb-4" />
+              <Skeleton className="h-8 w-3/4" />
             </div>
           ) : plData && plData.summary ? (
             <>
@@ -277,7 +310,7 @@ export default function ProfitLossPage() {
           <CardHeader>
             <CardTitle>Net Profit/Loss Trend</CardTitle>
             <CardDescription>
-              Daily net profit/loss for the period: {format(currentRange.startDate, "MMM dd, yyyy")} - {format(currentRange.endDate, "MMM dd, yyyy")}
+              {displayedDateRangeString.replace("Showing data for ", "Daily net profit/loss for the period: ")}
             </CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] sm:h-[400px]">
@@ -300,8 +333,8 @@ export default function ProfitLossPage() {
                   <Tooltip 
                     content={<ChartTooltipContent 
                       indicator="line" 
-                      formatter={(value, name, entry) => { // Changed here: added 'entry' parameter
-                        const dataPoint = entry.payload as PlChartDataPoint | undefined; // Access payload from 'entry'
+                      formatter={(value, name, entry) => {
+                        const dataPoint = entry.payload as PlChartDataPoint | undefined;
                         return (
                           <div className="flex flex-col">
                             <span className="text-xs text-muted-foreground">{name} ({dataPoint?.date})</span>
@@ -326,4 +359,3 @@ export default function ProfitLossPage() {
     </div>
   );
 }
-
