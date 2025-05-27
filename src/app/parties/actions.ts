@@ -1,45 +1,30 @@
 
 'use server';
 
-import { db } from '@/lib/firebase';
+// import { db } from '@/lib/firebase'; // No longer needed
 import type { Party } from '@/lib/types';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
-import { revalidatePath } from 'next/cache';
+// import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from 'firebase/firestore'; // No longer needed
+// import { revalidatePath } from 'next/cache'; // No longer needed
+
+// Firestore functions are removed.
+// If these server actions are called, they will do nothing or might error
+// if not properly handled by the calling client component.
+// The client component /src/app/parties/page.tsx has been updated
+// to manage state locally and not call these actions.
 
 export async function getPartiesFromFirestore(): Promise<Party[]> {
-  try {
-    const partiesCollection = collection(db, 'parties');
-    const q = query(partiesCollection, orderBy('name', 'asc'));
-    const partySnapshot = await getDocs(q);
-    const partyList = partySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Party));
-    return partyList;
-  } catch (error) {
-    console.error("Error fetching parties: ", error);
-    // In a real app, you might throw the error or return an object indicating failure
-    return []; 
-  }
+  console.warn("getPartiesFromFirestore server action called, but Firestore integration is currently disabled for parties. Returning empty array.");
+  return [];
 }
 
 export async function addPartyToFirestore(partyData: Omit<Party, 'id'>): Promise<{ success: boolean; id?: string; error?: string }> {
-  try {
-    const partiesCollection = collection(db, 'parties');
-    const docRef = await addDoc(partiesCollection, partyData);
-    revalidatePath('/parties'); // Revalidate the parties page to show the new party
-    return { success: true, id: docRef.id };
-  } catch (error) {
-    console.error("Error adding party: ", error);
-    return { success: false, error: (error as Error).message || "Failed to add party" };
-  }
+  console.warn("addPartyToFirestore server action called, but Firestore integration is currently disabled for parties.", partyData);
+  // Simulate failure as we are not interacting with a database
+  return { success: false, error: "Firestore integration is disabled for parties." };
 }
 
 export async function deletePartyFromFirestore(partyId: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const partyDocRef = doc(db, 'parties', partyId);
-    await deleteDoc(partyDocRef);
-    revalidatePath('/parties'); // Revalidate the parties page
-    return { success: true };
-  } catch (error) {
-    console.error("Error deleting party: ", error);
-    return { success: false, error: (error as Error).message || "Failed to delete party" };
-  }
+  console.warn("deletePartyFromFirestore server action called, but Firestore integration is currently disabled for parties.", partyId);
+  // Simulate failure
+  return { success: false, error: "Firestore integration is disabled for parties." };
 }

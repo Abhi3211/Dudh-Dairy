@@ -35,15 +35,23 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore } from "./actions";
 import { Skeleton } from "@/components/ui/skeleton";
 
+// Mock data for parties - this will be used now instead of Firestore
+const initialMockParties: Party[] = [
+  { id: "D1", name: "Rajesh Kumar", type: "Dealer" },
+  { id: "D2", name: "Sunita Devi", type: "Dealer" },
+  { id: "C1", name: "Local Cafe", type: "Customer" },
+  { id: "S1", name: "Shakti Feeds", type: "Supplier" },
+  { id: "E1", name: "Anita Sharma", type: "Employee" },
+  { id: "E2", name: "Vijay Singh", type: "Employee" },
+];
 
-// Mock function to get ledger entries for a party - TODO: Migrate this to Firestore
+// Mock function to get ledger entries for a party
 const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   if (!party) return [];
-  console.log("Fetching mock ledger for party:", party.name, party.id);
-  if (party.type === "Dealer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) { // Loosen mock data linkage
+  // console.log("Fetching mock ledger for party:", party.name, party.id);
+  if (party.type === "Dealer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) {
     return [
       { id: "L1", date: new Date(Date.now() - 86400000 * 2), description: "Milk Collection", milkQuantityLtr: 10.5, credit: 420, balance: 0 },
       { id: "L2", date: new Date(Date.now() - 86400000 * 1), description: "Payment to Party", debit: 300, balance: 0 },
@@ -62,7 +70,7 @@ const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
         { id: "SL2", date: new Date(Date.now() - 86400000 * 1), description: "Payment Made", debit: 4000, balance: 0 },
     ];
   }
-  return []; 
+  return [];
 };
 
 const partyTypes: Party['type'][] = ["Dealer", "Customer", "Supplier", "Employee"];
@@ -70,11 +78,11 @@ const partyTypes: Party['type'][] = ["Dealer", "Customer", "Supplier", "Employee
 
 export default function PartiesPage() {
   const { toast } = useToast();
-  const [parties, setParties] = useState<Party[]>([]);
-  const [isLoadingParties, setIsLoadingParties] = useState(true);
+  const [parties, setParties] = useState<Party[]>(initialMockParties);
+  const [isLoadingParties, setIsLoadingParties] = useState(false); // Set to false as data is local
   const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined);
   const [ledgerEntries, setLedgerEntries] = useState<PartyLedgerEntry[]>([]);
-  
+
   const [newPartyName, setNewPartyName] = useState("");
   const [newPartyType, setNewPartyType] = useState<Party['type']>("Dealer");
 
@@ -83,21 +91,9 @@ export default function PartiesPage() {
 
   const selectedParty = parties.find(p => p.id === selectedPartyId);
 
-  const fetchParties = useCallback(async () => {
-    setIsLoadingParties(true);
-    const fetchedParties = await getPartiesFromFirestore();
-    setParties(fetchedParties);
-    setIsLoadingParties(false);
-  }, []);
-
-  useEffect(() => {
-    fetchParties();
-  }, [fetchParties]);
-
   useEffect(() => {
     if (selectedPartyId) {
       const party = parties.find(p => p.id === selectedPartyId);
-      // TODO: Ledger entries should also be fetched from Firestore based on partyId
       const initialLedger = getPartyLedger(party);
       let runningBalance = 0;
       const calculatedEntries = initialLedger
@@ -110,13 +106,13 @@ export default function PartiesPage() {
     } else {
       setLedgerEntries([]);
     }
-  }, [selectedPartyId, parties]); // `parties` is needed here if getPartyLedger depends on it
+  }, [selectedPartyId, parties]);
 
   const partySummary = ledgerEntries.reduce((acc, entry) => {
       if (selectedParty?.type === "Dealer") {
         acc.totalMilk += entry.milkQuantityLtr || 0;
-        acc.totalPayableToDealer += entry.credit || 0; 
-        acc.totalPaidToDealer += entry.debit || 0;    
+        acc.totalPayableToDealer += entry.credit || 0;
+        acc.totalPaidToDealer += entry.debit || 0;
       }
       acc.totalDebits += entry.debit || 0;
       acc.totalCredits += entry.credit || 0;
@@ -126,28 +122,21 @@ export default function PartiesPage() {
   const netPayableToDealer = selectedParty?.type === "Dealer" ? partySummary.totalPayableToDealer - partySummary.totalPaidToDealer : 0;
   const currentOverallBalance = ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0;
 
-  const handleAddPartySubmit = async (e: FormEvent) => {
+  const handleAddPartySubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!newPartyName.trim()) {
       toast({ title: "Error", description: "Party name cannot be empty.", variant: "destructive" });
       return;
     }
-    const partyData: Omit<Party, 'id'> = {
+    const newParty: Party = {
+      id: String(Date.now()), // Simple ID generation for client-side
       name: newPartyName.trim(),
       type: newPartyType,
     };
-    const result = await addPartyToFirestore(partyData);
-    if (result.success && result.id) {
-      // Optimistically update or re-fetch
-      // For simplicity, we'll rely on revalidatePath to trigger a re-fetch if needed,
-      // or manually re-fetch here.
-      await fetchParties(); // Re-fetch to get the latest list including the new one.
-      setNewPartyName("");
-      setNewPartyType("Dealer");
-      toast({ title: "Success", description: `Party "${partyData.name}" added.` });
-    } else {
-      toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
-    }
+    setParties(prevParties => [...prevParties, newParty].sort((a, b) => a.name.localeCompare(b.name)));
+    setNewPartyName("");
+    setNewPartyType("Dealer");
+    toast({ title: "Success", description: `Party "${newParty.name}" added.` });
   };
 
   const openDeleteDialog = (party: Party) => {
@@ -155,20 +144,14 @@ export default function PartiesPage() {
     setDeleteDialogOpen(true);
   };
 
-  const confirmDeleteParty = async () => {
+  const confirmDeleteParty = () => {
     if (partyToDelete) {
-      const result = await deletePartyFromFirestore(partyToDelete.id);
-      if (result.success) {
-        // Optimistically update or re-fetch
-        setParties(prevParties => prevParties.filter(p => p.id !== partyToDelete.id)); // Optimistic update
-        toast({ title: "Success", description: `Party "${partyToDelete.name}" deleted.` });
-        if (selectedPartyId === partyToDelete.id) {
-          setSelectedPartyId(undefined); 
-        }
-        setPartyToDelete(null);
-      } else {
-        toast({ title: "Error", description: result.error || "Failed to delete party.", variant: "destructive" });
+      setParties(prevParties => prevParties.filter(p => p.id !== partyToDelete.id));
+      toast({ title: "Success", description: `Party "${partyToDelete.name}" deleted.` });
+      if (selectedPartyId === partyToDelete.id) {
+        setSelectedPartyId(undefined);
       }
+      setPartyToDelete(null);
     }
     setDeleteDialogOpen(false);
   };
@@ -176,7 +159,7 @@ export default function PartiesPage() {
   return (
     <div>
       <PageHeader title="Parties & Ledgers" description="Manage parties and view their transaction ledgers." />
-      
+
       <div className="mb-6">
         <Label htmlFor="partySelect">Select Party to View Ledger</Label>
         {isLoadingParties ? (
@@ -201,7 +184,7 @@ export default function PartiesPage() {
           <CardHeader className="px-0 pt-0 pb-4">
              <CardTitle className="text-xl">Ledger for: {selectedParty.name} ({selectedParty.type})</CardTitle>
           </CardHeader>
-          
+
           {selectedParty.type === "Dealer" && (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
               <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Milk Supplied</CardTitle><Milk className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{partySummary.totalMilk.toFixed(1)} Ltr</div></CardContent></Card>
@@ -215,19 +198,17 @@ export default function PartiesPage() {
             <CardHeader>
               <CardTitle>Transaction History for {selectedParty.name}</CardTitle>
               <CardDescription>
-                Current Balance (Mock Data): ₹{currentOverallBalance.toFixed(2)} 
+                Current Balance: ₹{currentOverallBalance.toFixed(2)}
                 {currentOverallBalance > 0 && " (Party Owes Us)"}
                 {currentOverallBalance < 0 && " (We Owe Party)"}
                 {currentOverallBalance === 0 && " (Settled)"}
-                <br />
-                <em className="text-xs text-muted-foreground">(Note: Ledger data is currently mocked. Full Firestore integration for ledgers is pending.)</em>
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {ledgerEntries.length === 0 && (<TableRow><TableCell colSpan={5} className="text-center">No transactions for this party (mock data).</TableCell></TableRow>)}
+                  {ledgerEntries.length === 0 && (<TableRow><TableCell colSpan={5} className="text-center">No transactions for this party.</TableCell></TableRow>)}
                   {ledgerEntries.map(entry => (
                     <TableRow key={entry.id}>
                       <TableCell>{entry.date.toLocaleDateString()}</TableCell>
@@ -243,11 +224,11 @@ export default function PartiesPage() {
           </Card>
         </div>
       )}
-      
+
       {!selectedPartyId && !isLoadingParties && parties.length > 0 && (
         <p className="text-center text-muted-foreground my-8">Please select a party to view their ledger.</p>
       )}
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         <Card>
           <CardHeader><CardTitle>Add New Party</CardTitle><CardDescription>Create a new dealer, customer, supplier, or employee.</CardDescription></CardHeader>
@@ -261,7 +242,7 @@ export default function PartiesPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Manage Parties</CardTitle><CardDescription>View and remove existing parties from Firestore.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Manage Parties</CardTitle><CardDescription>View and remove existing parties.</CardDescription></CardHeader>
           <CardContent>
             {isLoadingParties ? (
               <div>
@@ -270,7 +251,7 @@ export default function PartiesPage() {
                 <Skeleton className="h-8 w-full" />
               </div>
             ) : parties.length === 0 ? (
-              <p className="text-muted-foreground text-center">No parties found in Firestore. Add one to get started.</p>
+              <p className="text-muted-foreground text-center">No parties found. Add one to get started.</p>
             ) : (
               <Table>
                 <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
@@ -296,7 +277,7 @@ export default function PartiesPage() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone. This will permanently delete the party "{partyToDelete?.name}" from Firestore.</AlertDialogDescription>
+            <AlertDialogDescription>This action cannot be undone. This will permanently delete the party "{partyToDelete?.name}".</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteParty} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
