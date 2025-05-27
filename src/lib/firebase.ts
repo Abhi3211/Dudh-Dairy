@@ -1,31 +1,24 @@
-
 // Import the functions you need from the SDKs you need
-import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getFirestore, type Firestore } from "firebase/firestore";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+import { initializeApp, type FirebaseApp } from "firebase/app";
+import { getAnalytics, type Analytics } from "firebase/analytics";
+import { getFirestore, type Firestore } from "firebase/firestore"; // Import Firestore
 
 // Your web app's Firebase configuration
-// IMPORTANT: Replace these with your actual Firebase project credentials
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "YOUR_ACTUAL_API_KEY", // MAKE SURE TO REPLACE THIS
+  authDomain: "YOUR_ACTUAL_AUTH_DOMAIN", // MAKE SURE TO REPLACE THIS
+  projectId: "YOUR_ACTUAL_PROJECT_ID", // MAKE SURE TO REPLACE THIS
+  storageBucket: "YOUR_ACTUAL_STORAGE_BUCKET", // MAKE SURE TO REPLACE THIS
+  messagingSenderId: "YOUR_ACTUAL_MESSAGING_SENDER_ID", // MAKE SURE TO REPLACE THIS
+  appId: "YOUR_ACTUAL_APP_ID", // MAKE SURE TO REPLACE THIS
+  measurementId: "YOUR_ACTUAL_MEASUREMENT_ID" // Optional, but replace if you have it
 };
 
 // Initialize Firebase
-let app: FirebaseApp;
-let db: Firestore;
+const app: FirebaseApp = initializeApp(firebaseConfig);
+const analytics: Analytics = getAnalytics(app);
+const db: Firestore = getFirestore(app); // Initialize Firestore
 
-if (getApps().length === 0) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApps()[0];
-}
-
-db = getFirestore(app);
-
-export { app, db };
+// Export the instances you'll need
+export { app, db, analytics };
