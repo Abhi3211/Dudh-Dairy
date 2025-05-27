@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useMemo, useCallback } from "react";
+import { useState, type FormEvent, useEffect, useMemo, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +43,7 @@ export default function MilkCollectionPage() {
   // Dealer name suggestions state
   const [dealerSuggestions, setDealerSuggestions] = useState<string[]>([]);
   const [isDealerPopoverOpen, setIsDealerPopoverOpen] = useState(false);
+  const dealerNameInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEntries = useCallback(async () => {
     setIsLoadingEntries(true);
@@ -94,6 +95,7 @@ export default function MilkCollectionPage() {
     setDealerNameInput(suggestion);
     setDealerSuggestions([]);
     setIsDealerPopoverOpen(false);
+    dealerNameInputRef.current?.focus(); // Explicitly focus the input
   };
 
 
@@ -208,6 +210,7 @@ export default function MilkCollectionPage() {
                   <PopoverTrigger asChild>
                     <Input
                         id="dealerName"
+                        ref={dealerNameInputRef}
                         value={dealerNameInput}
                         onChange={(e) => handleDealerNameChange(e.target.value)}
                         placeholder="Type to search dealer"
@@ -218,7 +221,7 @@ export default function MilkCollectionPage() {
                   </PopoverTrigger>
                   <PopoverContent 
                     className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevents focus stealing on open
+                    onOpenAutoFocus={(e) => e.preventDefault()} 
                     sideOffset={5}
                   >
                     {dealerSuggestions.length === 0 && dealerNameInput.trim() ? (
@@ -229,7 +232,7 @@ export default function MilkCollectionPage() {
                           <div
                             key={suggestion}
                             className="p-2 hover:bg-accent cursor-pointer text-sm"
-                            onClick={() => handleDealerSuggestionClick(suggestion)} // Changed from onMouseDown
+                            onClick={() => handleDealerSuggestionClick(suggestion)} 
                           >
                             {suggestion}
                           </div>
