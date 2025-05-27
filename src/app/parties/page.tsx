@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useCallback, useMemo } from "react";
+import { useState, type FormEvent, useEffect, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,16 +37,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
+import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore } from "./actions";
 
-const initialMockParties: Party[] = [
-  { id: "D1", name: "Rajesh Kumar", type: "Dealer" },
-  { id: "D2", name: "Sunita Devi", type: "Dealer" },
-  { id: "C1", name: "Local Cafe", type: "Customer" },
-  { id: "S1", name: "Shakti Feeds", type: "Supplier" },
-  { id: "E1", name: "Anita Sharma", type: "Employee" },
-  { id: "E2", name: "Vijay Singh", type: "Employee" },
-];
-
+// Mock ledger data, as this part is not yet connected to Firestore
 const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   if (!party) return [];
   
@@ -72,7 +65,6 @@ const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
     );
   }
 
-  // Process raw entries to create Date objects
   return rawLedgerEntries.map(entry => {
     const date = new Date();
     date.setDate(date.getDate() + entry.dateOffset);
@@ -81,7 +73,6 @@ const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
 };
 
 const partyTypes: Party['type'][] = ["Dealer", "Customer", "Supplier", "Employee"];
-
 
 export default function PartiesPage() {
   const { toast } = useToast();
@@ -96,10 +87,21 @@ export default function PartiesPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [partyToDelete, setPartyToDelete] = useState<Party | null>(null);
 
+  const fetchParties = async () => {
+    setIsLoadingParties(true);
+    try {
+      const fetchedParties = await getPartiesFromFirestore();
+      setParties(fetchedParties);
+    } catch (error) {
+      console.error("Failed to fetch parties:", error);
+      toast({ title: "Error", description: "Could not fetch parties from the database.", variant: "destructive" });
+    } finally {
+      setIsLoadingParties(false);
+    }
+  };
+
   useEffect(() => {
-    // Simulate fetching parties or loading initial mock data
-    setParties(initialMockParties.sort((a, b) => a.name.localeCompare(b.name)));
-    setIsLoadingParties(false);
+    fetchParties();
   }, []);
 
   const selectedParty = useMemo(() => parties.find(p => p.id === selectedPartyId), [parties, selectedPartyId]);
@@ -142,21 +144,31 @@ export default function PartiesPage() {
   }, [ledgerEntries]);
 
 
-  const handleAddPartySubmit = (e: FormEvent) => {
+  const handleAddPartySubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!newPartyName.trim()) {
       toast({ title: "Error", description: "Party name cannot be empty.", variant: "destructive" });
       return;
     }
-    const newParty: Party = {
-      id: String(Date.now()), 
+    const partyData: Omit<Party, 'id'> = {
       name: newPartyName.trim(),
       type: newPartyType,
     };
-    setParties(prevParties => [...prevParties, newParty].sort((a, b) => a.name.localeCompare(b.name)));
-    setNewPartyName("");
-    setNewPartyType("Dealer");
-    toast({ title: "Success", description: `Party "${newParty.name}" added.` });
+    
+    setIsLoadingParties(true); // Indicate loading
+    const result = await addPartyToFirestore(partyData);
+    setIsLoadingParties(false);
+
+    if (result.success && result.id) {
+      // Optimistically update or refetch
+      // For now, just refetch to keep it simple
+      await fetchParties();
+      setNewPartyName("");
+      setNewPartyType("Dealer");
+      toast({ title: "Success", description: `Party "${partyData.name}" added.` });
+    } else {
+      toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
+    }
   };
 
   const openDeleteDialog = (party: Party) => {
@@ -164,14 +176,24 @@ export default function PartiesPage() {
     setDeleteDialogOpen(true);
   };
 
-  const confirmDeleteParty = () => {
+  const confirmDeleteParty = async () => {
     if (partyToDelete) {
-      setParties(prevParties => prevParties.filter(p => p.id !== partyToDelete.id));
-      toast({ title: "Success", description: `Party "${partyToDelete.name}" deleted.` });
-      if (selectedPartyId === partyToDelete.id) {
-        setSelectedPartyId(undefined);
+      setIsLoadingParties(true); // Indicate loading
+      const result = await deletePartyFromFirestore(partyToDelete.id);
+      setIsLoadingParties(false);
+
+      if (result.success) {
+        // Optimistically update or refetch
+        // For now, just refetch
+        await fetchParties();
+        toast({ title: "Success", description: `Party "${partyToDelete.name}" deleted.` });
+        if (selectedPartyId === partyToDelete.id) {
+          setSelectedPartyId(undefined);
+        }
+        setPartyToDelete(null);
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to delete party.", variant: "destructive" });
       }
-      setPartyToDelete(null);
     }
     setDeleteDialogOpen(false);
   };
@@ -182,7 +204,7 @@ export default function PartiesPage() {
 
       <div className="mb-6">
         <Label htmlFor="partySelect">Select Party to View Ledger</Label>
-        {isLoadingParties ? (
+        {isLoadingParties && parties.length === 0 ? ( // Show skeleton if loading AND no parties yet
           <Skeleton className="h-10 w-full md:w-1/3" />
         ) : (
           <Select value={selectedPartyId} onValueChange={setSelectedPartyId} disabled={parties.length === 0}>
@@ -245,9 +267,13 @@ export default function PartiesPage() {
         </div>
       )}
 
-      {!selectedPartyId && !isLoadingParties && parties.length > 0 && (
-        <p className="text-center text-muted-foreground my-8">Please select a party to view their ledger.</p>
+      {!selectedPartyId && !isLoadingParties && parties.length === 0 && (
+        <p className="text-center text-muted-foreground my-8">No parties found. Add one to get started or check database connection.</p>
       )}
+       {!selectedPartyId && isLoadingParties && ( // Loading message when no party selected yet
+        <p className="text-center text-muted-foreground my-8">Loading parties...</p>
+      )}
+
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         <Card>
@@ -256,7 +282,7 @@ export default function PartiesPage() {
             <form onSubmit={handleAddPartySubmit} className="space-y-4">
               <div><Label htmlFor="newPartyName">Party Name</Label><Input id="newPartyName" value={newPartyName} onChange={(e) => setNewPartyName(e.target.value)} placeholder="Enter party name" required /></div>
               <div><Label htmlFor="newPartyType">Party Type</Label><Select value={newPartyType} onValueChange={(value: Party['type']) => setNewPartyType(value)}><SelectTrigger id="newPartyType"><SelectValue placeholder="Select party type" /></SelectTrigger><SelectContent>{partyTypes.map(type => (<SelectItem key={type} value={type}>{type}</SelectItem>))}</SelectContent></Select></div>
-              <Button type="submit" className="w-full"><PlusCircle className="h-4 w-4 mr-2" /> Add Party</Button>
+              <Button type="submit" className="w-full" disabled={isLoadingParties}><PlusCircle className="h-4 w-4 mr-2" /> {isLoadingParties ? 'Adding...' : 'Add Party'}</Button>
             </form>
           </CardContent>
         </Card>
@@ -264,7 +290,7 @@ export default function PartiesPage() {
         <Card>
           <CardHeader><CardTitle>Manage Parties</CardTitle><CardDescription>View and remove existing parties.</CardDescription></CardHeader>
           <CardContent>
-            {isLoadingParties ? (
+            {isLoadingParties && parties.length === 0 ? ( // Only show skeleton if truly loading initial list and it's empty
               <div>
                 <Skeleton className="h-8 w-full mb-2" />
                 <Skeleton className="h-8 w-full mb-2" />
@@ -281,7 +307,7 @@ export default function PartiesPage() {
                       <TableCell>{party.name}</TableCell>
                       <TableCell>{party.type}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => openDeleteDialog(party)}>
+                        <Button variant="ghost" size="icon" onClick={() => openDeleteDialog(party)} disabled={isLoadingParties}>
                           <Trash2 className="h-4 w-4 text-destructive" /><span className="sr-only">Delete {party.name}</span>
                         </Button>
                       </TableCell>
@@ -299,7 +325,7 @@ export default function PartiesPage() {
           <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>This action cannot be undone. This will permanently delete the party "{partyToDelete?.name}".</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteParty} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteParty} className="bg-destructive hover:bg-destructive/90" disabled={isLoadingParties}>{isLoadingParties ? 'Deleting...' : 'Delete'}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
