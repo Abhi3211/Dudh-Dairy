@@ -218,15 +218,7 @@ export default function PashuAaharPage() {
             ) : (
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Product</TableHead> {/* Simplified from Product Name */}
-                  <TableHead>Party</TableHead> {/* Simplified from Supplier/Customer */}
-                  <TableHead className="text-right">Qty</TableHead> {/* Simplified */}
-                  <TableHead className="text-right">Price/Bag</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                </TableRow>
+                <TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Product</TableHead><TableHead>Party</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Price/Bag</TableHead><TableHead className="text-right">Total</TableHead></TableRow>
               </TableHeader>
               <TableBody>
                 {transactions.length === 0 && !isLoadingTransactions ? (
