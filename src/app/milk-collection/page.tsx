@@ -1,11 +1,18 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, type FormEvent, useEffect, useMemo, useCallback } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -15,7 +22,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarDays, Clock, User, Percent, Scale, IndianRupee, PlusCircle } from "lucide-react";
 import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -39,11 +45,6 @@ export default function MilkCollectionPage() {
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateInputValue, setRateInputValue] = useState<string>("6.7"); 
-
-  // Dealer name suggestions state
-  const [dealerSuggestions, setDealerSuggestions] = useState<string[]>([]);
-  const [isDealerPopoverOpen, setIsDealerPopoverOpen] = useState(false);
-  const dealerNameInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEntries = useCallback(async () => {
     setIsLoadingEntries(true);
@@ -72,31 +73,8 @@ export default function MilkCollectionPage() {
   }, [allEntries]);
 
   const allKnownDealerNames = useMemo(() => {
-    return Array.from(new Set([...MOCK_DEALER_NAMES, ...uniqueDealerNamesFromEntries]));
+    return Array.from(new Set([...MOCK_DEALER_NAMES, ...uniqueDealerNamesFromEntries])).sort();
   }, [uniqueDealerNamesFromEntries]);
-
-  const handleDealerNameChange = (value: string) => {
-    setDealerNameInput(value); 
-    const trimmedValue = value.trim(); 
-
-    if (trimmedValue) {
-      const filtered = allKnownDealerNames.filter(name =>
-        name.toLowerCase().includes(trimmedValue.toLowerCase()) 
-      );
-      setDealerSuggestions(filtered);
-      setIsDealerPopoverOpen(filtered.length > 0); 
-    } else {
-      setDealerSuggestions([]);
-      setIsDealerPopoverOpen(false); 
-    }
-  };
-
-  const handleDealerSuggestionClick = (suggestion: string) => {
-    setDealerNameInput(suggestion);
-    setDealerSuggestions([]);
-    setIsDealerPopoverOpen(false);
-    dealerNameInputRef.current?.focus(); // Explicitly focus the input
-  };
 
 
   const totalAmountDisplay = useMemo(() => {
@@ -203,44 +181,31 @@ export default function MilkCollectionPage() {
                 <Input id="time" type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
               </div>
               <div>
-                <Label htmlFor="dealerName" className="flex items-center mb-1">
+                <Label htmlFor="dealerNameSelect" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                <Popover open={isDealerPopoverOpen} onOpenChange={setIsDealerPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Input
-                        id="dealerName"
-                        ref={dealerNameInputRef}
-                        value={dealerNameInput}
-                        onChange={(e) => handleDealerNameChange(e.target.value)}
-                        placeholder="Type to search dealer"
-                        required
-                        autoComplete="off"
-                        className="w-full"
-                    />
-                  </PopoverTrigger>
-                  <PopoverContent 
-                    className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()} 
-                    sideOffset={5}
-                  >
-                    {dealerSuggestions.length === 0 && dealerNameInput.trim() ? (
-                        <div className="p-2 text-sm text-muted-foreground">No dealers found.</div>
-                    ) : (
-                      <div className="max-h-48 overflow-auto">
-                        {dealerSuggestions.map(suggestion => (
-                          <div
-                            key={suggestion}
-                            className="p-2 hover:bg-accent cursor-pointer text-sm"
-                            onClick={() => handleDealerSuggestionClick(suggestion)} 
-                          >
-                            {suggestion}
-                          </div>
-                        ))}
-                      </div>
+                <Select value={dealerNameInput} onValueChange={setDealerNameInput}>
+                  <SelectTrigger id="dealerNameSelect">
+                    <SelectValue placeholder="Select dealer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allKnownDealerNames.length === 0 && (
+                      <SelectItem value="no-dealers" disabled>No dealers found</SelectItem>
                     )}
-                  </PopoverContent>
-                </Popover>
+                    {allKnownDealerNames.map(name => (
+                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {/* Fallback input if needed, or allow adding new dealer - for future enhancement */}
+                {/* <Input 
+                    id="dealerNameInput" 
+                    value={dealerNameInput} 
+                    onChange={(e) => setDealerNameInput(e.target.value)} 
+                    placeholder="Or type new dealer name" 
+                    className="mt-2" 
+                    required={!dealerNameInput && allKnownDealerNames.length === 0} // Make it required if no dealer is selected from dropdown
+                /> */}
               </div>
               <div>
                 <Label htmlFor="quantityLtr" className="flex items-center mb-1">
@@ -341,4 +306,6 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+    
+
     
