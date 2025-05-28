@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect } from "react";
+import { useState, type FormEvent, useEffect, useCallback } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,21 +16,17 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag } from "lucide-react";
+import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag, CalendarIcon } from "lucide-react";
 import type { PashuAaharTransaction } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-
-const rawInitialTransactions: (Omit<PashuAaharTransaction, 'id' | 'date'> & { tempId: string, dateOffsetDays: number })[] = [
-  { tempId: "1", dateOffsetDays: -2, type: "Purchase", productName: "Gold Coin Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 20, pricePerBag: 300, totalAmount: 6000 },
-  { tempId: "2", dateOffsetDays: -1, type: "Sale", productName: "Gold Coin Feed", supplierOrCustomerName: "Ramesh Bhai", quantityBags: 5, pricePerBag: 350, totalAmount: 1750 },
-  { tempId: "3", dateOffsetDays: -3, type: "Purchase", productName: "Super Pallet", supplierOrCustomerName: "Kamdhenu Agro", quantityBags: 15, pricePerBag: 320, totalAmount: 4800 },
-  { tempId: "4", dateOffsetDays: -1, type: "Purchase", productName: "Nutri Plus Feed", supplierOrCustomerName: "Shakti Feeds", quantityBags: 10, pricePerBag: 310, totalAmount: 3100 },
-];
+import { Skeleton } from "@/components/ui/skeleton";
+import { addPashuAaharTransactionToFirestore, getPashuAaharTransactionsFromFirestore } from "./actions";
 
 export default function PashuAaharPage() {
   const { toast } = useToast();
   const [transactions, setTransactions] = useState<PashuAaharTransaction[]>([]);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
   const [currentStockByProduct, setCurrentStockByProduct] = useState<Record<string, number>>({});
 
   const [date, setDate] = useState<Date | undefined>(undefined);
@@ -38,19 +34,29 @@ export default function PashuAaharPage() {
   const [supplierName, setSupplierName] = useState("");
   const [quantityBags, setQuantityBags] = useState("");
   const [pricePerBag, setPricePerBag] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchTransactions = useCallback(async () => {
+    setIsLoadingTransactions(true);
+    try {
+      const fetchedTransactions = await getPashuAaharTransactionsFromFirestore();
+      setTransactions(fetchedTransactions);
+    } catch (error) {
+      console.error("Failed to fetch Pashu Aahar transactions:", error);
+      toast({ title: "Error", description: "Could not fetch transactions.", variant: "destructive" });
+    } finally {
+      setIsLoadingTransactions(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
-    setDate(new Date());
-    const processedTransactions = rawInitialTransactions.map(tx => {
-      const entryDate = new Date();
-      entryDate.setDate(entryDate.getDate() + tx.dateOffsetDays);
-      return { ...tx, id: tx.tempId, date: entryDate };
-    }).sort((a,b) => b.date.getTime() - a.date.getTime());
-    setTransactions(processedTransactions);
-  }, []);
+    setDate(new Date()); // Initialize date client-side
+    fetchTransactions();
+  }, [fetchTransactions]);
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
+    // Sort transactions chronologically for accurate stock calculation
     const sortedTransactionsForStock = [...transactions].sort((a, b) => a.date.getTime() - b.date.getTime());
 
     sortedTransactionsForStock.forEach(tx => {
@@ -61,6 +67,8 @@ export default function PashuAaharPage() {
       if (tx.type === "Purchase") {
         stockCalc[pName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
+        // Assuming sales also update stock (though sales form is separate)
+        // For now, this means sales recorded elsewhere should also be PashuAaharTransaction type
         stockCalc[pName] = Math.max(0, stockCalc[pName] - tx.quantityBags);
       }
     });
@@ -68,7 +76,7 @@ export default function PashuAaharPage() {
   }, [transactions]);
 
 
-  const handlePurchaseSubmit = (e: FormEvent) => {
+  const handlePurchaseSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!date || !productName.trim() || !supplierName.trim() || !quantityBags || !pricePerBag) {
       toast({ title: "Error", description: "Please fill all purchase fields.", variant: "destructive" });
@@ -86,9 +94,8 @@ export default function PashuAaharPage() {
       return;
     }
 
-
-    const newTransaction: PashuAaharTransaction = {
-      id: String(Date.now()),
+    setIsSubmitting(true);
+    const newTransactionData: Omit<PashuAaharTransaction, 'id'> = {
       date,
       type: "Purchase",
       productName: productName.trim(),
@@ -97,15 +104,22 @@ export default function PashuAaharPage() {
       pricePerBag: parsedPricePerBag,
       totalAmount: parsedQuantityBags * parsedPricePerBag,
     };
-    setTransactions(prevTransactions => [...prevTransactions, newTransaction].sort((a,b) => b.date.getTime() - a.date.getTime()));
+
+    const result = await addPashuAaharTransactionToFirestore(newTransactionData);
     
-    toast({ title: "Success", description: "Pashu Aahar purchase recorded." });
-    
-    setProductName("");
-    setSupplierName("");
-    setQuantityBags("");
-    setPricePerBag("");
-    setDate(new Date()); 
+    if (result.success) {
+      toast({ title: "Success", description: "Pashu Aahar purchase recorded." });
+      await fetchTransactions(); // Re-fetch to update list and stock
+      
+      setProductName("");
+      setSupplierName("");
+      setQuantityBags("");
+      setPricePerBag("");
+      setDate(new Date()); 
+    } else {
+      toast({ title: "Error", description: result.error || "Failed to record purchase.", variant: "destructive" });
+    }
+    setIsSubmitting(false);
   };
   
   return (
@@ -123,9 +137,9 @@ export default function PashuAaharPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
-          {Object.keys(currentStockByProduct).length === 0 && transactions.length > 0 ? (
-             <p className="text-sm text-muted-foreground">Calculating stock...</p>
-          ) : Object.keys(currentStockByProduct).length === 0 ? (
+          {isLoadingTransactions && Object.keys(currentStockByProduct).length === 0 ? (
+             <Skeleton className="h-20 w-full" />
+          ) : Object.keys(currentStockByProduct).length === 0 && !isLoadingTransactions ? (
             <p className="text-sm text-muted-foreground">No stock data available. Record a purchase to begin.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -159,7 +173,9 @@ export default function PashuAaharPage() {
           <CardContent>
             <form onSubmit={handlePurchaseSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="purchaseDate">Date</Label>
+                <Label htmlFor="purchaseDate" className="flex items-center mb-1">
+                    <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" /> Date
+                </Label>
                 <DatePicker date={date} setDate={setDate} />
               </div>
               <div>
@@ -180,59 +196,66 @@ export default function PashuAaharPage() {
                   <Input id="purchasePrice" type="number" step="0.01" value={pricePerBag} onChange={(e) => setPricePerBag(e.target.value)} placeholder="e.g., 300" required />
                 </div>
               </div>
-              <Button type="submit" className="w-full">
-                <PlusCircle className="h-4 w-4 mr-2" /> Add Purchase
+              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingTransactions}>
+                <PlusCircle className="h-4 w-4 mr-2" /> {isSubmitting ? 'Adding...' : 'Add Purchase'}
               </Button>
             </form>
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+        <Card className="md:col-span-1"> {/* Changed from lg:col-span-2 to md:col-span-1 to balance the layout */}
           <CardHeader>
             <CardTitle>Transaction History</CardTitle>
             <CardDescription>Pashu Aahar purchases and sales affecting stock.</CardDescription>
           </CardHeader>
           <CardContent>
+            {isLoadingTransactions && transactions.length === 0 ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Product Name</TableHead>
-                  <TableHead>Supplier/Customer</TableHead>
-                  <TableHead className="text-right">Qty (Bags)</TableHead>
-                  <TableHead className="text-right">Price/Bag (₹)</TableHead>
-                  <TableHead className="text-right">Total (₹)</TableHead>
+                  <TableHead>Product</TableHead> {/* Simplified from Product Name */}
+                  <TableHead>Party</TableHead> {/* Simplified from Supplier/Customer */}
+                  <TableHead className="text-right">Qty</TableHead> {/* Simplified */}
+                  <TableHead className="text-right">Price/Bag</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transactions.length === 0 && (
+                {transactions.length === 0 && !isLoadingTransactions ? (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground">No transactions yet.</TableCell>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground">No transactions recorded yet.</TableCell>
                     </TableRow>
+                ) : (
+                    transactions.map((tx) => (
+                    <TableRow key={tx.id}>
+                        <TableCell>{format(tx.date, 'P')}</TableCell>
+                        <TableCell>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.type === "Purchase" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
+                            {tx.type}
+                        </span>
+                        </TableCell>
+                        <TableCell>{tx.productName}</TableCell>
+                        <TableCell>{tx.supplierOrCustomerName || "-"}</TableCell>
+                        <TableCell className="text-right">{tx.quantityBags.toFixed(0)}</TableCell>
+                        <TableCell className="text-right">{tx.pricePerBag ? tx.pricePerBag.toFixed(2) : "-"}</TableCell>
+                        <TableCell className="text-right">{tx.totalAmount.toFixed(2)}</TableCell>
+                    </TableRow>
+                    ))
                 )}
-                {transactions.map((tx) => (
-                  <TableRow key={tx.id}>
-                    <TableCell>{format(tx.date, 'P')}</TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.type === "Purchase" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
-                        {tx.type}
-                      </span>
-                    </TableCell>
-                    <TableCell>{tx.productName}</TableCell>
-                    <TableCell>{tx.supplierOrCustomerName}</TableCell>
-                    <TableCell className="text-right">{tx.quantityBags.toFixed(0)}</TableCell>
-                    <TableCell className="text-right">{tx.pricePerBag ? tx.pricePerBag.toFixed(2) : "-"}</TableCell>
-                    <TableCell className="text-right">{tx.totalAmount.toFixed(2)}</TableCell>
-                  </TableRow>
-                ))}
               </TableBody>
             </Table>
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
   );
 }
-
-    
