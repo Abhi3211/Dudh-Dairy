@@ -35,20 +35,21 @@ export default function MilkCollectionPage() {
   const [isLoadingEntries, setIsLoadingEntries] = useState(true);
   
   // Form state
-  const [date, setDate] = useState<Date | undefined>(undefined);
+  const [date, setDate] = useState<Date | undefined>(undefined); // Date for new entry form
+  const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined); // Date for filtering the table
   const [time, setTime] = useState<string>("");
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateInputValue, setRateInputValue] = useState<string>("6.7"); 
-  const [open, setOpen] = useState(false); // State for Popover (dealer name suggestions)
+  const [isDealerPopoverOpen, setIsDealerPopoverOpen] = useState(false);
 
 
   const fetchEntries = useCallback(async () => {
     setIsLoadingEntries(true);
     try {
       const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
-      console.log('Client: Fetched entries from Firestore:', JSON.stringify(fetchedEntries.map(e => ({...e, date: e.date.toISOString()})), null, 2));
+      console.log('CLIENT: fetchEntries called. Fetched entries from Firestore. Count:', fetchedEntries.length, 'Data:', JSON.stringify(fetchedEntries.map(e => ({...e, date: e.date.toISOString()})), null, 2));
       setAllEntries(fetchedEntries);
     } catch (error) {
       console.error("Failed to fetch milk collection entries:", error);
@@ -59,11 +60,12 @@ export default function MilkCollectionPage() {
   }, [toast]);
 
   useEffect(() => {
-    // Initialize date and time client-side to avoid hydration issues
-    setDate(new Date());
+    // Initialize dates client-side to avoid hydration issues
+    setDate(new Date()); // For the form
+    setTableFilterDate(new Date()); // For the table filter
     setTime(new Date().toTimeString().substring(0, 5));
     fetchEntries();
-  }, [fetchEntries]);
+  }, [fetchEntries]); // fetchEntries is memoized
 
   const uniqueDealerNamesFromEntries = useMemo(() => {
     const names = new Set(allEntries.map(entry => entry.dealerName));
@@ -89,14 +91,32 @@ export default function MilkCollectionPage() {
   }, [quantityLtr, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
-    if (!date) return [];
+    console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Total entries being filtered:", allEntries.length);
+    if (!tableFilterDate) return allEntries; // Show all if no table filter date is selected
     
-    const targetDateStr = format(date, 'yyyy-MM-dd');
-    return allEntries.filter(entry => {
+    const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
+    const result = allEntries.filter(entry => {
         const entryDateStr = format(entry.date, 'yyyy-MM-dd');
         return entryDateStr === targetDateStr;
     });
-  }, [allEntries, date]);
+    console.log("CLIENT: Resulting filteredEntries count:", result.length, "Entries:", result.map(e => ({...e, date: e.date.toISOString()})));
+    return result;
+  }, [allEntries, tableFilterDate]);
+
+  const handleDealerNameInputChange = useCallback((value: string) => {
+    setDealerNameInput(value);
+    if (value.trim()) {
+      setIsDealerPopoverOpen(true);
+    } else {
+      setIsDealerPopoverOpen(false);
+    }
+  }, []);
+
+  const handleDealerSelect = useCallback((currentValue: string) => {
+    setDealerNameInput(currentValue);
+    setIsDealerPopoverOpen(false);
+  }, []);
+
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -147,7 +167,8 @@ export default function MilkCollectionPage() {
       setQuantityLtr("");
       setFatPercentage("");
       // setRateInputValue("6.7"); // Keep rate as user might want to reuse for next entry.
-      setTime(new Date().toTimeString().substring(0,5));
+      setTime(new Date().toTimeString().substring(0,5)); // Reset time for next entry
+      setDate(new Date()); // Reset form date for next entry
       await fetchEntries(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
@@ -168,7 +189,7 @@ export default function MilkCollectionPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <Label htmlFor="date" className="flex items-center mb-1">
-                  <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date
+                  <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date for New Entry
                 </Label>
                  <DatePicker date={date} setDate={setDate} />
               </div>
@@ -183,26 +204,18 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="dealerNameInput" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                <Popover open={open} onOpenChange={setOpen}>
+                <Popover open={isDealerPopoverOpen} onOpenChange={setIsDealerPopoverOpen}>
                   <PopoverTrigger asChild>
                     <Input
                       id="dealerNameInput"
                       value={dealerNameInput}
-                      onChange={(e) => {
-                        setDealerNameInput(e.target.value);
-                        if (e.target.value.length > 0) {
-                            setOpen(true);
-                        } else {
-                            setOpen(false);
-                        }
-                      }}
+                      onChange={(e) => handleDealerNameInputChange(e.target.value)}
                       placeholder="Start typing dealer name"
                       autoComplete="off"
                       required
-                      className="w-full" // Ensure input takes full width
+                      className="w-full"
                     />
                   </PopoverTrigger>
-                  {/* Ensure PopoverContent is wide enough */}
                   <PopoverContent className="w-[--radix-popover-trigger-width] p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
                     <Command>
                       <CommandInput placeholder="Search dealers..." />
@@ -217,10 +230,7 @@ export default function MilkCollectionPage() {
                               <CommandItem
                                 key={name}
                                 value={name}
-                                onSelect={(currentValue) => { // ShadCN Command onSelect gives the 'value' of item
-                                  setDealerNameInput(currentValue === name ? name : currentValue); // Ensure correct value is set
-                                  setOpen(false);
-                                }}
+                                onSelect={handleDealerSelect}
                               >
                                 {name}
                               </CommandItem>
@@ -274,12 +284,20 @@ export default function MilkCollectionPage() {
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Recent Collections</CardTitle>
-            <CardDescription>
-              {date ? `Showing collections for ${format(date, 'PPP')}` : "Select a date to view collections."}
-              {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
-              {!isLoadingEntries && date && filteredEntries.length === 0 && allEntries.length > 0 && ` (Checked ${allEntries.length} total entries)`}
-            </CardDescription>
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div className="flex-1">
+                <CardTitle>Recent Collections</CardTitle>
+                <CardDescription className="mt-1">
+                  {tableFilterDate ? `Showing collections for ${format(tableFilterDate, 'PPP')}` : "Select a date to view collections."}
+                  {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
+                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && allEntries.length > 0 && ` (No entries for this date. Checked ${allEntries.length} total entries)`}
+                </CardDescription>
+              </div>
+              <div className="w-full sm:w-auto sm:min-w-[240px]"> {/* Ensure DatePicker has enough space */}
+                <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
+                <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {isLoadingEntries && allEntries.length === 0 ? (
@@ -305,8 +323,8 @@ export default function MilkCollectionPage() {
                   {filteredEntries.length === 0 && !isLoadingEntries ? (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground">
-                        {date ? `No entries for ${format(date, 'P')}.` : "Select a date to view entries."}
-                        {date && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
+                        {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}.` : "Select a date to view entries."}
+                        {tableFilterDate && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
                     </TableRow>
                   ) : (
