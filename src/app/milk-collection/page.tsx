@@ -7,13 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -29,6 +22,9 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { addMilkCollectionEntryToFirestore, getMilkCollectionEntriesFromFirestore } from "./actions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+
 
 // Static list of some dealer names for initial suggestions
 const MOCK_DEALER_NAMES = ["Rajesh Dairy", "Suresh Milk Co.", "Anand Farms", "Krishna Dairy"];
@@ -45,6 +41,8 @@ export default function MilkCollectionPage() {
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateInputValue, setRateInputValue] = useState<string>("6.7"); 
+  const [open, setOpen] = useState(false); // State for Popover (dealer name suggestions)
+
 
   const fetchEntries = useCallback(async () => {
     setIsLoadingEntries(true);
@@ -180,33 +178,60 @@ export default function MilkCollectionPage() {
                 </Label>
                 <Input id="time" type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
               </div>
+              
               <div>
-                <Label htmlFor="dealerNameSelect" className="flex items-center mb-1">
+                <Label htmlFor="dealerNameInput" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
                 </Label>
-                <Select value={dealerNameInput} onValueChange={setDealerNameInput}>
-                  <SelectTrigger id="dealerNameSelect">
-                    <SelectValue placeholder="Select dealer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allKnownDealerNames.length === 0 && (
-                      <SelectItem value="no-dealers" disabled>No dealers found</SelectItem>
-                    )}
-                    {allKnownDealerNames.map(name => (
-                      <SelectItem key={name} value={name}>{name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {/* Fallback input if needed, or allow adding new dealer - for future enhancement */}
-                {/* <Input 
-                    id="dealerNameInput" 
-                    value={dealerNameInput} 
-                    onChange={(e) => setDealerNameInput(e.target.value)} 
-                    placeholder="Or type new dealer name" 
-                    className="mt-2" 
-                    required={!dealerNameInput && allKnownDealerNames.length === 0} // Make it required if no dealer is selected from dropdown
-                /> */}
+                <Popover open={open} onOpenChange={setOpen}>
+                  <PopoverTrigger asChild>
+                    <Input
+                      id="dealerNameInput"
+                      value={dealerNameInput}
+                      onChange={(e) => {
+                        setDealerNameInput(e.target.value);
+                        if (e.target.value.length > 0) {
+                            setOpen(true);
+                        } else {
+                            setOpen(false);
+                        }
+                      }}
+                      placeholder="Start typing dealer name"
+                      autoComplete="off"
+                      required
+                      className="w-full" // Ensure input takes full width
+                    />
+                  </PopoverTrigger>
+                  {/* Ensure PopoverContent is wide enough */}
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+                    <Command>
+                      <CommandInput placeholder="Search dealers..." />
+                      <CommandList>
+                        <CommandEmpty>No dealer found.</CommandEmpty>
+                        <CommandGroup>
+                          {allKnownDealerNames
+                            .filter((name) =>
+                              name.toLowerCase().includes(dealerNameInput.toLowerCase())
+                            )
+                            .map((name) => (
+                              <CommandItem
+                                key={name}
+                                value={name}
+                                onSelect={(currentValue) => { // ShadCN Command onSelect gives the 'value' of item
+                                  setDealerNameInput(currentValue === name ? name : currentValue); // Ensure correct value is set
+                                  setOpen(false);
+                                }}
+                              >
+                                {name}
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
+
               <div>
                 <Label htmlFor="quantityLtr" className="flex items-center mb-1">
                   <Scale className="h-4 w-4 mr-2 text-muted-foreground" /> Quantity (Ltr)
@@ -306,6 +331,4 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
-    
-
     
