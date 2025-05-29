@@ -13,15 +13,32 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableFooter,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag, CalendarIcon } from "lucide-react";
+import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag, CalendarIcon, MoreHorizontal, Edit, Trash2 } from "lucide-react";
 import type { PashuAaharTransaction } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { addPashuAaharTransactionToFirestore, getPashuAaharTransactionsFromFirestore } from "./actions";
+import { addPashuAaharTransactionToFirestore, getPashuAaharTransactionsFromFirestore, updatePashuAaharTransactionInFirestore, deletePashuAaharTransactionFromFirestore } from "./actions";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { usePageTitle } from '@/context/PageTitleContext';
 
 export default function PashuAaharPage() {
@@ -39,18 +56,27 @@ export default function PashuAaharPage() {
 
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [productName, setProductName] = useState("");
-  const [supplierName, setSupplierName] = useState("");
+  const [supplierName, setSupplierName] = useState(""); // For "Record Purchase" form, maps to supplierOrCustomerName
   const [quantityBags, setQuantityBags] = useState("");
   const [pricePerBag, setPricePerBag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
+  const [transactionToEdit, setTransactionToEdit] = useState<PashuAaharTransaction | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState<PashuAaharTransaction | null>(null);
 
   const fetchTransactions = useCallback(async () => {
     setIsLoadingTransactions(true);
     try {
       const fetchedTransactions = await getPashuAaharTransactionsFromFirestore();
-      setTransactions(fetchedTransactions);
+      const processedTransactions = fetchedTransactions.map(tx => ({
+        ...tx,
+        date: tx.date instanceof Date ? tx.date : new Date(tx.date)
+      }));
+      setTransactions(processedTransactions);
     } catch (error) {
-      console.error("Failed to fetch Pashu Aahar transactions:", error);
+      console.error("CLIENT: Failed to fetch Pashu Aahar transactions:", error);
       toast({ title: "Error", description: "Could not fetch transactions.", variant: "destructive" });
     } finally {
       setIsLoadingTransactions(false);
@@ -58,9 +84,11 @@ export default function PashuAaharPage() {
   }, [toast]);
 
   useEffect(() => {
-    setDate(new Date()); 
+    if (!editingTransactionId) { // Only set to new Date if not in edit mode
+        setDate(new Date());
+    }
     fetchTransactions();
-  }, [fetchTransactions]);
+  }, [fetchTransactions, editingTransactionId]); // Add editingTransactionId as dep to reset date if edit cancelled
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
@@ -79,6 +107,20 @@ export default function PashuAaharPage() {
     });
     setCurrentStockByProduct(stockCalc);
   }, [transactions]);
+
+  const totalTransactionAmount = useCallback(() => {
+    return transactions.reduce((sum, tx) => sum + tx.totalAmount, 0);
+  }, [transactions]);
+
+  const resetFormFields = useCallback(() => {
+    setDate(new Date());
+    setProductName("");
+    setSupplierName("");
+    setQuantityBags("");
+    setPricePerBag("");
+    setEditingTransactionId(null);
+    setTransactionToEdit(null);
+  }, []);
 
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
@@ -100,33 +142,73 @@ export default function PashuAaharPage() {
     }
 
     setIsSubmitting(true);
-    const newTransactionData: Omit<PashuAaharTransaction, 'id'> = {
+    // For new entries, type is "Purchase". For edits, preserve original type.
+    const transactionType = editingTransactionId && transactionToEdit ? transactionToEdit.type : "Purchase";
+
+    const transactionData: Omit<PashuAaharTransaction, 'id'> = {
       date,
-      type: "Purchase",
+      type: transactionType,
       productName: productName.trim(),
-      supplierOrCustomerName: supplierName.trim(),
+      supplierOrCustomerName: supplierName.trim(), // This field maps to supplierOrCustomerName
       quantityBags: parsedQuantityBags,
       pricePerBag: parsedPricePerBag,
       totalAmount: parsedQuantityBags * parsedPricePerBag,
     };
 
-    const result = await addPashuAaharTransactionToFirestore(newTransactionData);
+    let result;
+    if (editingTransactionId) {
+      result = await updatePashuAaharTransactionInFirestore(editingTransactionId, transactionData);
+      if (result.success) {
+        toast({ title: "Success", description: "Transaction updated."});
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to update transaction.", variant: "destructive" });
+      }
+    } else {
+      result = await addPashuAaharTransactionToFirestore(transactionData);
+      if (result.success) {
+        toast({ title: "Success", description: "Pashu Aahar purchase recorded." });
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to record purchase.", variant: "destructive" });
+      }
+    }
     
     if (result.success) {
-      toast({ title: "Success", description: "Pashu Aahar purchase recorded." });
+      resetFormFields();
       await fetchTransactions(); 
-      
-      setProductName("");
-      setSupplierName("");
-      setQuantityBags("");
-      setPricePerBag("");
-      setDate(new Date()); 
-    } else {
-      toast({ title: "Error", description: result.error || "Failed to record purchase.", variant: "destructive" });
     }
     setIsSubmitting(false);
   };
   
+  const handleEdit = (transaction: PashuAaharTransaction) => {
+    setEditingTransactionId(transaction.id);
+    setTransactionToEdit(transaction);
+    setDate(transaction.date);
+    setProductName(transaction.productName);
+    setSupplierName(transaction.supplierOrCustomerName || ""); // Map to supplierName for form
+    setQuantityBags(String(transaction.quantityBags));
+    setPricePerBag(String(transaction.pricePerBag || ""));
+  };
+
+  const handleDeleteClick = (transaction: PashuAaharTransaction) => {
+    setTransactionToDelete(transaction);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!transactionToDelete) return;
+    setIsSubmitting(true); // Use isSubmitting to disable buttons during delete
+    const result = await deletePashuAaharTransactionFromFirestore(transactionToDelete.id);
+    if (result.success) {
+      toast({ title: "Success", description: "Transaction deleted." });
+      await fetchTransactions();
+    } else {
+      toast({ title: "Error", description: result.error || "Failed to delete transaction.", variant: "destructive" });
+    }
+    setShowDeleteDialog(false);
+    setTransactionToDelete(null);
+    setIsSubmitting(false);
+  };
+
   return (
     <div>
       <PageHeader title={pageSpecificTitle} description="Track stock levels and record purchases in bags." />
@@ -134,7 +216,7 @@ export default function PashuAaharPage() {
       <Card className="mb-6">
         <CardHeader>
           <div className="flex flex-row items-center justify-between space-y-0 pb-1">
-            <CardTitle className="text-lg font-semibold">Current Stock by Product</CardTitle>
+            <CardTitle>Current Stock by Product</CardTitle>
             <Warehouse className="h-6 w-6 text-primary" />
           </div>
           <CardDescription className="text-sm text-muted-foreground">
@@ -172,8 +254,8 @@ export default function PashuAaharPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Record Purchase</CardTitle>
-            <CardDescription>Add new Pashu Aahar purchase to stock.</CardDescription>
+            <CardTitle>{editingTransactionId ? "Edit Transaction" : "Record Purchase"}</CardTitle>
+            <CardDescription>{editingTransactionId ? "Modify the details of the existing transaction." : "Add new Pashu Aahar purchase to stock."}</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handlePurchaseSubmit} className="space-y-4">
@@ -197,13 +279,19 @@ export default function PashuAaharPage() {
                   <Input id="purchaseQuantity" type="number" step="1" value={quantityBags} onChange={(e) => setQuantityBags(e.target.value)} placeholder="e.g., 10" required />
                 </div>
                 <div>
-                  <Label htmlFor="purchasePrice" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Price/Bag</Label>
+                  <Label htmlFor="purchasePrice" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Price/Bag (₹)</Label>
                   <Input id="purchasePrice" type="number" step="0.01" value={pricePerBag} onChange={(e) => setPricePerBag(e.target.value)} placeholder="e.g., 300" required />
                 </div>
               </div>
               <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingTransactions}>
-                <PlusCircle className="h-4 w-4 mr-2" /> {isSubmitting ? 'Adding...' : 'Add Purchase'}
+                {editingTransactionId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
+                {isSubmitting && !editingTransactionId ? 'Adding...' : (isSubmitting && editingTransactionId ? 'Updating...' : (editingTransactionId ? 'Update Transaction' : 'Add Purchase'))}
               </Button>
+              {editingTransactionId && (
+                <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting}>
+                  Cancel Edit
+                </Button>
+              )}
             </form>
           </CardContent>
         </Card>
@@ -223,19 +311,28 @@ export default function PashuAaharPage() {
             ) : (
             <Table>
               <TableHeader>
-                <TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Product</TableHead><TableHead>Party</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Price/Bag</TableHead><TableHead className="text-right">Total</TableHead></TableRow>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead>Party</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Price/Bag (₹)</TableHead>
+                  <TableHead className="text-right">Total (₹)</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
               </TableHeader>
               <TableBody>
                 {transactions.length === 0 && !isLoadingTransactions ? (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground">No transactions recorded yet.</TableCell>
+                        <TableCell colSpan={8} className="text-center text-muted-foreground">No transactions recorded yet.</TableCell>
                     </TableRow>
                 ) : (
                     transactions.map((tx) => (
                     <TableRow key={tx.id}>
-                        <TableCell>{format(tx.date, 'P')}</TableCell>
+                        <TableCell>{tx.date instanceof Date && !isNaN(tx.date.getTime()) ? format(tx.date, 'P') : 'Invalid Date'}</TableCell>
                         <TableCell>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.type === "Purchase" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.type === "Purchase" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"}`}>
                             {tx.type}
                         </span>
                         </TableCell>
@@ -244,15 +341,61 @@ export default function PashuAaharPage() {
                         <TableCell className="text-right">{tx.quantityBags.toFixed(0)}</TableCell>
                         <TableCell className="text-right">{tx.pricePerBag ? tx.pricePerBag.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right">{tx.totalAmount.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                                <span className="sr-only">Actions</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onSelect={() => handleEdit(tx)}>
+                                <Edit className="mr-2 h-4 w-4" /> Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => handleDeleteClick(tx)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
                     </TableRow>
                     ))
                 )}
               </TableBody>
+              {transactions.length > 0 && (
+                <TableFooter>
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-right font-semibold">Total Transaction Value:</TableCell>
+                    <TableCell className="text-right font-bold">{totalTransactionAmount().toFixed(2)}</TableCell>
+                    <TableCell /> 
+                  </TableRow>
+                </TableFooter>
+              )}
             </Table>
             )}
           </CardContent>
         </Card>
       </div>
+      {showDeleteDialog && transactionToDelete && (
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the transaction for
+                "{transactionToDelete.productName}" ({transactionToDelete.type}) on {transactionToDelete.date instanceof Date && !isNaN(transactionToDelete.date.getTime()) ? format(transactionToDelete.date, 'P') : 'Invalid Date'}.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {setShowDeleteDialog(false); setTransactionToDelete(null);}}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
+                {isSubmitting ? 'Deleting...' : 'Delete'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }

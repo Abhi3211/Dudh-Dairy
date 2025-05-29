@@ -3,19 +3,18 @@
 
 import { db } from '@/lib/firebase';
 import type { PashuAaharTransaction } from '@/lib/types';
-import { collection, addDoc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, Timestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 export async function addPashuAaharTransactionToFirestore(
   transactionData: Omit<PashuAaharTransaction, 'id'>
 ): Promise<{ success: boolean; id?: string; error?: string }> {
-  console.log("addPashuAaharTransactionToFirestore called with data:", transactionData);
+  console.log("SERVER ACTION: addPashuAaharTransactionToFirestore called with data:", JSON.parse(JSON.stringify(transactionData)));
   try {
-    // Firestore SDK converts JS Date to Timestamp automatically
     const docRef = await addDoc(collection(db, 'pashuAaharTransactions'), transactionData);
-    console.log("Pashu Aahar transaction successfully added to Firestore with ID:", docRef.id);
+    console.log("SERVER ACTION: Pashu Aahar transaction successfully added to Firestore with ID:", docRef.id);
     return { success: true, id: docRef.id };
   } catch (error) {
-    console.error("Error adding Pashu Aahar transaction to Firestore:", error);
+    console.error("SERVER ACTION: Error adding Pashu Aahar transaction to Firestore:", error);
     if (error instanceof Error) {
       return { success: false, error: error.message };
     }
@@ -24,24 +23,74 @@ export async function addPashuAaharTransactionToFirestore(
 }
 
 export async function getPashuAaharTransactionsFromFirestore(): Promise<PashuAaharTransaction[]> {
-  console.log("Attempting to fetch Pashu Aahar transactions from Firestore.");
+  console.log("SERVER ACTION: Attempting to fetch Pashu Aahar transactions from Firestore.");
   try {
     const transactionsCollection = collection(db, 'pashuAaharTransactions');
-    // Order by date descending
     const q = query(transactionsCollection, orderBy('date', 'desc'));
     const transactionSnapshot = await getDocs(q);
     const transactionList = transactionSnapshot.docs.map(doc => {
       const data = doc.data();
+      let entryDate: Date;
+      if (data.date instanceof Timestamp) {
+        entryDate = data.date.toDate();
+      } else if (typeof data.date === 'string' || typeof data.date === 'number') {
+        entryDate = new Date(data.date);
+      } else {
+        console.warn(`SERVER ACTION (PashuAahar): Document ID ${doc.id} 'date' field is invalid. Using current date as fallback.`);
+        entryDate = new Date();
+      }
       return {
         id: doc.id,
-        ...data,
-        date: (data.date as Timestamp).toDate(), // Convert Firestore Timestamp to JS Date
+        date: entryDate,
+        type: data.type || "Purchase",
+        productName: data.productName || "Unknown Product",
+        supplierOrCustomerName: data.supplierOrCustomerName || "",
+        quantityBags: typeof data.quantityBags === 'number' ? data.quantityBags : 0,
+        pricePerBag: typeof data.pricePerBag === 'number' ? data.pricePerBag : 0,
+        totalAmount: typeof data.totalAmount === 'number' ? data.totalAmount : 0,
       } as PashuAaharTransaction;
     });
-    console.log("Successfully fetched Pashu Aahar transactions, count:", transactionList.length);
+    console.log("SERVER ACTION: Successfully fetched Pashu Aahar transactions, count:", transactionList.length);
     return transactionList;
   } catch (error) {
-    console.error("Error fetching Pashu Aahar transactions from Firestore:", error);
+    console.error("SERVER ACTION: Error fetching Pashu Aahar transactions from Firestore:", error);
     return [];
+  }
+}
+
+export async function updatePashuAaharTransactionInFirestore(
+  transactionId: string,
+  transactionData: Omit<PashuAaharTransaction, 'id'>
+): Promise<{ success: boolean; error?: string }> {
+  console.log(`SERVER ACTION: updatePashuAaharTransactionInFirestore called for ID: ${transactionId} with data:`, JSON.parse(JSON.stringify(transactionData)));
+  try {
+    const transactionRef = doc(db, 'pashuAaharTransactions', transactionId);
+    await updateDoc(transactionRef, transactionData);
+    console.log(`SERVER ACTION: Pashu Aahar transaction with ID: ${transactionId} successfully updated.`);
+    return { success: true };
+  } catch (error) {
+    console.error(`SERVER ACTION: Error updating Pashu Aahar transaction with ID: ${transactionId}:`, error);
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "An unknown error occurred" };
+  }
+}
+
+export async function deletePashuAaharTransactionFromFirestore(
+  transactionId: string
+): Promise<{ success: boolean; error?: string }> {
+  console.log(`SERVER ACTION: deletePashuAaharTransactionFromFirestore called for ID: ${transactionId}`);
+  try {
+    const transactionRef = doc(db, 'pashuAaharTransactions', transactionId);
+    await deleteDoc(transactionRef);
+    console.log(`SERVER ACTION: Pashu Aahar transaction with ID: ${transactionId} successfully deleted.`);
+    return { success: true };
+  } catch (error) {
+    console.error(`SERVER ACTION: Error deleting Pashu Aahar transaction with ID: ${transactionId}:`, error);
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "An unknown error occurred" };
   }
 }
