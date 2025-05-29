@@ -79,7 +79,7 @@ export default function MilkCollectionPage() {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties.filter(p => p.type === "Customer")); 
+      setAvailableParties(parties); 
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties:", error);
       toast({ title: "Error", description: "Could not fetch parties for suggestions.", variant: "destructive" });
@@ -97,7 +97,7 @@ export default function MilkCollectionPage() {
       const processedEntries = fetchedEntries.map(entry => ({
         ...entry,
         date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
-      }));
+      })).sort((a, b) => b.date.getTime() - a.date.getTime());
       console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length);
       if (processedEntries.length > 0) {
         console.log('CLIENT: First processed entry (sample):', JSON.parse(JSON.stringify(processedEntries[0])));
@@ -185,14 +185,9 @@ export default function MilkCollectionPage() {
     return filteredEntries.reduce((sum, entry) => sum + (entry.netAmountPayable || 0), 0);
   }, [filteredEntries]);
 
-
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    if (value.trim()) {
-      setIsCustomerPopoverOpen(true);
-    } else {
-      setIsCustomerPopoverOpen(false);
-    }
+    setIsCustomerPopoverOpen(!!value.trim());
   }, []);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
@@ -204,7 +199,7 @@ export default function MilkCollectionPage() {
         return;
       }
       setIsLoadingParties(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); // Milk suppliers are 'Customer' type
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
       if (result.success) {
         setCustomerNameInput(trimmedValue);
         toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
@@ -226,7 +221,9 @@ export default function MilkCollectionPage() {
     setFatPercentage("");
     setAdvancePaid("");
     setRemarks("");
-    // Keep date and shift as they are, for rapid entry
+    // Keep date and shift as they are, for rapid entry if previously set.
+    // Consider if date should reset to new Date() or remain. For now, it persists.
+    // Shift also persists as per previous request.
     // setRateInputValue("6.7"); // Optionally reset rate, or keep it
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
@@ -488,18 +485,22 @@ export default function MilkCollectionPage() {
                 </Label>
                 <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay.toFixed(2)}` : "₹ 0.00"} readOnly className="font-semibold bg-muted/50" />
               </div>
-              <div>
-                <Label htmlFor="advancePaid" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Advance Paid (₹)
-                </Label>
-                <Input id="advancePaid" type="text" inputMode="decimal" value={advancePaid} onChange={(e) => setAdvancePaid(e.target.value)} placeholder="e.g., 50" />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <Label htmlFor="advancePaid" className="flex items-center mb-1">
+                    <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Advance Paid (₹)
+                    </Label>
+                    <Input id="advancePaid" type="text" inputMode="decimal" value={advancePaid} onChange={(e) => setAdvancePaid(e.target.value)} placeholder="e.g., 50" />
+                </div>
+                <div>
+                    <Label htmlFor="netAmountPayable" className="flex items-center mb-1">
+                    <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Net Amount Payable (₹)
+                    </Label>
+                    <Input id="netAmountPayable" value={`₹ ${netAmountPayableDisplay.toFixed(2)}`} readOnly className="font-semibold bg-muted/50" />
+                </div>
               </div>
-               <div>
-                <Label htmlFor="netAmountPayable" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Net Amount Payable (₹)
-                </Label>
-                <Input id="netAmountPayable" value={`₹ ${netAmountPayableDisplay.toFixed(2)}`} readOnly className="font-semibold bg-muted/50" />
-              </div>
+
               <div>
                 <Label htmlFor="remarks" className="flex items-center mb-1">
                   <StickyNote className="h-4 w-4 mr-2 text-muted-foreground" /> Remarks
