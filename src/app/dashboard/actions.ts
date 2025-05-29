@@ -1,7 +1,7 @@
 
 'use server';
 
-import { db } from '@/lib/firebase'; // Assuming firebase.ts is restored or available
+import { db } from '@/lib/firebase';
 import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry } from '@/lib/types';
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { eachDayOfInterval, format, parseISO, startOfDay, endOfDay } from 'date-fns';
@@ -33,7 +33,7 @@ export async function getDashboardSummaryAndChartData(
     pashuAaharSalesAmount: 0,
     totalCashIn: 0,
     totalCreditOut: 0,
-    totalOutstandingAmount: 12000, // Static placeholder for now
+    totalOutstandingAmount: 0, // Set to 0, actual calculation is complex and not yet implemented
   };
 
   const daysInRange = eachDayOfInterval({ start: clientStartDate, end: clientEndDate });
@@ -134,3 +134,4 @@ export async function getDashboardSummaryAndChartData(
   console.log("SERVER ACTION: Dashboard data processed. Summary:", summary, "ChartSeries Length:", chartSeries.length);
   return { summary, chartSeries };
 }
+
