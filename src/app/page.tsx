@@ -6,77 +6,19 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { IndianRupee, Milk, Package, TrendingUp, TrendingDown, AlertCircle, CalendarIcon } from "lucide-react";
-import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, parseISO } from "date-fns";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { IndianRupee, Milk, Package, TrendingUp, TrendingDown, AlertCircle } from "lucide-react";
+import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import type { DailySummary, ChartDataPoint, DashboardData } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
-
-
-// Simulated data fetching function
-const getDashboardData = async (startDate: Date, endDate: Date): Promise<DashboardData> => {
-  // Simulate API call delay - REMOVED for faster mock loading
-
-  const summary: DailySummary = {
-    milkPurchasedLitres: 0,
-    milkPurchasedAmount: 0,
-    milkSoldLitres: 0,
-    milkSoldAmount: 0,
-    gheeSalesAmount: 0,
-    pashuAaharSalesAmount: 0,
-    totalCashIn: 0,
-    totalCreditOut: 0,
-    totalOutstandingAmount: 12000, // Static for now
-  };
-
-  const chartSeries: ChartDataPoint[] = [];
-  const days = eachDayOfInterval({ start: startDate, end: endDate });
-
-  days.forEach((day, index) => {
-    const dayFactor = (index + 1) / days.length; // Create some variance
-    const purchased = Math.random() * 5000 * dayFactor + 2000;
-    const sold = Math.random() * 4000 * dayFactor + 3000;
-
-    summary.milkPurchasedAmount += purchased;
-    summary.milkSoldAmount += sold;
-    summary.milkPurchasedLitres += purchased / 40; // Assuming avg rate 40
-    summary.milkSoldLitres += sold / 60;    // Assuming avg rate 60
-    summary.gheeSalesAmount += Math.random() * 500 * dayFactor;
-    summary.pashuAaharSalesAmount += Math.random() * 300 * dayFactor;
-    summary.totalCashIn += sold + summary.gheeSalesAmount + summary.pashuAaharSalesAmount - (Math.random() * 500); // some credit
-    summary.totalCreditOut += Math.random() * 500;
-
-
-    chartSeries.push({
-      date: format(day, "MMM dd"),
-      purchasedValue: parseFloat(purchased.toFixed(2)),
-      soldValue: parseFloat(sold.toFixed(2)),
-    });
-  });
-  
-  // Ensure values are rounded for summary
-  summary.milkPurchasedLitres = parseFloat(summary.milkPurchasedLitres.toFixed(1));
-  summary.milkPurchasedAmount = parseFloat(summary.milkPurchasedAmount.toFixed(2));
-  summary.milkSoldLitres = parseFloat(summary.milkSoldLitres.toFixed(1));
-  summary.milkSoldAmount = parseFloat(summary.milkSoldAmount.toFixed(2));
-  summary.gheeSalesAmount = parseFloat(summary.gheeSalesAmount.toFixed(2));
-  summary.pashuAaharSalesAmount = parseFloat(summary.pashuAaharSalesAmount.toFixed(2));
-  summary.totalCashIn = parseFloat(summary.totalCashIn.toFixed(2));
-  summary.totalCreditOut = parseFloat(summary.totalCreditOut.toFixed(2));
-
-
-  return { summary, chartSeries };
-};
-
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { getDashboardSummaryAndChartData } from "./dashboard/actions"; // Import the new server action
 
 const chartConfig = {
   purchasedValue: { label: "Purchase Value", color: "hsl(var(--chart-4))" }, // Reddish
   soldValue: { label: "Sale Value", color: "hsl(var(--chart-3))" }, // Greenish
 } satisfies ChartConfig;
-
 
 export default function DashboardPage() {
   const [filterType, setFilterType] = useState<string>("daily");
@@ -88,11 +30,10 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [displayedDateRangeString, setDisplayedDateRangeString] = useState<string>("Loading date range...");
 
-
   const calculateDateRange = useCallback(() => {
     const today = new Date();
-    let start = today;
-    let end = today;
+    let start = customStartDate !== undefined ? customStartDate : today; // Default to today if customStartDate is not set yet by useEffect
+    let end = customEndDate !== undefined ? customEndDate : today; // Default to today if customEndDate is not set yet
 
     switch (filterType) {
       case "daily":
@@ -100,36 +41,59 @@ export default function DashboardPage() {
         end = today;
         break;
       case "weekly":
-        start = startOfWeek(today, { weekStartsOn: 1 }); // Monday
-        end = endOfWeek(today, { weekStartsOn: 1 }); // Sunday
+        start = startOfWeek(today, { weekStartsOn: 1 }); 
+        end = endOfWeek(today, { weekStartsOn: 1 }); 
         break;
       case "monthly":
         start = startOfMonth(today);
         end = endOfMonth(today);
         break;
       case "custom":
+        // Use custom dates if they are valid, otherwise default to a range
         start = customStartDate || subDays(today, 7); 
         end = customEndDate || today; 
         break;
     }
+    // Ensure end date is not before start date for custom ranges
     if (filterType === 'custom' && start && end && end < start) {
-        end = start;
+        end = start; // Or handle as an error/toast
     }
     return { startDate: start, endDate: end };
   }, [filterType, customStartDate, customEndDate]);
 
   const fetchData = useCallback(async () => {
+    console.log("CLIENT: fetchData called. filterType:", filterType, "customStartDate:", customStartDate, "customEndDate:", customEndDate);
     setIsLoading(true);
+    
     const { startDate, endDate } = calculateDateRange();
     
-    const data = await getDashboardData(startDate, endDate);
-    setSummary(data.summary);
-    setChartData(data.chartSeries);
+    if (!startDate || !endDate) {
+        console.warn("CLIENT: fetchData - startDate or endDate is undefined, skipping fetch.");
+        setIsLoading(false);
+        setDisplayedDateRangeString("Please select a valid date range.");
+        setSummary(null);
+        setChartData([]);
+        return;
+    }
+
+    console.log(`CLIENT: Fetching data for range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+    try {
+      const data: DashboardData = await getDashboardSummaryAndChartData(startDate, endDate);
+      console.log("CLIENT: Data received from server action:", data);
+      setSummary(data.summary);
+      setChartData(data.chartSeries);
+    } catch (error) {
+      console.error("CLIENT: Error fetching dashboard data:", error);
+      setSummary(null); // Or set to a default error state
+      setChartData([]);
+      // Optionally, show a toast message to the user
+    }
+
 
     const formattedStartDate = format(startDate, "MMM dd, yyyy");
     const formattedEndDate = format(endDate, "MMM dd, yyyy");
     let periodPrefix = "";
-    if (filterType === 'daily' && formattedStartDate === formattedEndDate) {
+    if (filterType === 'daily' && format(startDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') ) {
       periodPrefix = "today's";
     } else if (filterType === 'daily') {
        periodPrefix = `for ${formattedStartDate}`;
@@ -141,26 +105,28 @@ export default function DashboardPage() {
     );
 
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); // filterType added as it affects periodPrefix
+  }, [calculateDateRange, filterType]); // Added filterType as it affects periodPrefix logic
 
   useEffect(() => {
     // Initialize custom dates on client mount to avoid hydration issues with new Date()
+    // and ensure calculateDateRange has valid defaults if custom is selected early
     if (customStartDate === undefined) {
       setCustomStartDate(subDays(new Date(), 7));
     }
     if (customEndDate === undefined) {
       setCustomEndDate(new Date());
     }
-  }, []); // Empty dependency array ensures this runs once on mount
+  }, []); 
 
 
   useEffect(() => {
     // Ensure custom dates are set before fetching if filterType is 'custom'
-    if (filterType === 'custom' && (!customStartDate || !customEndDate)) {
+    if (filterType === 'custom' && (customStartDate === undefined || customEndDate === undefined)) {
+      console.log("CLIENT: useEffect - Custom filter selected, but dates not yet initialized. Skipping fetch.");
       return; // Don't fetch if custom dates are not ready
     }
     fetchData();
-  }, [fetchData, filterType, customStartDate, customEndDate]); // Dependencies for re-fetching
+  }, [fetchData, filterType, customStartDate, customEndDate]); 
 
   const summaryItems = useMemo(() => {
     if (!summary) return [];
@@ -193,9 +159,9 @@ export default function DashboardPage() {
                 <SelectValue placeholder="Select period" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="daily">Daily</SelectItem>
-                <SelectItem value="weekly">Weekly</SelectItem>
-                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="daily">Daily (Today)</SelectItem>
+                <SelectItem value="weekly">Weekly (This Week)</SelectItem>
+                <SelectItem value="monthly">Monthly (This Month)</SelectItem>
                 <SelectItem value="custom">Custom Range</SelectItem>
               </SelectContent>
             </Select>
@@ -260,15 +226,17 @@ export default function DashboardPage() {
             </div>
           ) : chartData.length > 0 ? (
             <ChartContainer config={chartConfig} className="w-full h-full">
-              <LineChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false}/>
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => value} />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => `₹${value / 1000}k`} />
-                <Tooltip content={<ChartTooltipContent indicator="line" />} />
-                <Legend />
-                <Line type="monotone" dataKey="purchasedValue" stroke="var(--color-purchasedValue)" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="soldValue" stroke="var(--color-soldValue)" strokeWidth={2} dot={false} />
-              </LineChart>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+                  <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => value} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => `₹${value / 1000}k`} />
+                  <Tooltip content={<ChartTooltipContent indicator="line" />} />
+                  <Legend />
+                  <Line type="monotone" dataKey="purchasedValue" stroke="var(--color-purchasedValue)" strokeWidth={2} dot={false} name="Purchase Value" />
+                  <Line type="monotone" dataKey="soldValue" stroke="var(--color-soldValue)" strokeWidth={2} dot={false} name="Sale Value" />
+                </LineChart>
+              </ResponsiveContainer>
             </ChartContainer>
           ) : (
              <div className="flex items-center justify-center h-full">
