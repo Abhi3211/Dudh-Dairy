@@ -66,14 +66,19 @@ export default function SalesPage() {
   const [rate, setRate] = useState<string>("");
   const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Cash");
 
-  const [filteredPashuAaharSuggestions, setFilteredPashuAaharSuggestions] = useState<string[]>([]);
   const [popoverOpenForPashuAahar, setPopoverOpenForPashuAahar] = useState(false);
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
 
 
   useEffect(() => {
-    // Initialize date client-side to avoid hydration issues
-    setDate(new Date());
+    setDate(undefined); // Initialize to undefined, set in client-side effect
+  }, []);
+
+  useEffect(() => {
+    // Client-side only effect to initialize date and sales
+    if (date === undefined) { // Check to run only once after initial undefined state
+        setDate(new Date());
+    }
     const processedSales = rawInitialSalesData.map(s => {
       const entryDate = new Date();
       if (s.dateOffset !== undefined) {
@@ -82,7 +87,7 @@ export default function SalesPage() {
       return { ...s, id: s.tempId, date: entryDate };
     }).sort((a,b) => b.date.getTime() - a.date.getTime());
     setSales(processedSales);
-  }, []);
+  }, []); // Empty dependency array ensures this runs once on mount
 
   const allKnownCustomerNames = useMemo(() => {
     const namesFromSales = new Set(sales.map(s => s.customerName));
@@ -101,29 +106,13 @@ export default function SalesPage() {
   useEffect(() => {
     if (currentCategoryName !== "Pashu Aahar") {
       setSpecificPashuAaharName("");
-      setFilteredPashuAaharSuggestions([]);
       setPopoverOpenForPashuAahar(false);
     }
   }, [currentCategoryName]);
 
   const handlePashuAaharNameChange = useCallback((value: string) => {
     setSpecificPashuAaharName(value);
-    if (value.trim()) {
-      const filtered = knownPashuAaharProducts.filter(p =>
-        p.toLowerCase().includes(value.toLowerCase())
-      );
-      setFilteredPashuAaharSuggestions(filtered);
-      setPopoverOpenForPashuAahar(filtered.length > 0);
-    } else {
-      setFilteredPashuAaharSuggestions([]);
-      setPopoverOpenForPashuAahar(false);
-    }
-  }, []);
-
-  const handlePashuAaharSuggestionClick = useCallback((suggestion: string) => {
-    setSpecificPashuAaharName(suggestion);
-    setFilteredPashuAaharSuggestions([]);
-    setPopoverOpenForPashuAahar(false);
+    setPopoverOpenForPashuAahar(!!value.trim()); // Open if there's text, close if not
   }, []);
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
@@ -195,10 +184,9 @@ export default function SalesPage() {
     setSpecificPashuAaharName("");
     setQuantity("");
     setRate("");
-    setFilteredPashuAaharSuggestions([]);
     setPopoverOpenForPashuAahar(false);
     setIsCustomerPopoverOpen(false);
-    setDate(new Date());
+    // setDate(new Date()); // Keep date or reset as preferred
     setSelectedCategoryIndex("0");
     setPaymentType("Cash");
   };
@@ -240,15 +228,15 @@ export default function SalesPage() {
                       <CommandList>
                         <CommandEmpty>No customer found.</CommandEmpty>
                         <CommandGroup>
-                          {allKnownCustomerNames
-                            .filter((name) =>
+                          {allKnownCustomerNames // This list is already memoized
+                            .filter((name) => // This filter is okay here if allKnownCustomerNames isn't excessively large
                               name.toLowerCase().includes(customerName.toLowerCase())
                             )
                             .map((name) => (
                               <CommandItem
                                 key={name}
                                 value={name}
-                                onSelect={handleCustomerSelect}
+                                onSelect={handleCustomerSelect} // handleCustomerSelect expects the value
                               >
                                 {name}
                               </CommandItem>
@@ -299,11 +287,14 @@ export default function SalesPage() {
                         <CommandList>
                             <CommandEmpty>No Pashu Aahar product found.</CommandEmpty>
                             <CommandGroup>
-                            {filteredPashuAaharSuggestions.map(suggestion => (
+                            {knownPashuAaharProducts.map(suggestion => ( // Pass full list
                                 <CommandItem
                                 key={suggestion}
-                                value={suggestion}
-                                onSelect={() => handlePashuAaharSuggestionClick(suggestion)}
+                                value={suggestion} // cmdk uses this for filtering and onSelect argument
+                                onSelect={(currentValue) => { // currentValue is the selected item's 'value'
+                                    setSpecificPashuAaharName(currentValue);
+                                    setPopoverOpenForPashuAahar(false);
+                                }}
                                 >
                                 {suggestion}
                                 </CommandItem>
@@ -392,3 +383,5 @@ export default function SalesPage() {
     </div>
   );
 }
+
+    
