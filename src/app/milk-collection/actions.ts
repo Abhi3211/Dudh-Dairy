@@ -26,8 +26,9 @@ export async function getMilkCollectionEntriesFromFirestore(): Promise<MilkColle
   console.log("SERVER ACTION: getMilkCollectionEntriesFromFirestore called.");
   try {
     const entriesCollection = collection(db, 'milkCollections');
-    console.log("SERVER ACTION: Querying 'milkCollections' ordered by date desc, then time desc.");
-    const q = query(entriesCollection, orderBy('date', 'desc'), orderBy('time', 'desc'));
+    // SIMPLIFIED QUERY: Order only by date for now
+    console.log("SERVER ACTION: Querying 'milkCollections' ordered by date desc.");
+    const q = query(entriesCollection, orderBy('date', 'desc'));
     const entrySnapshot = await getDocs(q);
     console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} documents from Firestore.`);
 
