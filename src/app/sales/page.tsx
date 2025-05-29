@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect } from "react";
+import { useState, type FormEvent, useEffect, useMemo, useCallback } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,17 +24,22 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag } from "lucide-react";
 import type { SaleEntry } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 
 // Raw data for initial sales, dates processed in useEffect
-const rawInitialSales: (Omit<SaleEntry, 'id' | 'date'> & { tempId: string, dateOffset?: number })[] = [
+const rawInitialSalesData: (Omit<SaleEntry, 'id' | 'date'> & { tempId: string, dateOffset?: number })[] = [
   { tempId: "1", customerName: "Amit Singh", productName: "Milk", quantity: 5, unit: "Ltr", rate: 60, totalAmount: 300, paymentType: "Cash", dateOffset: 0 },
   { tempId: "2", customerName: "Priya Sharma", productName: "Ghee", quantity: 1, unit: "Kg", rate: 700, totalAmount: 700, paymentType: "Credit", dateOffset: 0 },
   { tempId: "3", customerName: "Vijay Store", productName: "Gold Coin Feed", quantity: 2, unit: "Bags", rate: 320, totalAmount: 640, paymentType: "Cash", dateOffset: 0 },
+  { tempId: "4", customerName: "Sunita Devi", productName: "Milk", quantity: 10, unit: "Ltr", rate: 58, totalAmount: 580, paymentType: "Credit", dateOffset: -1 },
+  { tempId: "5", customerName: "Amit Singh", productName: "Super Pallet", quantity: 1, unit: "Bags", rate: 350, totalAmount: 350, paymentType: "Cash", dateOffset: -1 },
 ];
+
+const MOCK_CUSTOMER_NAMES = ["Retail Cash Sale", "Hotel Anapurna", "Sharma Sweets"];
 
 const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
   { categoryName: "Milk", unit: "Ltr" },
@@ -63,10 +68,13 @@ export default function SalesPage() {
 
   const [filteredPashuAaharSuggestions, setFilteredPashuAaharSuggestions] = useState<string[]>([]);
   const [popoverOpenForPashuAahar, setPopoverOpenForPashuAahar] = useState(false);
+  const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
+
 
   useEffect(() => {
+    // Initialize date client-side to avoid hydration issues
     setDate(new Date());
-    const processedSales = rawInitialSales.map(s => {
+    const processedSales = rawInitialSalesData.map(s => {
       const entryDate = new Date();
       if (s.dateOffset !== undefined) {
         entryDate.setDate(entryDate.getDate() + s.dateOffset);
@@ -76,7 +84,17 @@ export default function SalesPage() {
     setSales(processedSales);
   }, []);
 
-  const totalAmount = parseFloat(quantity) * parseFloat(rate) || 0;
+  const allKnownCustomerNames = useMemo(() => {
+    const namesFromSales = new Set(sales.map(s => s.customerName));
+    return Array.from(new Set([...MOCK_CUSTOMER_NAMES, ...namesFromSales])).sort();
+  }, [sales]);
+
+  const totalAmount = useMemo(() => {
+    const q = parseFloat(quantity);
+    const r = parseFloat(rate);
+    return (!isNaN(q) && !isNaN(r)) ? q * r : 0;
+  }, [quantity, rate]);
+
   const currentCategoryDetails = productCategories[parseInt(selectedCategoryIndex)];
   const currentCategoryName = currentCategoryDetails?.categoryName;
 
@@ -88,30 +106,44 @@ export default function SalesPage() {
     }
   }, [currentCategoryName]);
 
-  const handlePashuAaharNameChange = (value: string) => {
+  const handlePashuAaharNameChange = useCallback((value: string) => {
     setSpecificPashuAaharName(value);
     if (value.trim()) {
       const filtered = knownPashuAaharProducts.filter(p =>
         p.toLowerCase().includes(value.toLowerCase())
       );
       setFilteredPashuAaharSuggestions(filtered);
-      setPopoverOpenForPashuAahar(filtered.length > 0 && value.trim().length > 0);
+      setPopoverOpenForPashuAahar(filtered.length > 0);
     } else {
       setFilteredPashuAaharSuggestions([]);
       setPopoverOpenForPashuAahar(false);
     }
-  };
+  }, []);
 
-  const handlePashuAaharSuggestionClick = (suggestion: string) => {
+  const handlePashuAaharSuggestionClick = useCallback((suggestion: string) => {
     setSpecificPashuAaharName(suggestion);
     setFilteredPashuAaharSuggestions([]);
     setPopoverOpenForPashuAahar(false);
-  };
+  }, []);
+
+  const handleCustomerNameInputChange = useCallback((value: string) => {
+    setCustomerName(value);
+    if (value.trim()) {
+      setIsCustomerPopoverOpen(true);
+    } else {
+      setIsCustomerPopoverOpen(false);
+    }
+  }, []);
+
+  const handleCustomerSelect = useCallback((currentValue: string) => {
+    setCustomerName(currentValue);
+    setIsCustomerPopoverOpen(false);
+  }, []);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !customerName || !quantity || !rate) {
-      toast({ title: "Error", description: "Please fill all fields.", variant: "destructive" });
+    if (!date || !customerName.trim() || !quantity || !rate) {
+      toast({ title: "Error", description: "Please fill all required fields (Date, Customer, Quantity, Rate).", variant: "destructive" });
       return;
     }
 
@@ -131,15 +163,28 @@ export default function SalesPage() {
       finalProductName = currentCategoryDetails.categoryName;
     }
 
+    const parsedQuantity = parseFloat(quantity);
+    const parsedRate = parseFloat(rate);
+
+    if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
+      toast({ title: "Error", description: "Quantity must be a positive number.", variant: "destructive" });
+      return;
+    }
+    if (isNaN(parsedRate) || parsedRate <= 0) {
+      toast({ title: "Error", description: "Rate must be a positive number.", variant: "destructive" });
+      return;
+    }
+
+
     const newSale: SaleEntry = {
       id: String(Date.now()),
       date,
-      customerName,
+      customerName: customerName.trim(),
       productName: finalProductName,
-      quantity: parseFloat(quantity),
+      quantity: parsedQuantity,
       unit: currentCategoryDetails.unit,
-      rate: parseFloat(rate),
-      totalAmount: parseFloat(quantity) * parseFloat(rate),
+      rate: parsedRate,
+      totalAmount: parsedQuantity * parsedRate,
       paymentType,
     };
     setSales(prevSales => [newSale, ...prevSales].sort((a,b) => b.date.getTime() - a.date.getTime()));
@@ -152,7 +197,10 @@ export default function SalesPage() {
     setRate("");
     setFilteredPashuAaharSuggestions([]);
     setPopoverOpenForPashuAahar(false);
-    setDate(new Date()); // Reset date for next entry
+    setIsCustomerPopoverOpen(false);
+    setDate(new Date());
+    setSelectedCategoryIndex("0");
+    setPaymentType("Cash");
   };
 
   return (
@@ -169,10 +217,49 @@ export default function SalesPage() {
                 <Label htmlFor="date">Date</Label>
                 <DatePicker date={date} setDate={setDate} />
               </div>
+              
               <div>
-                <Label htmlFor="customerName" className="flex items-center mb-1"><User className="h-4 w-4 mr-2 text-muted-foreground" />Customer Name</Label>
-                <Input id="customerName" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Customer name" required />
+                <Label htmlFor="customerNameInput" className="flex items-center mb-1">
+                  <User className="h-4 w-4 mr-2 text-muted-foreground" /> Customer Name
+                </Label>
+                <Popover open={isCustomerPopoverOpen} onOpenChange={setIsCustomerPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Input
+                      id="customerNameInput"
+                      value={customerName}
+                      onChange={(e) => handleCustomerNameInputChange(e.target.value)}
+                      placeholder="Start typing customer name"
+                      autoComplete="off"
+                      required
+                      className="w-full"
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+                    <Command>
+                      <CommandInput placeholder="Search customers..." />
+                      <CommandList>
+                        <CommandEmpty>No customer found.</CommandEmpty>
+                        <CommandGroup>
+                          {allKnownCustomerNames
+                            .filter((name) =>
+                              name.toLowerCase().includes(customerName.toLowerCase())
+                            )
+                            .map((name) => (
+                              <CommandItem
+                                key={name}
+                                value={name}
+                                onSelect={handleCustomerSelect}
+                              >
+                                {name}
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
+
               <div>
                 <Label htmlFor="productCategory" className="flex items-center mb-1"><Package className="h-4 w-4 mr-2 text-muted-foreground" />Product Category</Label>
                 <Select value={selectedCategoryIndex} onValueChange={setSelectedCategoryIndex}>
@@ -207,21 +294,23 @@ export default function SalesPage() {
                       onOpenAutoFocus={(e) => e.preventDefault()}
                       sideOffset={5}
                     >
-                      {filteredPashuAaharSuggestions.length === 0 && specificPashuAaharName.trim() ? (
-                         <div className="p-2 text-sm text-muted-foreground">No products found.</div>
-                      ) : (
-                        <div className="max-h-48 overflow-auto">
-                          {filteredPashuAaharSuggestions.map(suggestion => (
-                            <div
-                              key={suggestion}
-                              className="p-2 hover:bg-accent cursor-pointer text-sm"
-                              onMouseDown={() => handlePashuAaharSuggestionClick(suggestion)}
-                            >
-                              {suggestion}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                       <Command>
+                        <CommandInput placeholder="Search Pashu Aahar..." />
+                        <CommandList>
+                            <CommandEmpty>No Pashu Aahar product found.</CommandEmpty>
+                            <CommandGroup>
+                            {filteredPashuAaharSuggestions.map(suggestion => (
+                                <CommandItem
+                                key={suggestion}
+                                value={suggestion}
+                                onSelect={() => handlePashuAaharSuggestionClick(suggestion)}
+                                >
+                                {suggestion}
+                                </CommandItem>
+                            ))}
+                            </CommandGroup>
+                        </CommandList>
+                        </Command>
                     </PopoverContent>
                   </Popover>
                 </div>
@@ -285,7 +374,7 @@ export default function SalesPage() {
                 ) : (
                     sales.map((sale) => (
                     <TableRow key={sale.id}>
-                        <TableCell>{format(sale.date, 'P')}</TableCell>
+                        <TableCell>{sale.date instanceof Date ? format(sale.date, 'P') : 'Invalid Date'}</TableCell>
                         <TableCell>{sale.customerName}</TableCell>
                         <TableCell>{sale.productName}</TableCell>
                         <TableCell className="text-right">{sale.quantity} {sale.unit}</TableCell>
@@ -303,5 +392,3 @@ export default function SalesPage() {
     </div>
   );
 }
-
-    
