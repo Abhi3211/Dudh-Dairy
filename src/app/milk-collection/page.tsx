@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useMemo, useCallback } from "react";
+import { useState, type FormEvent, useEffect, useMemo, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,17 +17,33 @@ import {
   TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter } from "lucide-react";
+import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter, MoreHorizontal, Edit, Trash2 } from "lucide-react";
 import type { MilkCollectionEntry, Party } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
-import { addMilkCollectionEntryToFirestore, getMilkCollectionEntriesFromFirestore } from "./actions";
+import { addMilkCollectionEntryToFirestore, getMilkCollectionEntriesFromFirestore, updateMilkCollectionEntryInFirestore, deleteMilkCollectionEntryFromFirestore } from "./actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 
 export default function MilkCollectionPage() {
@@ -39,20 +55,27 @@ export default function MilkCollectionPage() {
   const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
   const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
   const [shiftFilter, setShiftFilter] = useState<"All" | "Morning" | "Evening">("All");
+  
   const [customerNameInput, setCustomerNameInput] = useState<string>("");
+  const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
+  const customerNameInputRef = useRef<HTMLInputElement>(null);
+
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateInputValue, setRateInputValue] = useState<string>("6.7"); 
-  const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
 
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true);
+
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [entryToDelete, setEntryToDelete] = useState<MilkCollectionEntry | null>(null);
 
   const fetchParties = useCallback(async () => {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties);
+      setAvailableParties(parties.filter(p => p.type === "Customer")); // Assuming milk suppliers are "Customer" type
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties:", error);
       toast({ title: "Error", description: "Could not fetch parties for suggestions.", variant: "destructive" });
@@ -71,7 +94,10 @@ export default function MilkCollectionPage() {
         ...entry,
         date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
       }));
-      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length, 'Data (sample):', processedEntries.length > 0 ? JSON.parse(JSON.stringify(processedEntries[0])) : 'N/A');
+      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length);
+      if (processedEntries.length > 0) {
+        console.log('Data (sample):', JSON.parse(JSON.stringify(processedEntries[0])));
+      }
       setAllEntries(processedEntries);
     } catch (error) {
       console.error("CLIENT: Failed to fetch milk collection entries:", error);
@@ -91,11 +117,10 @@ export default function MilkCollectionPage() {
   }, [fetchEntries, fetchParties]); 
 
   const milkSuppliers = useMemo(() => {
-    // Customers who supply milk
     return availableParties.filter(p => p.type === "Customer");
   }, [availableParties]);
 
-  const allKnownMilkSupplierNames = useMemo(() => {
+  const allKnownCustomerNames = useMemo(() => {
     return milkSuppliers.map(p => p.name).sort();
   }, [milkSuppliers]);
 
@@ -109,7 +134,7 @@ export default function MilkCollectionPage() {
     const fat = parseFloat(fatStr);
     const rate = parseFloat(rateStr);
 
-    if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat > 0 && !isNaN(rate) && rate > 0) {
+    if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat >= 0 && !isNaN(rate) && rate > 0) { // fat can be 0
       return (quantity * fat * rate).toFixed(2);
     }
     return "";
@@ -128,15 +153,14 @@ export default function MilkCollectionPage() {
             }
             const entryDateStr = format(entry.date, 'yyyy-MM-dd');
             const match = entryDateStr === targetDateStr;
+            console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr}, target date: ${targetDateStr}, match: ${match}`);
             return match;
         });
     }
 
     let shiftAndDateFiltered = dateFiltered;
     if (shiftFilter !== "All") {
-        shiftAndDateFiltered = dateFiltered.filter(entry => {
-            return entry.shift === shiftFilter;
-        });
+        shiftAndDateFiltered = dateFiltered.filter(entry => entry.shift === shiftFilter);
     } 
     
     console.log("CLIENT: Resulting filteredEntries count:", shiftAndDateFiltered.length);
@@ -168,9 +192,8 @@ export default function MilkCollectionPage() {
         setIsCustomerPopoverOpen(false);
         return;
       }
-      // Add new party of type "Customer" as milk suppliers are now customers
       setIsLoadingParties(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); // Milk suppliers are Customers
       if (result.success) {
         setCustomerNameInput(trimmedValue);
         toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
@@ -183,7 +206,18 @@ export default function MilkCollectionPage() {
       setCustomerNameInput(trimmedValue);
     }
     setIsCustomerPopoverOpen(false);
+    customerNameInputRef.current?.focus();
   }, [toast, fetchParties]);
+
+  const resetFormFields = useCallback(() => {
+    setCustomerNameInput(""); 
+    setQuantityLtr("");
+    setFatPercentage("");
+    // Keep date and shift as they are, for rapid entry
+    // setRateInputValue("6.7"); // Optionally reset rate, or keep it
+    setEditingEntryId(null);
+    setIsCustomerPopoverOpen(false);
+  }, []);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -205,8 +239,8 @@ export default function MilkCollectionPage() {
       toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" });
       return;
     }
-    if (isNaN(fatP) || fatP <= 0) { 
-        toast({ title: "Error", description: "Please enter a valid FAT percentage (must be > 0).", variant: "destructive" });
+    if (isNaN(fatP) || fatP < 0) { // FAT can be 0
+        toast({ title: "Error", description: "Please enter a valid FAT percentage (must be >= 0).", variant: "destructive" });
         return;
     }
     if (isNaN(finalRateFactor) || finalRateFactor <= 0) {
@@ -216,7 +250,7 @@ export default function MilkCollectionPage() {
 
     const finalTotalAmount = qLtr * fatP * finalRateFactor; 
 
-    const newEntryData: Omit<MilkCollectionEntry, 'id'> = {
+    const entryData: Omit<MilkCollectionEntry, 'id'> = {
       date, 
       shift,
       customerName: customerNameInput.trim(), 
@@ -226,30 +260,69 @@ export default function MilkCollectionPage() {
       totalAmount: finalTotalAmount,
     };
     
-    console.log("CLIENT: Submitting new entry data:", JSON.parse(JSON.stringify(newEntryData)));
+    console.log("CLIENT: Submitting entry data:", JSON.parse(JSON.stringify(entryData)));
     setIsLoadingEntries(true); 
-    const result = await addMilkCollectionEntryToFirestore(newEntryData);
+    
+    let result;
+    if (editingEntryId) {
+      result = await updateMilkCollectionEntryInFirestore(editingEntryId, entryData);
+      if (result.success) {
+        toast({ title: "Success", description: "Milk collection entry updated." });
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to update entry.", variant: "destructive" });
+      }
+    } else {
+      result = await addMilkCollectionEntryToFirestore(entryData);
+      if (result.success) {
+        toast({ title: "Success", description: "Milk collection entry added." });
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
+      }
+    }
     
     if (result.success) {
-      toast({ title: "Success", description: "Milk collection entry added." });
-      setCustomerNameInput(""); 
-      setQuantityLtr("");
-      setFatPercentage("");
-      // date and shift persist
+      resetFormFields();
       await fetchEntries(); 
-    } else {
-      toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
     }
     setIsLoadingEntries(false); 
   };
 
-  const filteredMilkSupplierSuggestions = useMemo(() => {
-    if (!customerNameInput.trim()) return allKnownMilkSupplierNames;
-    return allKnownMilkSupplierNames.filter((name) =>
+  const filteredCustomerSuggestions = useMemo(() => {
+    if (!customerNameInput.trim()) return allKnownCustomerNames;
+    return allKnownCustomerNames.filter((name) =>
       name.toLowerCase().includes(customerNameInput.toLowerCase())
     );
-  }, [customerNameInput, allKnownMilkSupplierNames]);
+  }, [customerNameInput, allKnownCustomerNames]);
 
+  const handleEdit = (entry: MilkCollectionEntry) => {
+    setEditingEntryId(entry.id);
+    setDate(entry.date); // Date is already a JS Date object
+    setShift(entry.shift);
+    setCustomerNameInput(entry.customerName);
+    setQuantityLtr(String(entry.quantityLtr));
+    setFatPercentage(String(entry.fatPercentage));
+    setRateInputValue(String(entry.ratePerLtr));
+  };
+
+  const handleDeleteClick = (entry: MilkCollectionEntry) => {
+    setEntryToDelete(entry);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!entryToDelete) return;
+    setIsLoadingEntries(true);
+    const result = await deleteMilkCollectionEntryFromFirestore(entryToDelete.id);
+    if (result.success) {
+      toast({ title: "Success", description: "Entry deleted." });
+      await fetchEntries();
+    } else {
+      toast({ title: "Error", description: result.error || "Failed to delete entry.", variant: "destructive" });
+    }
+    setShowDeleteDialog(false);
+    setEntryToDelete(null);
+    setIsLoadingEntries(false);
+  };
 
   return (
     <div>
@@ -257,8 +330,8 @@ export default function MilkCollectionPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">
           <CardHeader>
-            <CardTitle>New Entry</CardTitle>
-            <CardDescription>Add a new milk collection record.</CardDescription>
+            <CardTitle>{editingEntryId ? "Edit Entry" : "New Entry"}</CardTitle>
+            <CardDescription>{editingEntryId ? "Modify the details of the existing record." : "Add a new milk collection record."}</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -294,6 +367,7 @@ export default function MilkCollectionPage() {
                   <PopoverTrigger asChild>
                     <Input
                       id="customerNameInput"
+                      ref={customerNameInputRef}
                       value={customerNameInput}
                       onChange={(e) => handleCustomerNameInputChange(e.target.value)}
                       placeholder="Start typing customer name"
@@ -302,41 +376,47 @@ export default function MilkCollectionPage() {
                       className="w-full"
                     />
                   </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" side="bottom" align="start" sideOffset={0} onOpenAutoFocus={(e) => e.preventDefault()}>
+                  <PopoverContent 
+                    className="w-[--radix-popover-trigger-width] p-0" 
+                    side="bottom" 
+                    align="start" 
+                    sideOffset={0}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                  >
                     <Command>
                       <CommandInput 
-                        placeholder="Search milk suppliers..." 
+                        placeholder="Search or add new customer..." 
                         value={customerNameInput} 
-                        onValueChange={handleCustomerNameInputChange}
+                        onValueChange={handleCustomerNameInputChange} // Use the same handler for CommandInput
                        />
                       <CommandList>
                         {isLoadingParties ? (
-                           <CommandItem disabled>Loading milk suppliers...</CommandItem>
+                           <CommandItem disabled>Loading customers...</CommandItem>
                         ) : (
                           <>
-                            {customerNameInput.trim() && !allKnownMilkSupplierNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
+                            {customerNameInput.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
                                <CommandItem
                                 key={`__CREATE__${customerNameInput.trim()}`}
-                                value={`__CREATE__${customerNameInput.trim()}`}
+                                value={`__CREATE__${customerNameInput.trim()}`} // Value is important for onSelect
                                 onSelect={() => handleCustomerSelect(customerNameInput.trim(), true)}
                               >
                                 <PlusCircle className="mr-2 h-4 w-4" />
                                 Add new milk supplier: "{customerNameInput.trim()}"
                               </CommandItem>
                             )}
-                            {filteredMilkSupplierSuggestions.map((name) => (
+                            {filteredCustomerSuggestions.map((name) => (
                               <CommandItem
                                 key={name}
-                                value={name}
+                                value={name} // Value is important for onSelect
                                 onSelect={() => handleCustomerSelect(name)}
                               >
                                 {name}
                               </CommandItem>
                             ))}
-                             {filteredMilkSupplierSuggestions.length === 0 && customerNameInput.trim() && allKnownMilkSupplierNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
+                             {filteredCustomerSuggestions.length === 0 && customerNameInput.trim() && allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
                                 <CommandEmpty>No existing milk suppliers match. Select "Add new..." above.</CommandEmpty>
                              )}
-                             {allKnownMilkSupplierNames.length === 0 && !customerNameInput.trim() && (
+                             {allKnownCustomerNames.length === 0 && !customerNameInput.trim() && (
                                 <CommandEmpty>No milk suppliers found. Type to add a new one.</CommandEmpty>
                              )}
                           </>
@@ -381,19 +461,24 @@ export default function MilkCollectionPage() {
                 <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay}` : ""} readOnly className="font-semibold bg-muted/50" />
               </div>
               <Button type="submit" className="w-full" disabled={isLoadingEntries || isLoadingParties}>
-                <PlusCircle className="h-4 w-4 mr-2" /> 
-                {isLoadingEntries && allEntries.length === 0 && !tableFilterDate ? 'Loading...' : (isLoadingEntries ? 'Adding...' : 'Add Entry')}
+                {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
+                {isLoadingEntries && !editingEntryId ? 'Adding...' : (isLoadingEntries && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Entry' : 'Add Entry'))}
               </Button>
+              {editingEntryId && (
+                <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields}>
+                  Cancel Edit
+                </Button>
+              )}
             </form>
           </CardContent>
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader>
+           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div className="flex-1">
                 <CardTitle>Daily Ledger</CardTitle>
-                <CardDescription className="mt-1">
+                 <CardDescription className="mt-1">
                   {tableFilterDate ? `Ledger for ${format(tableFilterDate, 'PPP')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}` : "Select a date to view ledger."}
                   {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
                   {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date${shiftFilter !== 'All' ? ` and shift` : ''}. Checked ${allEntries.length} total entries)`}
@@ -434,17 +519,18 @@ export default function MilkCollectionPage() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Shift</TableHead>
-                    <TableHead>Customer (Supplier)</TableHead> 
+                    <TableHead>Customer</TableHead> 
                     <TableHead className="text-right">Qty (Ltr)</TableHead>
                     <TableHead className="text-right">FAT (%)</TableHead>
                     <TableHead className="text-right">Rate (₹)</TableHead>
                     <TableHead className="text-right">Amount (₹)</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredEntries.length === 0 && !isLoadingEntries ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center text-muted-foreground">
                         {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}.` : "Select a date and shift to view entries."}
                         {tableFilterDate && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
@@ -459,6 +545,24 @@ export default function MilkCollectionPage() {
                         <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
                         <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                                <span className="sr-only">Actions</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onSelect={() => handleEdit(entry)}>
+                                <Edit className="mr-2 h-4 w-4" /> Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => handleDeleteClick(entry)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -468,6 +572,7 @@ export default function MilkCollectionPage() {
                     <TableRow>
                       <TableCell colSpan={6} className="text-right font-semibold">Total Amount:</TableCell>
                       <TableCell className="text-right font-bold">{totalFilteredAmount.toFixed(2)}</TableCell>
+                      <TableCell /> {/* Empty cell for actions column */}
                     </TableRow>
                   </TableFooter>
                 )}
@@ -476,8 +581,23 @@ export default function MilkCollectionPage() {
           </CardContent>
         </Card>
       </div>
+      {showDeleteDialog && entryToDelete && (
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the milk collection entry for
+                "{entryToDelete.customerName}" on {format(entryToDelete.date, 'P')} ({entryToDelete.shift} shift).
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {setShowDeleteDialog(false); setEntryToDelete(null);}}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }
-
-    
