@@ -79,7 +79,7 @@ export default function MilkCollectionPage() {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties.filter(p => p.type === "Customer")); // Milk suppliers are customers now
+      setAvailableParties(parties); 
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties:", error);
       toast({ title: "Error", description: "Could not fetch parties for suggestions.", variant: "destructive" });
@@ -98,10 +98,7 @@ export default function MilkCollectionPage() {
         ...entry,
         date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
       })).sort((a, b) => b.date.getTime() - a.date.getTime());
-      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length);
-      if (processedEntries.length > 0) {
-        console.log('CLIENT: First processed entry (sample):', JSON.parse(JSON.stringify(processedEntries[0])));
-      }
+      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length, 'Data:', JSON.parse(JSON.stringify(processedEntries)));
       setAllEntries(processedEntries);
     } catch (error) {
       console.error("CLIENT: Failed to fetch milk collection entries:", error);
@@ -120,9 +117,14 @@ export default function MilkCollectionPage() {
     fetchParties();
   }, [fetchEntries, fetchParties]); 
 
-  const allKnownCustomerNames = useMemo(() => {
-    return availableParties.map(p => p.name).sort((a, b) => a.localeCompare(b));
+  const partiesForMilkCollection = useMemo(() => {
+    // Customers from whom milk is collected are typically of type "Customer"
+    return availableParties.filter(p => p.type === "Customer");
   }, [availableParties]);
+
+  const allKnownCustomerNames = useMemo(() => {
+    return partiesForMilkCollection.map(p => p.name).sort((a, b) => a.localeCompare(b));
+  }, [partiesForMilkCollection]);
 
 
   const totalAmountDisplay = useMemo(() => {
@@ -148,12 +150,12 @@ export default function MilkCollectionPage() {
         const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
         dateFiltered = allEntries.filter(entry => {
             if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) {
-                console.warn("CLIENT: Invalid or missing date in entry during date filtering:", entry);
+                console.warn(`CLIENT: Invalid or missing date in entry (ID: ${entry.id}) during date filtering. Date value:`, entry.date);
                 return false;
             }
             const entryDateStr = format(entry.date, 'yyyy-MM-dd');
             const match = entryDateStr === targetDateStr;
-            console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (type: ${typeof entry.date}, instanceof Date: ${entry.date instanceof Date}), target date: ${targetDateStr}, match: ${match}`);
+             console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (raw: ${entry.date.toISOString()}), target date: ${targetDateStr}, match: ${match}`);
             return match;
         });
     }
@@ -174,9 +176,17 @@ export default function MilkCollectionPage() {
     return filteredEntries.reduce((sum, entry) => sum + (entry.netAmountPayable || 0), 0);
   }, [filteredEntries]);
 
+  const totalFilteredGrossAmount = useMemo(() => {
+    return filteredEntries.reduce((sum, entry) => sum + (entry.totalAmount || 0), 0);
+  }, [filteredEntries]);
+
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    setIsCustomerPopoverOpen(!!value.trim());
+    if (value.trim()) {
+      setIsCustomerPopoverOpen(true);
+    } else {
+      setIsCustomerPopoverOpen(false);
+    }
   }, []);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
@@ -210,7 +220,7 @@ export default function MilkCollectionPage() {
     setFatPercentage("");
     setAdvancePaid("");
     setRemarks("");
-    // Date and shift persist
+    // Date and shift persist by design
     // setRateInputValue("6.7"); // Optionally reset rate
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
@@ -395,7 +405,7 @@ export default function MilkCollectionPage() {
                   >
                     <Command>
                       <CommandInput 
-                        placeholder="Search or add new customer..." 
+                        placeholder="Search or add new milk supplier..." 
                         value={customerNameInput} 
                         onValueChange={handleCustomerNameInputChange}
                        />
@@ -604,9 +614,16 @@ export default function MilkCollectionPage() {
                 {filteredEntries.length > 0 && (
                   <TableFooter>
                     <TableRow>
-                      <TableCell colSpan={8} className="text-right font-semibold">Total Net Payable:</TableCell>
+                      <TableCell colSpan={6} className="text-right font-semibold">Total Gross Amount:</TableCell>
+                      <TableCell className="text-right font-bold">{totalFilteredGrossAmount.toFixed(2)}</TableCell>
+                      <TableCell /> {/* For Advance Paid column */}
                       <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
-                      <TableCell colSpan={2} />
+                      <TableCell colSpan={2} /> {/* For Remarks and Actions columns */}
+                    </TableRow>
+                     <TableRow>
+                        <TableCell colSpan={8} className="text-right font-semibold">Total Net Payable:</TableCell>
+                        <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
+                        <TableCell colSpan={2} />
                     </TableRow>
                   </TableFooter>
                 )}
@@ -635,3 +652,4 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+
