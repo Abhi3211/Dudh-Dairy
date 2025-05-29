@@ -106,8 +106,8 @@ export default function SalesPage() {
 
 
   const partiesForSalesSuggestions = useMemo(() => {
-    // Suggest parties who are 'Customer' OR 'Dealer'
-    return availableParties.filter(p => p.type === "Customer" || p.type === "Dealer");
+    // Suggest parties who are 'Customer' 
+    return availableParties.filter(p => p.type === "Customer");
   }, [availableParties]);
 
   const allKnownCustomerNamesForSales = useMemo(() => {
@@ -149,12 +149,11 @@ export default function SalesPage() {
         return;
       }
       setIsLoadingParties(true);
-      // When creating from sales, default type is "Customer"
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
       if (result.success) {
         setCustomerName(trimmedValue);
         toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
-        await fetchParties(); // Re-fetch parties
+        await fetchParties(); 
       } else {
         toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
       }

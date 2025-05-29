@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useMemo } from "react";
+import { useState, type FormEvent, useEffect, useMemo, useCallback } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { User, Milk, IndianRupee, TrendingUp, TrendingDown, PlusCircle, Trash2 } from "lucide-react";
+import { User, PlusCircle, Trash2 } from "lucide-react"; // Removed Milk, IndianRupee, TrendingUp, TrendingDown
 import type { Party, PartyLedgerEntry } from "@/lib/types";
 import {
   AlertDialog,
@@ -39,17 +39,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore } from "./actions";
 
-// Mock ledger data, as this part is not yet connected to Firestore
+
 const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   if (!party) return [];
   
   const rawLedgerEntries: (Omit<PartyLedgerEntry, 'id'|'date'|'balance'> & {tempId: string, dateOffset: number})[] = [];
 
-  if (party.type === "Dealer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) {
+  if (party.type === "Customer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) { // Changed from Dealer to Customer
     rawLedgerEntries.push(
-      { tempId: "L1", dateOffset: -2, description: "Milk Collection", milkQuantityLtr: 10.5, credit: 420 },
-      { tempId: "L2", dateOffset: -1, description: "Payment to Party", debit: 300 },
-      { tempId: "L3", dateOffset: 0, description: "Milk Collection", milkQuantityLtr: 12.0, credit: 480 }
+      { tempId: "L1", dateOffset: -2, description: "Milk Supplied to Dairy", milkQuantityLtr: 10.5, credit: 420 },
+      { tempId: "L2", dateOffset: -1, description: "Payment Received from Dairy", debit: 300 },
+      { tempId: "L3", dateOffset: 0, description: "Milk Supplied to Dairy", milkQuantityLtr: 12.0, credit: 480 }
     );
   }
   if (party.type === "Customer" && party.name.includes("Cafe")) {
@@ -58,21 +58,36 @@ const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
         { tempId: "CL2", dateOffset: 0, description: "Payment Received", credit: 500 }
     );
   }
-  if (party.type === "Supplier" && party.name.includes("Feeds")) {
-    rawLedgerEntries.push(
-        { tempId: "SL1", dateOffset: -2, description: "Pashu Aahar Purchase", credit: 5000 },
-        { tempId: "SL2", dateOffset: -1, description: "Payment Made", debit: 4000 }
+   if (party.type === "Customer" && party.name.includes("Nash")) { // Example for Nash as a Customer
+     rawLedgerEntries.push(
+        { tempId: "NL1", dateOffset: -3, description: "Milk Supplied to Dairy", milkQuantityLtr: 15.0, credit: 650 },
+        { tempId: "NL2", dateOffset: -2, description: "Pashu Aahar Purchased on Credit", debit: 1200 },
+        { tempId: "NL3", dateOffset: -1, description: "Payment Received from Dairy (settlement)", debit: 300 },
+         { tempId: "NL4", dateOffset: 0, description: "Payment Made for Pashu Aahar", credit: 1000 }
     );
   }
+  if (party.type === "Supplier" && party.name.includes("Feeds")) {
+    rawLedgerEntries.push(
+        { tempId: "SL1", dateOffset: -2, description: "Pashu Aahar Purchase (Goods Received)", credit: 5000 },
+        { tempId: "SL2", dateOffset: -1, description: "Payment Made (Payment to Supplier)", debit: 4000 }
+    );
+  }
+   if (party.type === "Employee" && party.name.includes("Anita")) {
+    rawLedgerEntries.push(
+        { tempId: "EL1", dateOffset: -5, description: "Salary Advance", debit: 2000 },
+        { tempId: "EL2", dateOffset: 0, description: "Salary Paid", credit: 10000 } // Assuming salary is a credit to employee from dairy's books (expense)
+    );
+  }
+
 
   return rawLedgerEntries.map(entry => {
     const date = new Date();
     date.setDate(date.getDate() + entry.dateOffset);
     return { ...entry, id: entry.tempId, date, balance: 0 }; 
-  });
+  }).sort((a, b) => a.date.getTime() - b.date.getTime());
 };
 
-const partyTypes: Party['type'][] = ["Dealer", "Customer", "Supplier", "Employee"];
+const partyTypes: Party['type'][] = ["Customer", "Supplier", "Employee"]; // "Dealer" removed
 
 export default function PartiesPage() {
   const { toast } = useToast();
@@ -82,12 +97,12 @@ export default function PartiesPage() {
   const [ledgerEntries, setLedgerEntries] = useState<PartyLedgerEntry[]>([]);
 
   const [newPartyName, setNewPartyName] = useState("");
-  const [newPartyType, setNewPartyType] = useState<Party['type']>("Dealer");
+  const [newPartyType, setNewPartyType] = useState<Party['type']>("Customer"); // Default to Customer
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [partyToDelete, setPartyToDelete] = useState<Party | null>(null);
 
-  const fetchParties = async () => {
+  const fetchParties = useCallback(async () => {
     setIsLoadingParties(true);
     try {
       const fetchedParties = await getPartiesFromFirestore();
@@ -98,11 +113,11 @@ export default function PartiesPage() {
     } finally {
       setIsLoadingParties(false);
     }
-  };
+  },[toast]);
 
   useEffect(() => {
     fetchParties();
-  }, []);
+  }, [fetchParties]);
 
   const selectedParty = useMemo(() => parties.find(p => p.id === selectedPartyId), [parties, selectedPartyId]);
 
@@ -111,7 +126,6 @@ export default function PartiesPage() {
       const initialLedger = getPartyLedger(selectedParty); 
       let runningBalance = 0;
       const calculatedEntries = initialLedger
-        .sort((a, b) => a.date.getTime() - b.date.getTime())
         .map(entry => {
           runningBalance = runningBalance + (entry.debit || 0) - (entry.credit || 0);
           return { ...entry, balance: runningBalance };
@@ -121,23 +135,6 @@ export default function PartiesPage() {
       setLedgerEntries([]);
     }
   }, [selectedParty]);
-
-  const partySummary = useMemo(() => {
-    return ledgerEntries.reduce((acc, entry) => {
-        if (selectedParty?.type === "Dealer") {
-          acc.totalMilk += entry.milkQuantityLtr || 0;
-          acc.totalPayableToDealer += entry.credit || 0;
-          acc.totalPaidToDealer += entry.debit || 0;
-        }
-        acc.totalDebits += entry.debit || 0;
-        acc.totalCredits += entry.credit || 0;
-        return acc;
-    }, { totalMilk: 0, totalPayableToDealer: 0, totalPaidToDealer: 0, totalDebits: 0, totalCredits: 0 });
-  }, [ledgerEntries, selectedParty]);
-
-  const netPayableToDealer = useMemo(() => {
-    return selectedParty?.type === "Dealer" ? partySummary.totalPayableToDealer - partySummary.totalPaidToDealer : 0;
-  }, [selectedParty, partySummary]);
 
   const currentOverallBalance = useMemo(() => {
     return ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0;
@@ -155,20 +152,18 @@ export default function PartiesPage() {
       type: newPartyType,
     };
     
-    setIsLoadingParties(true); // Indicate loading
+    setIsLoadingParties(true);
     const result = await addPartyToFirestore(partyData);
-    setIsLoadingParties(false);
-
-    if (result.success && result.id) {
-      // Optimistically update or refetch
-      // For now, just refetch to keep it simple
+    
+    if (result.success) {
       await fetchParties();
       setNewPartyName("");
-      setNewPartyType("Dealer");
+      setNewPartyType("Customer");
       toast({ title: "Success", description: `Party "${partyData.name}" added.` });
     } else {
       toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
     }
+    setIsLoadingParties(false);
   };
 
   const openDeleteDialog = (party: Party) => {
@@ -178,13 +173,10 @@ export default function PartiesPage() {
 
   const confirmDeleteParty = async () => {
     if (partyToDelete) {
-      setIsLoadingParties(true); // Indicate loading
+      setIsLoadingParties(true);
       const result = await deletePartyFromFirestore(partyToDelete.id);
-      setIsLoadingParties(false);
-
+      
       if (result.success) {
-        // Optimistically update or refetch
-        // For now, just refetch
         await fetchParties();
         toast({ title: "Success", description: `Party "${partyToDelete.name}" deleted.` });
         if (selectedPartyId === partyToDelete.id) {
@@ -194,6 +186,7 @@ export default function PartiesPage() {
       } else {
         toast({ title: "Error", description: result.error || "Failed to delete party.", variant: "destructive" });
       }
+       setIsLoadingParties(false);
     }
     setDeleteDialogOpen(false);
   };
@@ -204,15 +197,16 @@ export default function PartiesPage() {
 
       <div className="mb-6">
         <Label htmlFor="partySelect">Select Party to View Ledger</Label>
-        {isLoadingParties && parties.length === 0 ? ( // Show skeleton if loading AND no parties yet
+        {isLoadingParties && parties.length === 0 ? ( 
           <Skeleton className="h-10 w-full md:w-1/3" />
         ) : (
-          <Select value={selectedPartyId} onValueChange={setSelectedPartyId} disabled={parties.length === 0}>
+          <Select value={selectedPartyId} onValueChange={setSelectedPartyId} disabled={parties.length === 0 && !isLoadingParties}>
             <SelectTrigger id="partySelect" className="w-full md:w-1/3">
               <SelectValue placeholder="Select a party" />
             </SelectTrigger>
             <SelectContent>
-              {parties.length === 0 && <SelectItem value="no-parties" disabled>No parties found. Add one below.</SelectItem>}
+              {parties.length === 0 && !isLoadingParties && <SelectItem value="no-parties" disabled>No parties found. Add one below.</SelectItem>}
+              {isLoadingParties && <SelectItem value="loading" disabled>Loading parties...</SelectItem>}
               {parties.map(p => (
                 <SelectItem key={p.id} value={p.id}>{p.name} ({p.type})</SelectItem>
               ))}
@@ -227,14 +221,7 @@ export default function PartiesPage() {
              <CardTitle className="text-xl">Ledger for: {selectedParty.name} ({selectedParty.type})</CardTitle>
           </CardHeader>
 
-          {selectedParty.type === "Dealer" && (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
-              <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Milk Supplied</CardTitle><Milk className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{partySummary.totalMilk.toFixed(1)} Ltr</div></CardContent></Card>
-              <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Value (Milk Owed)</CardTitle><TrendingUp className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">₹{partySummary.totalPayableToDealer.toFixed(2)}</div></CardContent></Card>
-              <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Paid to Dealer</CardTitle><TrendingDown className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">₹{partySummary.totalPaidToDealer.toFixed(2)}</div></CardContent></Card>
-              <Card className="border-primary"><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Net Payable to Dealer</CardTitle><IndianRupee className="h-4 w-4 text-primary" /></CardHeader><CardContent><div className="text-2xl font-bold text-primary">₹{netPayableToDealer.toFixed(2)}</div></CardContent></Card>
-            </div>
-          )}
+          {/* Dealer-specific summary cards removed as "Dealer" type is removed */}
 
           <Card>
             <CardHeader>
@@ -248,13 +235,14 @@ export default function PartiesPage() {
             </CardHeader>
             <CardContent>
               <Table>
-                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead>{selectedParty.type === 'Customer' && <TableHead>Milk Qty (Ltr)</TableHead>}<TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {ledgerEntries.length === 0 && (<TableRow><TableCell colSpan={5} className="text-center">No transactions for this party.</TableCell></TableRow>)}
+                  {ledgerEntries.length === 0 && (<TableRow><TableCell colSpan={selectedParty.type === 'Customer' ? 6: 5} className="text-center">No transactions for this party.</TableCell></TableRow>)}
                   {ledgerEntries.map(entry => (
                     <TableRow key={entry.id}>
                       <TableCell>{format(entry.date, 'P')}</TableCell>
-                      <TableCell>{entry.description} {entry.milkQuantityLtr && selectedParty.type === 'Dealer' ? `(${entry.milkQuantityLtr}L)` : ''}</TableCell>
+                      <TableCell>{entry.description}</TableCell>
+                      {selectedParty.type === 'Customer' && <TableCell>{entry.milkQuantityLtr ? `${entry.milkQuantityLtr.toFixed(1)}L` : '-'}</TableCell>}
                       <TableCell className="text-right text-chart-4">{entry.debit?.toFixed(2) || "-"}</TableCell>
                       <TableCell className="text-right text-chart-3">{entry.credit?.toFixed(2) || "-"}</TableCell>
                       <TableCell className="text-right font-medium">{entry.balance.toFixed(2)}</TableCell>
@@ -268,16 +256,16 @@ export default function PartiesPage() {
       )}
 
       {!selectedPartyId && !isLoadingParties && parties.length === 0 && (
-        <p className="text-center text-muted-foreground my-8">No parties found. Add one to get started or check database connection.</p>
+        <p className="text-center text-muted-foreground my-8">No parties found. Add one to get started.</p>
       )}
-       {!selectedPartyId && isLoadingParties && ( // Loading message when no party selected yet
+       {!selectedPartyId && isLoadingParties && (
         <p className="text-center text-muted-foreground my-8">Loading parties...</p>
       )}
 
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         <Card>
-          <CardHeader><CardTitle>Add New Party</CardTitle><CardDescription>Create a new dealer, customer, supplier, or employee.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Add New Party</CardTitle><CardDescription>Create a new customer, supplier, or employee.</CardDescription></CardHeader>
           <CardContent>
             <form onSubmit={handleAddPartySubmit} className="space-y-4">
               <div><Label htmlFor="newPartyName">Party Name</Label><Input id="newPartyName" value={newPartyName} onChange={(e) => setNewPartyName(e.target.value)} placeholder="Enter party name" required /></div>
@@ -290,13 +278,13 @@ export default function PartiesPage() {
         <Card>
           <CardHeader><CardTitle>Manage Parties</CardTitle><CardDescription>View and remove existing parties.</CardDescription></CardHeader>
           <CardContent>
-            {isLoadingParties && parties.length === 0 ? ( // Only show skeleton if truly loading initial list and it's empty
+            {isLoadingParties && parties.length === 0 ? (
               <div>
                 <Skeleton className="h-8 w-full mb-2" />
                 <Skeleton className="h-8 w-full mb-2" />
                 <Skeleton className="h-8 w-full" />
               </div>
-            ) : parties.length === 0 ? (
+            ) : parties.length === 0 && !isLoadingParties ? (
               <p className="text-muted-foreground text-center">No parties found. Add one to get started.</p>
             ) : (
               <Table>

@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect } from "react";
+import { useState, type FormEvent, useEffect, useCallback } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,12 +29,14 @@ import type { ExpenseEntry, Party } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
+// Mock parties for selection in salary, ensure types are consistent with updated Party type
 const mockParties: Party[] = [
-  { id: "1", name: "Rajesh Kumar", type: "Dealer" },
   { id: "EMP1", name: "Anita Sharma (Accountant)", type: "Employee" },
-  { id: "C1", name: "Local Cafe", type: "Customer" },
+  { id: "CUST1", name: "Rajesh Kumar", type: "Customer" }, // Changed from Dealer
+  { id: "SUP1", name: "Local Cafe Supplies", type: "Supplier" },
 ];
 
+// Initial raw expense data
 const rawInitialExpenses: (Omit<ExpenseEntry, 'id' | 'date'> & { tempId: string, dateOffset: number })[] = [
   { tempId: "E1", dateOffset: -1, category: "Salary", description: "Helper wages - April", amount: 5000, partyId: "EMP1", partyName: "Anita Sharma (Accountant)" },
   { tempId: "E2", dateOffset: 0, category: "Miscellaneous", description: "Office stationary", amount: 250 },
@@ -115,6 +117,11 @@ export default function ExpensesPage() {
     setDate(new Date()); 
   };
 
+  const partiesForSalary = useMemo(() => {
+    // Salary typically paid to Employees or specific Suppliers (contractors)
+    return availableParties.filter(p => p.type === "Employee" || p.type === "Supplier");
+  }, [availableParties]);
+
   return (
     <div>
       <PageHeader
@@ -160,10 +167,10 @@ export default function ExpensesPage() {
                       <SelectValue placeholder="Select party" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableParties.filter(p => p.type === "Employee" || p.type === "Dealer" || p.type === "Supplier").map(party => (
+                      {partiesForSalary.map(party => (
                         <SelectItem key={party.id} value={party.id}>{party.name} ({party.type})</SelectItem>
                       ))}
-                      {availableParties.filter(p => p.type === "Employee" || p.type === "Dealer" || p.type === "Supplier").length === 0 && (
+                      {partiesForSalary.length === 0 && (
                         <SelectItem value="no-parties" disabled>No eligible parties found</SelectItem>
                       )}
                     </SelectContent>

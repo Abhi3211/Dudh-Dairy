@@ -91,7 +91,8 @@ export default function MilkCollectionPage() {
   }, [fetchEntries, fetchParties]); 
 
   const milkSuppliers = useMemo(() => {
-    return availableParties.filter(p => p.type === "Dealer");
+    // Customers who supply milk
+    return availableParties.filter(p => p.type === "Customer");
   }, [availableParties]);
 
   const allKnownMilkSupplierNames = useMemo(() => {
@@ -163,19 +164,19 @@ export default function MilkCollectionPage() {
     const trimmedValue = currentValue.trim();
     if (isCreateNew) {
       if (!trimmedValue) {
-        toast({ title: "Error", description: "Milk supplier name cannot be empty.", variant: "destructive" });
+        toast({ title: "Error", description: "Customer name cannot be empty.", variant: "destructive" });
         setIsCustomerPopoverOpen(false);
         return;
       }
-      // Add new party of type "Dealer"
+      // Add new party of type "Customer" as milk suppliers are now customers
       setIsLoadingParties(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Dealer" });
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
       if (result.success) {
         setCustomerNameInput(trimmedValue);
-        toast({ title: "Success", description: `Milk supplier "${trimmedValue}" added.` });
-        await fetchParties(); // Re-fetch parties to include the new one
+        toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
+        await fetchParties(); 
       } else {
-        toast({ title: "Error", description: result.error || "Failed to add milk supplier.", variant: "destructive" });
+        toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
       }
       setIsLoadingParties(false);
     } else {
@@ -295,7 +296,7 @@ export default function MilkCollectionPage() {
                       id="customerNameInput"
                       value={customerNameInput}
                       onChange={(e) => handleCustomerNameInputChange(e.target.value)}
-                      placeholder="Start typing milk supplier name"
+                      placeholder="Start typing customer name"
                       autoComplete="off"
                       required
                       className="w-full"
