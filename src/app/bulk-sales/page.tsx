@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
@@ -17,7 +18,7 @@ import {
   TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, CreditCard, MoreHorizontal, Edit, Trash2, StickyNote } from "lucide-react";
+import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, CreditCard, MoreHorizontal, Edit, Trash2, StickyNote, Sun, Moon, Filter } from "lucide-react";
 import type { BulkSaleEntry, Party } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
@@ -60,7 +61,9 @@ export default function BulkSalesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [date, setDate] = useState<Date | undefined>(undefined);
+  const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
   const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
+  const [shiftFilter, setShiftFilter] = useState<"All" | "Morning" | "Evening">("All");
   
   const [customerNameInput, setCustomerNameInput] = useState<string>("");
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
@@ -69,7 +72,7 @@ export default function BulkSalesPage() {
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateFactor, setRateFactor] = useState<string>("6.7"); 
-  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Cash");
+  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit"); // Default to Credit
   const [remarks, setRemarks] = useState<string>("");
 
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
@@ -119,7 +122,7 @@ export default function BulkSalesPage() {
   }, [fetchEntries, fetchParties, editingEntryId]); 
 
   const partiesForBulkSale = useMemo(() => {
-    return availableParties.filter(p => p.type === "Customer"); // Or any other relevant type for bulk buyers
+    return availableParties.filter(p => p.type === "Customer"); 
   }, [availableParties]);
 
   const allKnownCustomerNamesForBulkSale = useMemo(() => {
@@ -154,8 +157,12 @@ export default function BulkSalesPage() {
             return entryDateStr === targetDateStr;
         });
     }
-    return dateFiltered;
-  }, [allEntries, tableFilterDate]);
+    let shiftAndDateFiltered = dateFiltered;
+    if (shiftFilter !== "All") {
+        shiftAndDateFiltered = dateFiltered.filter(entry => entry.shift === shiftFilter);
+    }
+    return shiftAndDateFiltered;
+  }, [allEntries, tableFilterDate, shiftFilter]);
   
   const totalFilteredAmount = useMemo(() => {
     return filteredEntries.reduce((sum, entry) => sum + (entry.totalAmount || 0), 0);
@@ -198,12 +205,13 @@ export default function BulkSalesPage() {
   const resetFormFields = useCallback(() => {
     if (!editingEntryId) {
       setDate(new Date());
+      // Shift persists by design for new entries
     }
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
-    setRateFactor("6.7"); // Reset to default or keep existing for faster entry
-    setPaymentType("Cash");
+    setRateFactor("6.7");
+    setPaymentType("Credit"); // Reset to Credit
     setRemarks("");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
@@ -212,8 +220,8 @@ export default function BulkSalesPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !customerNameInput.trim() || !quantityLtr || !fatPercentage || !rateFactor) {
-      toast({ title: "Error", description: "Please fill all required fields (Date, Customer, Quantity, FAT, Rate Factor).", variant: "destructive" });
+    if (!date || !shift || !customerNameInput.trim() || !quantityLtr || !fatPercentage || !rateFactor) {
+      toast({ title: "Error", description: "Please fill all required fields (Date, Shift, Customer, Quantity, FAT, Rate Factor).", variant: "destructive" });
       return;
     }
 
@@ -239,6 +247,7 @@ export default function BulkSalesPage() {
 
     const entryData: Omit<BulkSaleEntry, 'id'> = {
       date, 
+      shift,
       customerName: customerNameInput.trim(), 
       quantityLtr: qLtr,
       fatPercentage: fatP,
@@ -276,6 +285,7 @@ export default function BulkSalesPage() {
   const handleEdit = (entry: BulkSaleEntry) => {
     setEditingEntryId(entry.id);
     setDate(entry.date); 
+    setShift(entry.shift);
     setCustomerNameInput(entry.customerName);
     setQuantityLtr(String(entry.quantityLtr));
     setFatPercentage(String(entry.fatPercentage));
@@ -318,6 +328,24 @@ export default function BulkSalesPage() {
                   <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date
                 </Label>
                  <DatePicker date={date} setDate={setDate} />
+              </div>
+
+              <div>
+                <Label className="flex items-center mb-1">Shift</Label>
+                <RadioGroup
+                  value={shift}
+                  onValueChange={(value: "Morning" | "Evening") => setShift(value)}
+                  className="flex space-x-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="Morning" id="bs_morning" />
+                    <Label htmlFor="bs_morning" className="font-normal flex items-center"><Sun className="h-4 w-4 mr-1 text-muted-foreground" />Morning</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="Evening" id="bs_evening" />
+                    <Label htmlFor="bs_evening" className="font-normal flex items-center"><Moon className="h-4 w-4 mr-1 text-muted-foreground" />Evening</Label>
+                  </div>
+                </RadioGroup>
               </div>
               
               <div>
@@ -468,12 +496,26 @@ export default function BulkSalesPage() {
               <div className="flex-1">
                 <CardTitle>Daily Bulk Sales Ledger</CardTitle>
                  <CardDescription className="mt-1">
-                  {tableFilterDate ? `Ledger for ${format(tableFilterDate, 'PPP')}` : "Select a date to view ledger."}
+                  {tableFilterDate ? `Ledger for ${format(tableFilterDate, 'PPP')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}` : "Select a date to view ledger."}
                   {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
-                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date. Checked ${allEntries.length} total entries)`}
+                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date${shiftFilter !== 'All' ? ` and shift` : ''}. Checked ${allEntries.length} total entries)`}
                 </CardDescription>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <div className="w-full sm:min-w-[180px]">
+                  <Label htmlFor="bsShiftFilterSelect" className="sr-only">Filter by shift</Label>
+                  <Select value={shiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setShiftFilter(value)}>
+                    <SelectTrigger id="bsShiftFilterSelect" className="min-w-[150px]">
+                      <Filter className="h-3 w-3 mr-2 text-muted-foreground" />
+                      <SelectValue placeholder="Filter by shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="All">All Shifts</SelectItem>
+                      <SelectItem value="Morning">Morning</SelectItem>
+                      <SelectItem value="Evening">Evening</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="w-full sm:min-w-[200px]">
                   <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
                   <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
@@ -493,6 +535,7 @@ export default function BulkSalesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
+                    <TableHead>Shift</TableHead>
                     <TableHead>Customer</TableHead> 
                     <TableHead className="text-right">Qty (Ltr)</TableHead>
                     <TableHead className="text-right">FAT (%)</TableHead>
@@ -506,8 +549,8 @@ export default function BulkSalesPage() {
                 <TableBody>
                   {filteredEntries.length === 0 && !isLoadingEntries ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-muted-foreground">
-                        {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}.` : "Select a date to view entries."}
+                      <TableCell colSpan={10} className="text-center text-muted-foreground">
+                        {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}.` : "Select a date to view entries."}
                         {tableFilterDate && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
                     </TableRow>
@@ -515,6 +558,7 @@ export default function BulkSalesPage() {
                     filteredEntries.map((entry) => (
                       <TableRow key={entry.id}>
                         <TableCell>{entry.date instanceof Date && !isNaN(entry.date.getTime()) ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
+                        <TableCell>{entry.shift}</TableCell>
                         <TableCell>{entry.customerName}</TableCell>
                         <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
                         <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
@@ -547,7 +591,7 @@ export default function BulkSalesPage() {
                 {filteredEntries.length > 0 && (
                   <TableFooter>
                     <TableRow>
-                        <TableCell colSpan={5} className="text-right font-semibold">Total Bulk Sale Amount:</TableCell>
+                        <TableCell colSpan={6} className="text-right font-semibold">Total Bulk Sale Amount:</TableCell>
                         <TableCell className="text-right font-bold">{totalFilteredAmount.toFixed(2)}</TableCell>
                         <TableCell colSpan={3} />
                     </TableRow>
@@ -565,7 +609,7 @@ export default function BulkSalesPage() {
               <AlertDialogTitle>Are you sure?</AlertDialogTitle>
               <AlertDialogDescription>
                 This action cannot be undone. This will permanently delete the bulk sale entry for
-                "{entryToDelete.customerName}" on {entryToDelete.date instanceof Date && !isNaN(entryToDelete.date.getTime()) ? format(entryToDelete.date, 'P') : 'Invalid Date'}.
+                "{entryToDelete.customerName}" on {entryToDelete.date instanceof Date && !isNaN(entryToDelete.date.getTime()) ? format(entryToDelete.date, 'P') : 'Invalid Date'} ({entryToDelete.shift}).
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

@@ -6,8 +6,8 @@ export interface MilkCollectionEntry {
   customerName: string; // This is the person supplying milk
   quantityLtr: number;
   fatPercentage: number;
-  ratePerLtr: number; // This is the rate factor
-  totalAmount: number; // Gross amount: quantity * fat * rate
+  ratePerLtr: number; // This is the rate factor (or could be a direct rate)
+  totalAmount: number; // Gross amount: quantity * fat * rate (or quantity * direct_rate)
   advancePaid?: number;
   remarks?: string;
   netAmountPayable: number; // totalAmount - (advancePaid || 0)
@@ -28,6 +28,7 @@ export interface SaleEntry {
 export interface BulkSaleEntry {
   id: string;
   date: Date;
+  shift: "Morning" | "Evening"; // Added shift
   customerName: string; // The bulk buyer
   quantityLtr: number;
   fatPercentage: number;

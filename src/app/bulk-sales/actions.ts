@@ -49,6 +49,7 @@ export async function getBulkSaleEntriesFromFirestore(): Promise<BulkSaleEntry[]
       return {
         id: docSnapshot.id,
         date: entryDate,
+        shift: data.shift || "Morning", // Added shift
         customerName: data.customerName || "Unknown Customer",
         quantityLtr: typeof data.quantityLtr === 'number' ? data.quantityLtr : 0,
         fatPercentage: typeof data.fatPercentage === 'number' ? data.fatPercentage : 0,
