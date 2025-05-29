@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { User, PlusCircle, Trash2 } from "lucide-react";
+import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon } from "lucide-react"; // Added Filter, CalendarDays, Sun, Moon
 import type { Party, PartyLedgerEntry } from "@/lib/types";
 import {
   AlertDialog,
@@ -38,33 +38,38 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore } from "./actions";
+import { DatePicker } from "@/components/ui/date-picker"; // Added DatePicker
 import { usePageTitle } from '@/context/PageTitleContext';
 
+// Updated getPartyLedger to include shifts for some entries
 const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   if (!party) return [];
   
   const rawLedgerEntries: (Omit<PartyLedgerEntry, 'id'|'date'|'balance'> & {tempId: string, dateOffset: number})[] = [];
 
-  if (party.type === "Customer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) {
-    rawLedgerEntries.push(
-      { tempId: "L1", dateOffset: -2, description: "Milk Supplied to Dairy", milkQuantityLtr: 10.5, credit: 420 },
-      { tempId: "L2", dateOffset: -1, description: "Payment Received from Dairy", debit: 300 },
-      { tempId: "L3", dateOffset: 0, description: "Milk Supplied to Dairy", milkQuantityLtr: 12.0, credit: 480 }
-    );
-  }
-  if (party.type === "Customer" && party.name.includes("Cafe")) {
-     rawLedgerEntries.push(
-        { tempId: "CL1", dateOffset: -1, description: "Milk Sold on Credit", debit: 600 },
-        { tempId: "CL2", dateOffset: 0, description: "Payment Received", credit: 500 }
-    );
-  }
-   if (party.type === "Customer" && party.name.includes("Nash")) { 
-     rawLedgerEntries.push(
-        { tempId: "NL1", dateOffset: -3, description: "Milk Supplied to Dairy", milkQuantityLtr: 15.0, credit: 650 },
-        { tempId: "NL2", dateOffset: -2, description: "Pashu Aahar Purchased on Credit", debit: 1200 }, // This is a sale to Nash by the dairy
-        { tempId: "NL3", dateOffset: -1, description: "Payment Received from Dairy (milk settlement)", debit: 300 }, // Dairy pays Nash
-         { tempId: "NL4", dateOffset: 0, description: "Payment Made for Pashu Aahar", credit: 1000 } // Nash pays dairy
-    );
+  if (party.type === "Customer") {
+    if (party.name.includes("Rajesh") || party.name.includes("Sunita")) {
+      rawLedgerEntries.push(
+        { tempId: "L1", dateOffset: -2, description: "Milk Supplied to Dairy (M)", milkQuantityLtr: 10.5, credit: 420, shift: "Morning" },
+        { tempId: "L4", dateOffset: -2, description: "Milk Supplied to Dairy (E)", milkQuantityLtr: 8.0, credit: 320, shift: "Evening" },
+        { tempId: "L2", dateOffset: -1, description: "Payment Received from Dairy", debit: 300 },
+        { tempId: "L3", dateOffset: 0, description: "Milk Supplied to Dairy (M)", milkQuantityLtr: 12.0, credit: 480, shift: "Morning" }
+      );
+    }
+    if (party.name.includes("Cafe")) {
+       rawLedgerEntries.push(
+          { tempId: "CL1", dateOffset: -1, description: "Milk Sold on Credit", debit: 600 },
+          { tempId: "CL2", dateOffset: 0, description: "Payment Received", credit: 500 }
+      );
+    }
+     if (party.name.includes("Nash")) { 
+       rawLedgerEntries.push(
+          { tempId: "NL1", dateOffset: -3, description: "Milk Supplied to Dairy (E)", milkQuantityLtr: 15.0, credit: 650, shift: "Evening" },
+          { tempId: "NL2", dateOffset: -2, description: "Pashu Aahar Purchased on Credit", debit: 1200 },
+          { tempId: "NL3", dateOffset: -1, description: "Payment Received from Dairy (milk settlement)", debit: 300 },
+           { tempId: "NL4", dateOffset: 0, description: "Payment Made for Pashu Aahar", credit: 1000 }
+      );
+    }
   }
   if (party.type === "Supplier" && party.name.includes("Feeds")) {
     rawLedgerEntries.push(
@@ -100,7 +105,11 @@ export default function PartiesPage() {
   const [parties, setParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true); 
   const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined);
-  const [ledgerEntries, setLedgerEntries] = useState<PartyLedgerEntry[]>([]);
+  
+  const [allLedgerEntriesForParty, setAllLedgerEntriesForParty] = useState<PartyLedgerEntry[]>([]);
+  const [ledgerFilterDate, setLedgerFilterDate] = useState<Date | undefined>(undefined);
+  const [ledgerShiftFilter, setLedgerShiftFilter] = useState<"All" | "Morning" | "Evening">("All");
+
 
   const [newPartyName, setNewPartyName] = useState("");
   const [newPartyType, setNewPartyType] = useState<Party['type']>("Customer");
@@ -123,6 +132,7 @@ export default function PartiesPage() {
 
   useEffect(() => {
     fetchParties();
+    setLedgerFilterDate(new Date()); // Set default ledger filter date
   }, [fetchParties]);
 
   const selectedParty = useMemo(() => parties.find(p => p.id === selectedPartyId), [parties, selectedPartyId]);
@@ -136,15 +146,34 @@ export default function PartiesPage() {
           runningBalance = runningBalance + (entry.debit || 0) - (entry.credit || 0);
           return { ...entry, balance: runningBalance };
         });
-      setLedgerEntries(calculatedEntries);
+      setAllLedgerEntriesForParty(calculatedEntries);
     } else {
-      setLedgerEntries([]);
+      setAllLedgerEntriesForParty([]);
     }
   }, [selectedParty]);
 
+  const filteredLedgerEntries = useMemo(() => {
+    let dateFiltered = allLedgerEntriesForParty;
+    if (ledgerFilterDate !== undefined) {
+        const targetDateStr = format(ledgerFilterDate, 'yyyy-MM-dd');
+        dateFiltered = allLedgerEntriesForParty.filter(entry => {
+            if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) {
+                return false;
+            }
+            const entryDateStr = format(entry.date, 'yyyy-MM-dd');
+            return entryDateStr === targetDateStr;
+        });
+    }
+    let shiftAndDateFiltered = dateFiltered;
+    if (ledgerShiftFilter !== "All") {
+        shiftAndDateFiltered = dateFiltered.filter(entry => entry.shift === ledgerShiftFilter);
+    }
+    return shiftAndDateFiltered;
+  }, [allLedgerEntriesForParty, ledgerFilterDate, ledgerShiftFilter]);
+
   const currentOverallBalance = useMemo(() => {
-    return ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : 0;
-  }, [ledgerEntries]);
+    return allLedgerEntriesForParty.length > 0 ? allLedgerEntriesForParty[allLedgerEntriesForParty.length - 1].balance : 0;
+  }, [allLedgerEntriesForParty]);
 
 
   const handleAddPartySubmit = async (e: FormEvent) => {
@@ -223,28 +252,52 @@ export default function PartiesPage() {
 
       {selectedPartyId && selectedParty && (
         <div className="mb-8">
-          <CardHeader className="px-0 pt-0 pb-4">
-             <CardTitle className="text-xl">Ledger for: {selectedParty.name} ({selectedParty.type})</CardTitle>
-          </CardHeader>
-
           <Card>
             <CardHeader>
-              <CardTitle>Transaction History for {selectedParty.name}</CardTitle>
-              <CardDescription>
-                Current Balance: ₹{currentOverallBalance.toFixed(2)}
-                {currentOverallBalance > 0 && " (Party Owes Us)"}
-                {currentOverallBalance < 0 && " (We Owe Party)"}
-                {currentOverallBalance === 0 && " (Settled)"}
-              </CardDescription>
+             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div className="flex-1">
+                    <CardTitle>Transaction History for {selectedParty.name}</CardTitle>
+                    <CardDescription className="mt-1">
+                        Current Overall Balance: ₹{currentOverallBalance.toFixed(2)}
+                        {currentOverallBalance > 0 && " (Party Owes Us)"}
+                        {currentOverallBalance < 0 && " (We Owe Party)"}
+                        {currentOverallBalance === 0 && " (Settled)"}
+                        <br />
+                        {ledgerFilterDate ? `Showing transactions for ${format(ledgerFilterDate, 'PPP')}${ledgerShiftFilter !== 'All' ? ` (${ledgerShiftFilter} shift)` : ''}` : "Select a date to filter ledger."}
+                        {ledgerFilterDate && filteredLedgerEntries.length === 0 && ` (No transactions for this filter. Checked ${allLedgerEntriesForParty.length} total entries for party)`}
+                    </CardDescription>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                    <div className="w-full sm:min-w-[180px]">
+                    <Label htmlFor="ledgerShiftFilterSelect" className="sr-only">Filter by shift</Label>
+                    <Select value={ledgerShiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setLedgerShiftFilter(value)}>
+                        <SelectTrigger id="ledgerShiftFilterSelect" className="min-w-[150px]">
+                        <Filter className="h-3 w-3 mr-2 text-muted-foreground" />
+                        <SelectValue placeholder="Filter by shift" />
+                        </SelectTrigger>
+                        <SelectContent>
+                        <SelectItem value="All">All Shifts</SelectItem>
+                        <SelectItem value="Morning"><Sun className="h-4 w-4 mr-1 inline-block text-muted-foreground" />Morning</SelectItem>
+                        <SelectItem value="Evening"><Moon className="h-4 w-4 mr-1 inline-block text-muted-foreground" />Evening</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    </div>
+                    <div className="w-full sm:min-w-[200px]">
+                    <Label htmlFor="ledgerDateFilter" className="sr-only">Filter by date</Label>
+                    <DatePicker date={ledgerFilterDate} setDate={setLedgerFilterDate} />
+                    </div>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
-                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead>{selectedParty.type === 'Customer' && <TableHead>Milk Qty (Ltr)</TableHead>}<TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Shift</TableHead><TableHead>Description</TableHead>{selectedParty.type === 'Customer' && <TableHead>Milk Qty (Ltr)</TableHead>}<TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {ledgerEntries.length === 0 && (<TableRow><TableCell colSpan={selectedParty.type === 'Customer' ? 6: 5} className="text-center">No transactions for this party.</TableCell></TableRow>)}
-                  {ledgerEntries.map(entry => (
+                  {filteredLedgerEntries.length === 0 && (<TableRow><TableCell colSpan={selectedParty.type === 'Customer' ? 7 : 6} className="text-center">No transactions match the current filter.</TableCell></TableRow>)}
+                  {filteredLedgerEntries.map(entry => (
                     <TableRow key={entry.id}>
                       <TableCell>{format(entry.date, 'P')}</TableCell>
+                      <TableCell>{entry.shift || "-"}</TableCell>
                       <TableCell>{entry.description}</TableCell>
                       {selectedParty.type === 'Customer' && <TableCell>{entry.milkQuantityLtr ? `${entry.milkQuantityLtr.toFixed(1)}L` : '-'}</TableCell>}
                       <TableCell className="text-right text-chart-4">{entry.debit?.toFixed(2) || "-"}</TableCell>
@@ -323,3 +376,4 @@ export default function PartiesPage() {
     </div>
   );
 }
+

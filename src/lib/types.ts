@@ -28,7 +28,7 @@ export interface SaleEntry {
 export interface BulkSaleEntry {
   id: string;
   date: Date;
-  shift: "Morning" | "Evening"; // Added shift
+  shift: "Morning" | "Evening";
   customerName: string; // The bulk buyer
   quantityLtr: number;
   fatPercentage: number;
@@ -59,6 +59,7 @@ export interface PartyLedgerEntry {
   id: string;
   date: Date;
   description: string;
+  shift?: "Morning" | "Evening"; // Added optional shift
   milkQuantityLtr?: number;
   fatPercentage?: number;
   rate?: number;
@@ -133,3 +134,4 @@ export interface FullProfitLossData {
   summary: ProfitLossSummaryData;
   chartSeries: PlChartDataPoint[];
 }
+
