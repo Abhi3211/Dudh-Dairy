@@ -79,7 +79,7 @@ export default function MilkCollectionPage() {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties); 
+      setAvailableParties(parties.filter(p => p.type === "Customer")); // Milk suppliers are customers now
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties:", error);
       toast({ title: "Error", description: "Could not fetch parties for suggestions.", variant: "destructive" });
@@ -120,13 +120,9 @@ export default function MilkCollectionPage() {
     fetchParties();
   }, [fetchEntries, fetchParties]); 
 
-  const milkSuppliers = useMemo(() => {
-    return availableParties.filter(p => p.type === "Customer");
-  }, [availableParties]);
-
   const allKnownCustomerNames = useMemo(() => {
-    return milkSuppliers.map(p => p.name).sort((a, b) => a.localeCompare(b));
-  }, [milkSuppliers]);
+    return availableParties.map(p => p.name).sort((a, b) => a.localeCompare(b));
+  }, [availableParties]);
 
 
   const totalAmountDisplay = useMemo(() => {
@@ -143,13 +139,6 @@ export default function MilkCollectionPage() {
     }
     return 0;
   }, [quantityLtr, fatPercentage, rateInputValue]);
-
-  const netAmountPayableDisplay = useMemo(() => {
-    const advanceStr = advancePaid.replace(',', '.');
-    const advance = parseFloat(advanceStr) || 0;
-    return totalAmountDisplay - advance;
-  }, [totalAmountDisplay, advancePaid]);
-
 
   const filteredEntries = useMemo(() => {
     console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Selected shiftFilter:", shiftFilter, "Total entries being filtered:", allEntries.length);
@@ -199,7 +188,7 @@ export default function MilkCollectionPage() {
         return;
       }
       setIsLoadingParties(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); // Milk suppliers are "Customer" type
       if (result.success) {
         setCustomerNameInput(trimmedValue);
         toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
@@ -221,10 +210,8 @@ export default function MilkCollectionPage() {
     setFatPercentage("");
     setAdvancePaid("");
     setRemarks("");
-    // Keep date and shift as they are, for rapid entry if previously set.
-    // Consider if date should reset to new Date() or remain. For now, it persists.
-    // Shift also persists as per previous request.
-    // setRateInputValue("6.7"); // Optionally reset rate, or keep it
+    // Date and shift persist
+    // setRateInputValue("6.7"); // Optionally reset rate
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
   }, []);
@@ -494,18 +481,11 @@ export default function MilkCollectionPage() {
                     <Input id="advancePaid" type="text" inputMode="decimal" value={advancePaid} onChange={(e) => setAdvancePaid(e.target.value)} placeholder="e.g., 50" />
                 </div>
                 <div>
-                    <Label htmlFor="netAmountPayable" className="flex items-center mb-1">
-                    <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Net Amount Payable (₹)
-                    </Label>
-                    <Input id="netAmountPayable" value={`₹ ${netAmountPayableDisplay.toFixed(2)}`} readOnly className="font-semibold bg-muted/50" />
+                  <Label htmlFor="remarks" className="flex items-center mb-1">
+                    <StickyNote className="h-4 w-4 mr-2 text-muted-foreground" /> Remarks
+                  </Label>
+                  <Textarea id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional notes" />
                 </div>
-              </div>
-
-              <div>
-                <Label htmlFor="remarks" className="flex items-center mb-1">
-                  <StickyNote className="h-4 w-4 mr-2 text-muted-foreground" /> Remarks
-                </Label>
-                <Textarea id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional notes about this collection" />
               </div>
 
               <Button type="submit" className="w-full" disabled={isLoadingEntries || isLoadingParties}>
