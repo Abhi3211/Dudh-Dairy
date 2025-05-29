@@ -206,7 +206,8 @@ export default function MilkCollectionPage() {
       setDealerNameInput("");
       setQuantityLtr("");
       setFatPercentage("");
-      setShift("Morning");
+      // The 'shift' and 'date' states are intentionally not reset here to persist them for the next entry.
+      // setShift("Morning"); // Removed to persist shift
       await fetchEntries(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
@@ -265,7 +266,7 @@ export default function MilkCollectionPage() {
                       className="w-full"
                     />
                   </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" side="bottom" align="start" sideOffset={0} onOpenAutoFocus={(e) => e.preventDefault()}>
                     <Command>
                       <CommandInput placeholder="Search dealers..." />
                       <CommandList>
