@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon } from "lucide-react"; // Added Filter, CalendarDays, Sun, Moon
+import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon, Download } from "lucide-react"; // Added Download
 import type { Party, PartyLedgerEntry } from "@/lib/types";
 import {
   AlertDialog,
@@ -38,43 +38,38 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore } from "./actions";
-import { DatePicker } from "@/components/ui/date-picker"; // Added DatePicker
+import { DatePicker } from "@/components/ui/date-picker";
 import { usePageTitle } from '@/context/PageTitleContext';
 
 // Updated getPartyLedger to include shifts for some entries
 const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   if (!party) return [];
   
-  const rawLedgerEntries: (Omit<PartyLedgerEntry, 'id'|'date'|'balance'> & {tempId: string, dateOffset: number})[] = [];
+  const rawLedgerEntries: (Omit<PartyLedgerEntry, 'id'|'date'|'balance'> & {tempId: string, dateOffset: number, shift?: "Morning" | "Evening"})[] = [];
 
   if (party.type === "Customer") {
-    if (party.name.includes("Rajesh") || party.name.includes("Sunita")) {
+    // Simulating a customer who supplies milk AND buys other products
+    if (party.name.includes("Rajesh") || party.name.includes("Sunita") || party.name.includes("Nash")) {
       rawLedgerEntries.push(
-        { tempId: "L1", dateOffset: -2, description: "Milk Supplied to Dairy (M)", milkQuantityLtr: 10.5, credit: 420, shift: "Morning" },
-        { tempId: "L4", dateOffset: -2, description: "Milk Supplied to Dairy (E)", milkQuantityLtr: 8.0, credit: 320, shift: "Evening" },
-        { tempId: "L2", dateOffset: -1, description: "Payment Received from Dairy", debit: 300 },
-        { tempId: "L3", dateOffset: 0, description: "Milk Supplied to Dairy (M)", milkQuantityLtr: 12.0, credit: 480, shift: "Morning" }
+        { tempId: "L1", dateOffset: -2, description: "Milk Supplied to Dairy", milkQuantityLtr: 10.5, credit: 420, shift: "Morning" },
+        { tempId: "L4", dateOffset: -2, description: "Milk Supplied to Dairy", milkQuantityLtr: 8.0, credit: 320, shift: "Evening" },
+        { tempId: "L2", dateOffset: -1, description: "Payment Received from Dairy", debit: 300 }, // Dairy pays for milk
+        { tempId: "L3", dateOffset: 0, description: "Milk Supplied to Dairy", milkQuantityLtr: 12.0, credit: 480, shift: "Morning" },
+        { tempId: "L5", dateOffset: -1, description: "Pashu Aahar Purchased on Credit", debit: 750}, // Customer buys Pashu Aahar
+        { tempId: "L6", dateOffset: 0, description: "Payment Made by Customer (for Pashu Aahar)", credit: 750} // Customer pays for Pashu Aahar
       );
     }
-    if (party.name.includes("Cafe")) {
+    if (party.name.includes("Cafe")) { // Simulating a customer who only buys
        rawLedgerEntries.push(
           { tempId: "CL1", dateOffset: -1, description: "Milk Sold on Credit", debit: 600 },
-          { tempId: "CL2", dateOffset: 0, description: "Payment Received", credit: 500 }
-      );
-    }
-     if (party.name.includes("Nash")) { 
-       rawLedgerEntries.push(
-          { tempId: "NL1", dateOffset: -3, description: "Milk Supplied to Dairy (E)", milkQuantityLtr: 15.0, credit: 650, shift: "Evening" },
-          { tempId: "NL2", dateOffset: -2, description: "Pashu Aahar Purchased on Credit", debit: 1200 },
-          { tempId: "NL3", dateOffset: -1, description: "Payment Received from Dairy (milk settlement)", debit: 300 },
-           { tempId: "NL4", dateOffset: 0, description: "Payment Made for Pashu Aahar", credit: 1000 }
+          { tempId: "CL2", dateOffset: 0, description: "Payment Received from Customer", credit: 500 }
       );
     }
   }
   if (party.type === "Supplier" && party.name.includes("Feeds")) {
     rawLedgerEntries.push(
         { tempId: "SL1", dateOffset: -2, description: "Pashu Aahar Purchase (Goods Received)", credit: 5000 },
-        { tempId: "SL2", dateOffset: -1, description: "Payment Made (Payment to Supplier)", debit: 4000 }
+        { tempId: "SL2", dateOffset: -1, description: "Payment Made to Supplier", debit: 4000 }
     );
   }
    if (party.type === "Employee" && party.name.includes("Anita")) {
@@ -226,6 +221,64 @@ export default function PartiesPage() {
     setDeleteDialogOpen(false);
   };
 
+  const escapeCSVField = (field: any): string => {
+    const str = String(field === undefined || field === null ? "" : field);
+    if (str.includes(",")) {
+      return `"${str.replace(/"/g, '""')}"`; // Escape double quotes and wrap in double quotes
+    }
+    return str;
+  };
+
+  const handleExportCSV = useCallback(() => {
+    if (!selectedParty || filteredLedgerEntries.length === 0) {
+      toast({ title: "No Data", description: "No ledger entries to export for the current selection.", variant: "destructive" });
+      return;
+    }
+
+    const headers = [
+      "Date",
+      "Shift",
+      "Description",
+      "Milk Qty (Ltr)",
+      "Debit (₹)",
+      "Credit (₹)",
+      "Balance (₹)"
+    ];
+    
+    const rows = filteredLedgerEntries.map(entry => [
+      format(entry.date, 'yyyy-MM-dd'),
+      escapeCSVField(entry.shift),
+      escapeCSVField(entry.description),
+      escapeCSVField(entry.milkQuantityLtr?.toFixed(1)),
+      escapeCSVField(entry.debit?.toFixed(2)),
+      escapeCSVField(entry.credit?.toFixed(2)),
+      escapeCSVField(entry.balance.toFixed(2))
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      const filename = `${selectedParty.name.replace(/\s+/g, '_')}_ledger_${format(new Date(), 'yyyyMMdd')}.csv`;
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({ title: "Success", description: "Ledger exported to CSV." });
+    } else {
+        toast({ title: "Error", description: "CSV export is not supported by your browser.", variant: "destructive" });
+    }
+  }, [filteredLedgerEntries, selectedParty, toast]);
+
+
   return (
     <div>
       <PageHeader title={pageSpecificTitle} description="Manage parties and view their transaction ledgers." />
@@ -267,7 +320,7 @@ export default function PartiesPage() {
                         {ledgerFilterDate && filteredLedgerEntries.length === 0 && ` (No transactions for this filter. Checked ${allLedgerEntriesForParty.length} total entries for party)`}
                     </CardDescription>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-end">
                     <div className="w-full sm:min-w-[180px]">
                     <Label htmlFor="ledgerShiftFilterSelect" className="sr-only">Filter by shift</Label>
                     <Select value={ledgerShiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setLedgerShiftFilter(value)}>
@@ -286,20 +339,23 @@ export default function PartiesPage() {
                     <Label htmlFor="ledgerDateFilter" className="sr-only">Filter by date</Label>
                     <DatePicker date={ledgerFilterDate} setDate={setLedgerFilterDate} />
                     </div>
+                    <Button onClick={handleExportCSV} variant="outline" size="sm" className="ml-auto sm:ml-2 mt-2 sm:mt-0" disabled={filteredLedgerEntries.length === 0}>
+                        <Download className="h-4 w-4 mr-2" /> Export CSV
+                    </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               <Table>
-                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Shift</TableHead><TableHead>Description</TableHead>{selectedParty.type === 'Customer' && <TableHead>Milk Qty (Ltr)</TableHead>}<TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Shift</TableHead><TableHead>Description</TableHead><TableHead>Milk Qty (Ltr)</TableHead><TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {filteredLedgerEntries.length === 0 && (<TableRow><TableCell colSpan={selectedParty.type === 'Customer' ? 7 : 6} className="text-center">No transactions match the current filter.</TableCell></TableRow>)}
+                  {filteredLedgerEntries.length === 0 && (<TableRow><TableCell colSpan={7} className="text-center">No transactions match the current filter.</TableCell></TableRow>)}
                   {filteredLedgerEntries.map(entry => (
                     <TableRow key={entry.id}>
                       <TableCell>{format(entry.date, 'P')}</TableCell>
                       <TableCell>{entry.shift || "-"}</TableCell>
                       <TableCell>{entry.description}</TableCell>
-                      {selectedParty.type === 'Customer' && <TableCell>{entry.milkQuantityLtr ? `${entry.milkQuantityLtr.toFixed(1)}L` : '-'}</TableCell>}
+                      <TableCell>{entry.milkQuantityLtr ? `${entry.milkQuantityLtr.toFixed(1)}L` : '-'}</TableCell>
                       <TableCell className="text-right text-chart-4">{entry.debit?.toFixed(2) || "-"}</TableCell>
                       <TableCell className="text-right text-chart-3">{entry.credit?.toFixed(2) || "-"}</TableCell>
                       <TableCell className="text-right font-medium">{entry.balance.toFixed(2)}</TableCell>
@@ -377,3 +433,5 @@ export default function PartiesPage() {
   );
 }
 
+
+    
