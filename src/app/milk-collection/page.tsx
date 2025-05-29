@@ -29,6 +29,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
 
+
 export default function MilkCollectionPage() {
   const { toast } = useToast();
   const [allEntries, setAllEntries] = useState<MilkCollectionEntry[]>([]);
@@ -126,23 +127,16 @@ export default function MilkCollectionPage() {
             }
             const entryDateStr = format(entry.date, 'yyyy-MM-dd');
             const match = entryDateStr === targetDateStr;
-            // console.log(`CLIENT (Date Filter): Comparing entry ID ${entry.id}: entryDateStr=${entryDateStr}, targetDateStr=${targetDateStr}, match=${match}. Entry date object:`, entry.date);
             return match;
         });
-    } else {
-        // console.log("CLIENT (Date Filter): No tableFilterDate selected, using all entries for shift filtering. Count:", allEntries.length);
     }
 
     let shiftAndDateFiltered = dateFiltered;
     if (shiftFilter !== "All") {
         shiftAndDateFiltered = dateFiltered.filter(entry => {
-            const match = entry.shift === shiftFilter;
-            // console.log(`CLIENT (Shift Filter): Comparing entry ID ${entry.id}: entry.shift=${entry.shift}, shiftFilter=${shiftFilter}, match=${match}`);
-            return match;
+            return entry.shift === shiftFilter;
         });
-    } else {
-        // console.log("CLIENT (Shift Filter): shiftFilter is 'All', using date filtered entries. Count:", dateFiltered.length);
-    }
+    } 
     
     console.log("CLIENT: Resulting filteredEntries count:", shiftAndDateFiltered.length);
     if (shiftAndDateFiltered.length > 0 && shiftAndDateFiltered.length < 5) { 
@@ -484,3 +478,5 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+
+    

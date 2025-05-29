@@ -105,13 +105,14 @@ export default function SalesPage() {
   }, [fetchSales, fetchParties]);
 
 
-  const partiesOfTypeCustomer = useMemo(() => {
-    return availableParties.filter(p => p.type === "Customer");
+  const partiesForSalesSuggestions = useMemo(() => {
+    // Suggest parties who are 'Customer' OR 'Dealer'
+    return availableParties.filter(p => p.type === "Customer" || p.type === "Dealer");
   }, [availableParties]);
 
-  const allKnownCustomerNames = useMemo(() => {
-    return partiesOfTypeCustomer.map(p => p.name).sort();
-  }, [partiesOfTypeCustomer]);
+  const allKnownCustomerNamesForSales = useMemo(() => {
+    return partiesForSalesSuggestions.map(p => p.name).sort();
+  }, [partiesForSalesSuggestions]);
 
   const totalAmount = useMemo(() => {
     const q = parseFloat(quantity);
@@ -148,6 +149,7 @@ export default function SalesPage() {
         return;
       }
       setIsLoadingParties(true);
+      // When creating from sales, default type is "Customer"
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
       if (result.success) {
         setCustomerName(trimmedValue);
@@ -164,11 +166,11 @@ export default function SalesPage() {
   }, [toast, fetchParties]);
 
   const filteredCustomerSuggestions = useMemo(() => {
-    if (!customerName.trim()) return allKnownCustomerNames;
-    return allKnownCustomerNames.filter((name) =>
+    if (!customerName.trim()) return allKnownCustomerNamesForSales;
+    return allKnownCustomerNamesForSales.filter((name) =>
       name.toLowerCase().includes(customerName.toLowerCase())
     );
-  }, [customerName, allKnownCustomerNames]);
+  }, [customerName, allKnownCustomerNamesForSales]);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -284,7 +286,7 @@ export default function SalesPage() {
                            <CommandItem disabled>Loading customers...</CommandItem>
                         ): (
                           <>
-                            {customerName.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                            {customerName.trim() && !allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
                                <CommandItem
                                 key={`__CREATE__${customerName.trim()}`}
                                 value={`__CREATE__${customerName.trim()}`}
@@ -303,10 +305,10 @@ export default function SalesPage() {
                                   {name}
                                 </CommandItem>
                               ))}
-                             {filteredCustomerSuggestions.length === 0 && customerName.trim() && allKnownCustomerNames.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                             {filteredCustomerSuggestions.length === 0 && customerName.trim() && allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
                                 <CommandEmpty>No existing customers match. Select "Add new..." above.</CommandEmpty>
                              )}
-                             {allKnownCustomerNames.length === 0 && !customerName.trim() && (
+                             {allKnownCustomerNamesForSales.length === 0 && !customerName.trim() && (
                                 <CommandEmpty>No customers found. Type to add a new one.</CommandEmpty>
                              )}
                           </>
@@ -409,7 +411,7 @@ export default function SalesPage() {
                 </Select>
               </div>
               <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingParties}>
-                <PlusCircle className="h-4 w-4 mr-2" /> {isSubmitting ? 'Adding...' : (isLoadingSales ? 'Loading...' : 'Add Sale')}
+                <PlusCircle className="h-4 w-4 mr-2" /> {isSubmitting ? 'Adding...' : (isLoadingSales || isLoadingParties ? 'Loading...' : 'Add Sale')}
               </Button>
             </form>
           </CardContent>
@@ -466,3 +468,5 @@ export default function SalesPage() {
     </div>
   );
 }
+
+    
