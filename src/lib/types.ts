@@ -2,11 +2,11 @@
 export interface MilkCollectionEntry {
   id: string;
   date: Date;
-  time: string;
-  dealerName: string; // This might be changed to partyName or partyId later
+  shift: "Morning" | "Evening"; // Changed from time
+  dealerName: string;
   quantityLtr: number;
   fatPercentage: number;
-  ratePerLtr?: number;
+  ratePerLtr?: number; // This was the 'rate factor'
   totalAmount?: number;
 }
 
@@ -27,7 +27,7 @@ export interface PashuAaharTransaction {
   date: Date;
   type: "Purchase" | "Sale";
   productName: string;
-  supplierOrCustomerName?: string; // This might be changed to partyName or partyId later
+  supplierOrCustomerName?: string;
   quantityBags: number;
   pricePerBag?: number;
   totalAmount: number;
@@ -36,7 +36,7 @@ export interface PashuAaharTransaction {
 export interface Party {
   id: string;
   name: string;
-  type: "Dealer" | "Customer" | "Supplier" | "Employee"; // Added Employee type
+  type: "Dealer" | "Customer" | "Supplier" | "Employee";
 }
 
 export interface PartyLedgerEntry {
@@ -85,7 +85,7 @@ export interface DailySummary {
 }
 
 export interface ChartDataPoint {
-  date: string; // e.g., "Jan 01", "Mon", "Week 1"
+  date: string;
   purchasedValue?: number;
   soldValue?: number;
 }

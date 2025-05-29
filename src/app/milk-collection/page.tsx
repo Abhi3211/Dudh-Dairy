@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Table,
   TableBody,
@@ -15,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, Clock, User, Percent, Scale, IndianRupee, PlusCircle } from "lucide-react";
+import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon } from "lucide-react";
 import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
@@ -25,7 +26,6 @@ import { addMilkCollectionEntryToFirestore, getMilkCollectionEntriesFromFirestor
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
-
 const MOCK_DEALER_NAMES = ["Rajesh Dairy", "Suresh Milk Co.", "Anand Farms", "Krishna Dairy"];
 
 export default function MilkCollectionPage() {
@@ -34,23 +34,26 @@ export default function MilkCollectionPage() {
   const [isLoadingEntries, setIsLoadingEntries] = useState(true);
   
   const [date, setDate] = useState<Date | undefined>(undefined);
+  const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
   const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
-  const [time, setTime] = useState<string>("");
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateInputValue, setRateInputValue] = useState<string>("6.7"); 
   const [isDealerPopoverOpen, setIsDealerPopoverOpen] = useState(false);
 
-
   const fetchEntries = useCallback(async () => {
     console.log('CLIENT: fetchEntries called. Setting isLoadingEntries to true.');
     setIsLoadingEntries(true);
     try {
       const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
-      // Log with JSON.stringify to see date objects correctly in console
-      console.log('CLIENT: Fetched milk collection entries from Firestore. Count:', fetchedEntries.length, 'Data:', JSON.parse(JSON.stringify(fetchedEntries)));
-      setAllEntries(fetchedEntries);
+      console.log('CLIENT: Raw fetched entries from Firestore:', JSON.parse(JSON.stringify(fetchedEntries)));
+      const processedEntries = fetchedEntries.map(entry => ({
+        ...entry,
+        date: entry.date instanceof Date ? entry.date : new Date(entry.date) // Ensure date is a JS Date object
+      }));
+      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length, 'Data:', JSON.parse(JSON.stringify(processedEntries)));
+      setAllEntries(processedEntries);
     } catch (error) {
       console.error("CLIENT: Failed to fetch milk collection entries:", error);
       toast({ title: "Error", description: "Could not fetch milk collection entries.", variant: "destructive" });
@@ -64,7 +67,6 @@ export default function MilkCollectionPage() {
     console.log("CLIENT: Initial useEffect running to set dates and fetch entries.");
     setDate(new Date()); 
     setTableFilterDate(new Date()); 
-    setTime(new Date().toTimeString().substring(0, 5));
     fetchEntries();
   }, [fetchEntries]); 
 
@@ -95,37 +97,39 @@ export default function MilkCollectionPage() {
 
   const filteredEntries = useMemo(() => {
     console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Total entries being filtered:", allEntries.length);
-    if (!tableFilterDate) {
+    if (tableFilterDate === undefined) { // Check for undefined explicitely
         console.log("CLIENT: No tableFilterDate selected, returning all entries. Count:", allEntries.length);
         return allEntries;
     }
     
     const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
     const result = allEntries.filter(entry => {
-        if (!entry.date || !(entry.date instanceof Date)) {
+        if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) { // Added isNaN check
             console.warn("CLIENT: Invalid or missing date in entry during filtering:", entry);
             return false;
         }
         const entryDateStr = format(entry.date, 'yyyy-MM-dd');
         const match = entryDateStr === targetDateStr;
-        // console.log(`CLIENT: Filtering entry ID ${entry.id}: entryDateStr=${entryDateStr}, targetDateStr=${targetDateStr}, match=${match}`);
+        console.log(`CLIENT: Comparing entry ID ${entry.id}: entryDateStr=${entryDateStr}, targetDateStr=${targetDateStr}, match=${match}. Entry date object:`, entry.date);
         return match;
     });
     console.log("CLIENT: Resulting filteredEntries count:", result.length);
-    if (result.length > 0 && result.length < 5) { // Log only if few results for brevity
+    if (result.length > 0 && result.length < 5) { 
         console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(result)));
     }
     return result;
   }, [allEntries, tableFilterDate]);
+  
 
   const handleDealerNameInputChange = useCallback((value: string) => {
     setDealerNameInput(value);
-    if (value.trim()) {
+    // Open popover only if there's input, otherwise close it
+    if (value.trim() && allKnownDealerNames.filter(name => name.toLowerCase().includes(value.toLowerCase())).length > 0) {
       setIsDealerPopoverOpen(true);
     } else {
       setIsDealerPopoverOpen(false);
     }
-  }, []);
+  }, [allKnownDealerNames]);
 
   const handleDealerSelect = useCallback((currentValue: string) => {
     setDealerNameInput(currentValue);
@@ -135,7 +139,7 @@ export default function MilkCollectionPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !time || !dealerNameInput.trim() || !quantityLtr || !fatPercentage || !rateInputValue) {
+    if (!date || !shift || !dealerNameInput.trim() || !quantityLtr || !fatPercentage || !rateInputValue) {
       toast({ title: "Error", description: "Please fill all fields.", variant: "destructive" });
       return;
     }
@@ -165,7 +169,7 @@ export default function MilkCollectionPage() {
 
     const newEntryData: Omit<MilkCollectionEntry, 'id'> = {
       date, 
-      time,
+      shift,
       dealerName: dealerNameInput.trim(),
       quantityLtr: qLtr,
       fatPercentage: fatP,
@@ -182,9 +186,7 @@ export default function MilkCollectionPage() {
       setDealerNameInput("");
       setQuantityLtr("");
       setFatPercentage("");
-      // setRateInputValue("6.7"); // Keep rate for next entry
-      setTime(new Date().toTimeString().substring(0,5)); 
-      // setDate(new Date()); // Keep date for next entry or let user change
+      setShift("Morning");
       await fetchEntries(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
@@ -210,10 +212,21 @@ export default function MilkCollectionPage() {
                  <DatePicker date={date} setDate={setDate} />
               </div>
               <div>
-                <Label htmlFor="time" className="flex items-center mb-1">
-                  <Clock className="h-4 w-4 mr-2 text-muted-foreground" /> Time
-                </Label>
-                <Input id="time" type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
+                <Label className="flex items-center mb-1">Shift</Label>
+                <RadioGroup
+                  value={shift}
+                  onValueChange={(value: "Morning" | "Evening") => setShift(value)}
+                  className="flex space-x-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="Morning" id="morning" />
+                    <Label htmlFor="morning" className="font-normal flex items-center"><Sun className="h-4 w-4 mr-1 text-muted-foreground" />Morning</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="Evening" id="evening" />
+                    <Label htmlFor="evening" className="font-normal flex items-center"><Moon className="h-4 w-4 mr-1 text-muted-foreground" />Evening</Label>
+                  </div>
+                </RadioGroup>
               </div>
               
               <div>
@@ -292,7 +305,7 @@ export default function MilkCollectionPage() {
                 <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay}` : ""} readOnly className="font-semibold bg-muted/50" />
               </div>
               <Button type="submit" className="w-full" disabled={isLoadingEntries}>
-                <PlusCircle className="h-4 w-4 mr-2" /> {isLoadingEntries && !allEntries.length ? 'Loading...' : (isLoadingEntries ? 'Adding...' : 'Add Entry')}
+                <PlusCircle className="h-4 w-4 mr-2" /> {isLoadingEntries && allEntries.length === 0 && !tableFilterDate ? 'Loading...' : (isLoadingEntries ? 'Adding...' : 'Add Entry')}
               </Button>
             </form>
           </CardContent>
@@ -316,7 +329,7 @@ export default function MilkCollectionPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {isLoadingEntries && allEntries.length === 0 ? (
+            {isLoadingEntries && allEntries.length === 0 && !tableFilterDate ? ( // Updated loading condition
               <div className="space-y-2">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
@@ -327,7 +340,7 @@ export default function MilkCollectionPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
-                    <TableHead>Time</TableHead>
+                    <TableHead>Shift</TableHead>
                     <TableHead>Dealer</TableHead>
                     <TableHead className="text-right">Qty (Ltr)</TableHead>
                     <TableHead className="text-right">FAT (%)</TableHead>
@@ -346,8 +359,8 @@ export default function MilkCollectionPage() {
                   ) : (
                     filteredEntries.map((entry) => (
                       <TableRow key={entry.id}>
-                        <TableCell>{entry.date instanceof Date ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
-                        <TableCell>{entry.time}</TableCell>
+                        <TableCell>{entry.date instanceof Date && !isNaN(entry.date.getTime()) ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
+                        <TableCell>{entry.shift}</TableCell>
                         <TableCell>{entry.dealerName}</TableCell>
                         <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
                         <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
