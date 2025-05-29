@@ -98,7 +98,7 @@ export default function MilkCollectionPage() {
         ...entry,
         date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
       })).sort((a, b) => b.date.getTime() - a.date.getTime());
-      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length, 'Data:', JSON.parse(JSON.stringify(processedEntries)));
+      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length);
       setAllEntries(processedEntries);
     } catch (error) {
       console.error("CLIENT: Failed to fetch milk collection entries:", error);
@@ -118,7 +118,6 @@ export default function MilkCollectionPage() {
   }, [fetchEntries, fetchParties]); 
 
   const partiesForMilkCollection = useMemo(() => {
-    // Customers from whom milk is collected are typically of type "Customer"
     return availableParties.filter(p => p.type === "Customer");
   }, [availableParties]);
 
@@ -155,7 +154,7 @@ export default function MilkCollectionPage() {
             }
             const entryDateStr = format(entry.date, 'yyyy-MM-dd');
             const match = entryDateStr === targetDateStr;
-             console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (raw: ${entry.date.toISOString()}), target date: ${targetDateStr}, match: ${match}`);
+            console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (raw: ${entry.date instanceof Date ? entry.date.toISOString() : String(entry.date)}), target date: ${targetDateStr}, match: ${match}`);
             return match;
         });
     }
@@ -167,7 +166,7 @@ export default function MilkCollectionPage() {
     
     console.log("CLIENT: Resulting filteredEntries count:", shiftAndDateFiltered.length);
     if (shiftAndDateFiltered.length > 0 && shiftAndDateFiltered.length < 5) { 
-        console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(shiftAndDateFiltered.map(e => ({...e, date: e.date.toISOString()})))));
+        console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(shiftAndDateFiltered.map(e => ({...e, date: e.date instanceof Date ? e.date.toISOString() : String(e.date) })))));
     }
     return shiftAndDateFiltered;
   }, [allEntries, tableFilterDate, shiftFilter]);
@@ -182,11 +181,7 @@ export default function MilkCollectionPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    if (value.trim()) {
-      setIsCustomerPopoverOpen(true);
-    } else {
-      setIsCustomerPopoverOpen(false);
-    }
+    setIsCustomerPopoverOpen(!!value.trim());
   }, []);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
@@ -198,8 +193,8 @@ export default function MilkCollectionPage() {
         return;
       }
       setIsLoadingParties(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); // Milk suppliers are "Customer" type
-      if (result.success) {
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
+      if (result.success && result.id) {
         setCustomerNameInput(trimmedValue);
         toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
         await fetchParties(); 
@@ -218,10 +213,12 @@ export default function MilkCollectionPage() {
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
+    // Date and shift persist by design after recent update
+    // setShift("Morning"); 
+    // setDate(new Date()); 
+    // setRateInputValue("6.7"); 
     setAdvancePaid("");
     setRemarks("");
-    // Date and shift persist by design
-    // setRateInputValue("6.7"); // Optionally reset rate
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
   }, []);
@@ -463,7 +460,7 @@ export default function MilkCollectionPage() {
               </div>
               <div>
                 <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate Factor (₹)
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹)
                 </Label>
                 <Input 
                   id="ratePerLtr" 
@@ -613,18 +610,8 @@ export default function MilkCollectionPage() {
                 </TableBody>
                 {filteredEntries.length > 0 && (
                   <TableFooter>
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-right font-semibold">Total Gross Amount:</TableCell>
-                      <TableCell className="text-right font-bold">{totalFilteredGrossAmount.toFixed(2)}</TableCell>
-                      <TableCell /> {/* For Advance Paid column */}
-                      <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
-                      <TableCell colSpan={2} /> {/* For Remarks and Actions columns */}
-                    </TableRow>
-                     <TableRow>
-                        <TableCell colSpan={8} className="text-right font-semibold">Total Net Payable:</TableCell>
-                        <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
-                        <TableCell colSpan={2} />
-                    </TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-right font-semibold">Total Gross Amount:</TableCell><TableCell className="text-right font-bold">{totalFilteredGrossAmount.toFixed(2)}</TableCell><TableCell />{/* For Advance Paid column */}<TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell><TableCell colSpan={2} />{/* For Remarks and Actions columns */}</TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-right font-semibold">Total Net Payable:</TableCell><TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell><TableCell colSpan={2} /></TableRow>
                   </TableFooter>
                 )}
               </Table>
