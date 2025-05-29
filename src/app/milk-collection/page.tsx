@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon } from "lucide-react";
+import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter } from "lucide-react";
 import type { MilkCollectionEntry } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
@@ -25,6 +25,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { addMilkCollectionEntryToFirestore, getMilkCollectionEntriesFromFirestore } from "./actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 const MOCK_DEALER_NAMES = ["Rajesh Dairy", "Suresh Milk Co.", "Anand Farms", "Krishna Dairy"];
 
@@ -36,6 +38,7 @@ export default function MilkCollectionPage() {
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
   const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
+  const [shiftFilter, setShiftFilter] = useState<"All" | "Morning" | "Evening">("All"); // New state for shift filter
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
@@ -50,9 +53,9 @@ export default function MilkCollectionPage() {
       console.log('CLIENT: Raw fetched entries from Firestore:', JSON.parse(JSON.stringify(fetchedEntries)));
       const processedEntries = fetchedEntries.map(entry => ({
         ...entry,
-        date: entry.date instanceof Date ? entry.date : new Date(entry.date) // Ensure date is a JS Date object
+        date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
       }));
-      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length, 'Data:', JSON.parse(JSON.stringify(processedEntries)));
+      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length, 'Data (sample):', processedEntries.length > 0 ? JSON.parse(JSON.stringify(processedEntries[0])) : 'N/A');
       setAllEntries(processedEntries);
     } catch (error) {
       console.error("CLIENT: Failed to fetch milk collection entries:", error);
@@ -96,40 +99,52 @@ export default function MilkCollectionPage() {
   }, [quantityLtr, fatPercentage, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
-    console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Total entries being filtered:", allEntries.length);
-    if (tableFilterDate === undefined) { // Check for undefined explicitely
-        console.log("CLIENT: No tableFilterDate selected, returning all entries. Count:", allEntries.length);
-        return allEntries;
+    console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Selected shiftFilter:", shiftFilter, "Total entries being filtered:", allEntries.length);
+    
+    let dateFiltered = allEntries;
+    if (tableFilterDate !== undefined) {
+        const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
+        dateFiltered = allEntries.filter(entry => {
+            if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) {
+                console.warn("CLIENT: Invalid or missing date in entry during date filtering:", entry);
+                return false;
+            }
+            const entryDateStr = format(entry.date, 'yyyy-MM-dd');
+            const match = entryDateStr === targetDateStr;
+            console.log(`CLIENT (Date Filter): Comparing entry ID ${entry.id}: entryDateStr=${entryDateStr}, targetDateStr=${targetDateStr}, match=${match}. Entry date object:`, entry.date);
+            return match;
+        });
+    } else {
+        console.log("CLIENT (Date Filter): No tableFilterDate selected, using all entries for shift filtering. Count:", allEntries.length);
+    }
+
+    let shiftAndDateFiltered = dateFiltered;
+    if (shiftFilter !== "All") {
+        shiftAndDateFiltered = dateFiltered.filter(entry => {
+            const match = entry.shift === shiftFilter;
+            console.log(`CLIENT (Shift Filter): Comparing entry ID ${entry.id}: entry.shift=${entry.shift}, shiftFilter=${shiftFilter}, match=${match}`);
+            return match;
+        });
+    } else {
+        console.log("CLIENT (Shift Filter): shiftFilter is 'All', using date filtered entries. Count:", dateFiltered.length);
     }
     
-    const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
-    const result = allEntries.filter(entry => {
-        if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) { // Added isNaN check
-            console.warn("CLIENT: Invalid or missing date in entry during filtering:", entry);
-            return false;
-        }
-        const entryDateStr = format(entry.date, 'yyyy-MM-dd');
-        const match = entryDateStr === targetDateStr;
-        console.log(`CLIENT: Comparing entry ID ${entry.id}: entryDateStr=${entryDateStr}, targetDateStr=${targetDateStr}, match=${match}. Entry date object:`, entry.date);
-        return match;
-    });
-    console.log("CLIENT: Resulting filteredEntries count:", result.length);
-    if (result.length > 0 && result.length < 5) { 
-        console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(result)));
+    console.log("CLIENT: Resulting filteredEntries count:", shiftAndDateFiltered.length);
+    if (shiftAndDateFiltered.length > 0 && shiftAndDateFiltered.length < 5) { 
+        console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(shiftAndDateFiltered)));
     }
-    return result;
-  }, [allEntries, tableFilterDate]);
+    return shiftAndDateFiltered;
+  }, [allEntries, tableFilterDate, shiftFilter]);
   
 
   const handleDealerNameInputChange = useCallback((value: string) => {
     setDealerNameInput(value);
-    // Open popover only if there's input, otherwise close it
-    if (value.trim() && allKnownDealerNames.filter(name => name.toLowerCase().includes(value.toLowerCase())).length > 0) {
+    if (value.trim()) {
       setIsDealerPopoverOpen(true);
     } else {
       setIsDealerPopoverOpen(false);
     }
-  }, [allKnownDealerNames]);
+  }, []);
 
   const handleDealerSelect = useCallback((currentValue: string) => {
     setDealerNameInput(currentValue);
@@ -317,19 +332,35 @@ export default function MilkCollectionPage() {
               <div className="flex-1">
                 <CardTitle>Recent Collections</CardTitle>
                 <CardDescription className="mt-1">
-                  {tableFilterDate ? `Showing collections for ${format(tableFilterDate, 'PPP')}` : "Select a date to view collections."}
+                  {tableFilterDate ? `Showing collections for ${format(tableFilterDate, 'PPP')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}` : "Select a date to view collections."}
                   {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
-                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date. Checked ${allEntries.length} total entries)`}
+                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date${shiftFilter !== 'All' ? ` and shift` : ''}. Checked ${allEntries.length} total entries)`}
                 </CardDescription>
               </div>
-              <div className="w-full sm:w-auto sm:min-w-[240px]">
-                <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
-                <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <div className="w-full sm:min-w-[180px]">
+                  <Label htmlFor="shiftFilterSelect" className="sr-only">Filter by shift</Label>
+                  <Select value={shiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setShiftFilter(value)}>
+                    <SelectTrigger id="shiftFilterSelect">
+                      <Filter className="h-3 w-3 mr-2 text-muted-foreground" />
+                      <SelectValue placeholder="Filter by shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="All">All Shifts</SelectItem>
+                      <SelectItem value="Morning">Morning</SelectItem>
+                      <SelectItem value="Evening">Evening</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-full sm:min-w-[200px]">
+                  <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
+                  <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
+                </div>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            {isLoadingEntries && allEntries.length === 0 && !tableFilterDate ? ( // Updated loading condition
+            {isLoadingEntries && allEntries.length === 0 && !tableFilterDate ? ( 
               <div className="space-y-2">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
@@ -352,7 +383,7 @@ export default function MilkCollectionPage() {
                   {filteredEntries.length === 0 && !isLoadingEntries ? (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground">
-                        {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}.` : "Select a date to view entries."}
+                        {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}.` : "Select a date and shift to view entries."}
                         {tableFilterDate && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
                     </TableRow>
