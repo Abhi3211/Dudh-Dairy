@@ -25,21 +25,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag } from "lucide-react";
+import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays } from "lucide-react";
 import type { SaleEntry } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { addSaleEntryToFirestore, getSaleEntriesFromFirestore } from "./actions";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Raw data for initial sales, dates processed in useEffect
-const rawInitialSalesData: (Omit<SaleEntry, 'id' | 'date'> & { tempId: string, dateOffset?: number })[] = [
-  { tempId: "1", customerName: "Amit Singh", productName: "Milk", quantity: 5, unit: "Ltr", rate: 60, totalAmount: 300, paymentType: "Cash", dateOffset: 0 },
-  { tempId: "2", customerName: "Priya Sharma", productName: "Ghee", quantity: 1, unit: "Kg", rate: 700, totalAmount: 700, paymentType: "Credit", dateOffset: 0 },
-  { tempId: "3", customerName: "Vijay Store", productName: "Gold Coin Feed", quantity: 2, unit: "Bags", rate: 320, totalAmount: 640, paymentType: "Cash", dateOffset: 0 },
-  { tempId: "4", customerName: "Sunita Devi", productName: "Milk", quantity: 10, unit: "Ltr", rate: 58, totalAmount: 580, paymentType: "Credit", dateOffset: -1 },
-  { tempId: "5", customerName: "Amit Singh", productName: "Super Pallet", quantity: 1, unit: "Bags", rate: 350, totalAmount: 350, paymentType: "Cash", dateOffset: -1 },
-];
 
-const MOCK_CUSTOMER_NAMES = ["Retail Cash Sale", "Hotel Anapurna", "Sharma Sweets"];
+const MOCK_CUSTOMER_NAMES_INITIAL = ["Retail Cash Sale", "Hotel Anapurna", "Sharma Sweets"];
 
 const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
   { categoryName: "Milk", unit: "Ltr" },
@@ -58,6 +52,9 @@ const knownPashuAaharProducts: string[] = [
 export default function SalesPage() {
   const { toast } = useToast();
   const [sales, setSales] = useState<SaleEntry[]>([]);
+  const [isLoadingSales, setIsLoadingSales] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [customerName, setCustomerName] = useState("");
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
@@ -68,31 +65,37 @@ export default function SalesPage() {
 
   const [popoverOpenForPashuAahar, setPopoverOpenForPashuAahar] = useState(false);
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
+  const [mockCustomerNamesList, setMockCustomerNamesList] = useState<string[]>(MOCK_CUSTOMER_NAMES_INITIAL);
 
 
-  useEffect(() => {
-    setDate(undefined); // Initialize to undefined, set in client-side effect
-  }, []);
-
-  useEffect(() => {
-    // Client-side only effect to initialize date and sales
-    if (date === undefined) { // Check to run only once after initial undefined state
-        setDate(new Date());
+  const fetchSales = useCallback(async () => {
+    setIsLoadingSales(true);
+    try {
+      const fetchedSales = await getSaleEntriesFromFirestore();
+      const processedSales = fetchedSales.map(s => ({
+        ...s,
+        date: s.date instanceof Date ? s.date : new Date(s.date)
+      }));
+      setSales(processedSales);
+      console.log('CLIENT: Fetched sales entries:', processedSales);
+    } catch (error) {
+      console.error("CLIENT: Failed to fetch sales entries:", error);
+      toast({ title: "Error", description: "Could not fetch sales entries.", variant: "destructive" });
+    } finally {
+      setIsLoadingSales(false);
     }
-    const processedSales = rawInitialSalesData.map(s => {
-      const entryDate = new Date();
-      if (s.dateOffset !== undefined) {
-        entryDate.setDate(entryDate.getDate() + s.dateOffset);
-      }
-      return { ...s, id: s.tempId, date: entryDate };
-    }).sort((a,b) => b.date.getTime() - a.date.getTime());
-    setSales(processedSales);
-  }, []); // Empty dependency array ensures this runs once on mount
+  }, [toast]);
+
+  useEffect(() => {
+    setDate(new Date());
+    fetchSales();
+  }, [fetchSales]);
+
 
   const allKnownCustomerNames = useMemo(() => {
     const namesFromSales = new Set(sales.map(s => s.customerName));
-    return Array.from(new Set([...MOCK_CUSTOMER_NAMES, ...namesFromSales])).sort();
-  }, [sales]);
+    return Array.from(new Set([...mockCustomerNamesList, ...namesFromSales])).sort();
+  }, [sales, mockCustomerNamesList]);
 
   const totalAmount = useMemo(() => {
     const q = parseFloat(quantity);
@@ -112,24 +115,33 @@ export default function SalesPage() {
 
   const handlePashuAaharNameChange = useCallback((value: string) => {
     setSpecificPashuAaharName(value);
-    setPopoverOpenForPashuAahar(!!value.trim()); // Open if there's text, close if not
+    setPopoverOpenForPashuAahar(!!value.trim());
   }, []);
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerName(value);
-    if (value.trim()) {
-      setIsCustomerPopoverOpen(true);
+    setIsCustomerPopoverOpen(!!value.trim());
+  }, []);
+
+  const handleSelectOrCreateCustomer = useCallback((currentValue: string) => {
+    const trimmedValue = currentValue.trim();
+    if (trimmedValue.startsWith("__CREATE__")) {
+      const newName = trimmedValue.substring("__CREATE__".length);
+      if (newName && !allKnownCustomerNames.includes(newName)) {
+        setMockCustomerNamesList(prev => [...prev, newName].sort());
+        setCustomerName(newName);
+        toast({ title: "Info", description: `Customer "${newName}" will be used for this sale.` });
+      } else if (newName) {
+        setCustomerName(newName); // It was already known or in a weird state, just set it
+      }
     } else {
-      setIsCustomerPopoverOpen(false);
+      setCustomerName(trimmedValue);
     }
-  }, []);
-
-  const handleCustomerSelect = useCallback((currentValue: string) => {
-    setCustomerName(currentValue);
     setIsCustomerPopoverOpen(false);
-  }, []);
+  }, [allKnownCustomerNames, toast]);
 
-  const handleSubmit = (e: FormEvent) => {
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!date || !customerName.trim() || !quantity || !rate) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Customer, Quantity, Rate).", variant: "destructive" });
@@ -164,9 +176,8 @@ export default function SalesPage() {
       return;
     }
 
-
-    const newSale: SaleEntry = {
-      id: String(Date.now()),
+    setIsSubmitting(true);
+    const newSaleData: Omit<SaleEntry, 'id'> = {
       date,
       customerName: customerName.trim(),
       productName: finalProductName,
@@ -176,19 +187,27 @@ export default function SalesPage() {
       totalAmount: parsedQuantity * parsedRate,
       paymentType,
     };
-    setSales(prevSales => [newSale, ...prevSales].sort((a,b) => b.date.getTime() - a.date.getTime()));
     
-    toast({ title: "Success", description: "Sale entry added." });
-
-    setCustomerName("");
-    setSpecificPashuAaharName("");
-    setQuantity("");
-    setRate("");
-    setPopoverOpenForPashuAahar(false);
-    setIsCustomerPopoverOpen(false);
-    // setDate(new Date()); // Keep date or reset as preferred
-    setSelectedCategoryIndex("0");
-    setPaymentType("Cash");
+    const result = await addSaleEntryToFirestore(newSaleData);
+    
+    if (result.success) {
+      toast({ title: "Success", description: "Sale entry added." });
+      await fetchSales(); // Re-fetch to update list
+      
+      // Reset form fields
+      setCustomerName("");
+      setSpecificPashuAaharName("");
+      setQuantity("");
+      setRate("");
+      setPopoverOpenForPashuAahar(false);
+      setIsCustomerPopoverOpen(false);
+      setDate(new Date()); 
+      setSelectedCategoryIndex("0");
+      setPaymentType("Cash");
+    } else {
+      toast({ title: "Error", description: result.error || "Failed to add sale entry.", variant: "destructive" });
+    }
+    setIsSubmitting(false);
   };
 
   return (
@@ -202,7 +221,9 @@ export default function SalesPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="date">Date</Label>
+                <Label htmlFor="date" className="flex items-center mb-1">
+                  <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date
+                </Label>
                 <DatePicker date={date} setDate={setDate} />
               </div>
               
@@ -224,24 +245,44 @@ export default function SalesPage() {
                   </PopoverTrigger>
                   <PopoverContent className="w-[--radix-popover-trigger-width] p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
                     <Command>
-                      <CommandInput placeholder="Search customers..." />
+                      <CommandInput 
+                        placeholder="Search or add new customer..." 
+                        value={customerName}
+                        onValueChange={handleCustomerNameInputChange}
+                      />
                       <CommandList>
-                        <CommandEmpty>No customer found.</CommandEmpty>
-                        <CommandGroup>
-                          {allKnownCustomerNames // This list is already memoized
-                            .filter((name) => // This filter is okay here if allKnownCustomerNames isn't excessively large
-                              name.toLowerCase().includes(customerName.toLowerCase())
-                            )
-                            .map((name) => (
-                              <CommandItem
-                                key={name}
-                                value={name}
-                                onSelect={handleCustomerSelect} // handleCustomerSelect expects the value
-                              >
-                                {name}
-                              </CommandItem>
-                            ))}
-                        </CommandGroup>
+                        {customerName.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                           <CommandItem
+                            key={`__CREATE__${customerName.trim()}`}
+                            value={`__CREATE__${customerName.trim()}`}
+                            onSelect={() => handleSelectOrCreateCustomer(`__CREATE__${customerName.trim()}`)}
+                          >
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            Add new customer: "{customerName.trim()}"
+                          </CommandItem>
+                        )}
+                        {allKnownCustomerNames
+                          .filter((name) =>
+                            name.toLowerCase().includes(customerName.toLowerCase())
+                          )
+                          .map((name) => (
+                            <CommandItem
+                              key={name}
+                              value={name}
+                              onSelect={() => handleSelectOrCreateCustomer(name)}
+                            >
+                              {name}
+                            </CommandItem>
+                          ))}
+                         {allKnownCustomerNames.filter(name => name.toLowerCase().includes(customerName.toLowerCase())).length === 0 && 
+                          !customerName.trim() &&
+                           <CommandEmpty>Type to search or add a new customer.</CommandEmpty>
+                         }
+                         {allKnownCustomerNames.filter(name => name.toLowerCase().includes(customerName.toLowerCase())).length === 0 && 
+                          customerName.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                            <CommandEmpty>No existing customers match. Select "Add new..." above.</CommandEmpty>
+                          )
+                         }
                       </CommandList>
                     </Command>
                   </PopoverContent>
@@ -271,7 +312,7 @@ export default function SalesPage() {
                         id="specificPashuAaharName"
                         value={specificPashuAaharName}
                         onChange={(e) => handlePashuAaharNameChange(e.target.value)}
-                        placeholder="Type to search Pashu Aahar"
+                        placeholder="Type or select Pashu Aahar"
                         required
                         autoComplete="off"
                         className="w-full"
@@ -283,15 +324,21 @@ export default function SalesPage() {
                       sideOffset={5}
                     >
                        <Command>
-                        <CommandInput placeholder="Search Pashu Aahar..." />
+                        <CommandInput 
+                            placeholder="Search Pashu Aahar..." 
+                            value={specificPashuAaharName}
+                            onValueChange={handlePashuAaharNameChange}
+                        />
                         <CommandList>
                             <CommandEmpty>No Pashu Aahar product found.</CommandEmpty>
                             <CommandGroup>
-                            {knownPashuAaharProducts.map(suggestion => ( // Pass full list
+                            {knownPashuAaharProducts
+                                .filter(name => name.toLowerCase().includes(specificPashuAaharName.toLowerCase()))
+                                .map(suggestion => ( 
                                 <CommandItem
                                 key={suggestion}
-                                value={suggestion} // cmdk uses this for filtering and onSelect argument
-                                onSelect={(currentValue) => { // currentValue is the selected item's 'value'
+                                value={suggestion}
+                                onSelect={(currentValue) => { 
                                     setSpecificPashuAaharName(currentValue);
                                     setPopoverOpenForPashuAahar(false);
                                 }}
@@ -333,8 +380,8 @@ export default function SalesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full">
-                <PlusCircle className="h-4 w-4 mr-2" /> Add Sale
+              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales}>
+                <PlusCircle className="h-4 w-4 mr-2" /> {isSubmitting ? 'Adding...' : (isLoadingSales ? 'Loading...' : 'Add Sale')}
               </Button>
             </form>
           </CardContent>
@@ -345,43 +392,49 @@ export default function SalesPage() {
             <CardTitle>Recent Sales</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Rate (₹)</TableHead>
-                  <TableHead className="text-right">Total (₹)</TableHead>
-                  <TableHead>Payment</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sales.length === 0 ? (
-                    <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground">No sales recorded yet.</TableCell>
-                    </TableRow>
-                ) : (
-                    sales.map((sale) => (
-                    <TableRow key={sale.id}>
-                        <TableCell>{sale.date instanceof Date ? format(sale.date, 'P') : 'Invalid Date'}</TableCell>
-                        <TableCell>{sale.customerName}</TableCell>
-                        <TableCell>{sale.productName}</TableCell>
-                        <TableCell className="text-right">{sale.quantity} {sale.unit}</TableCell>
-                        <TableCell className="text-right">{sale.rate.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">{sale.totalAmount.toFixed(2)}</TableCell>
-                        <TableCell>{sale.paymentType}</TableCell>
-                    </TableRow>
-                    ))
-                )}
-              </TableBody>
-            </Table>
+            {isLoadingSales && sales.length === 0 ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Rate (₹)</TableHead>
+                    <TableHead className="text-right">Total (₹)</TableHead>
+                    <TableHead>Payment</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sales.length === 0 && !isLoadingSales ? (
+                      <TableRow>
+                          <TableCell colSpan={7} className="text-center text-muted-foreground">No sales recorded yet.</TableCell>
+                      </TableRow>
+                  ) : (
+                      sales.map((sale) => (
+                      <TableRow key={sale.id}>
+                          <TableCell>{sale.date instanceof Date && !isNaN(sale.date.getTime()) ? format(sale.date, 'P') : 'Invalid Date'}</TableCell>
+                          <TableCell>{sale.customerName}</TableCell>
+                          <TableCell>{sale.productName}</TableCell>
+                          <TableCell className="text-right">{sale.quantity} {sale.unit}</TableCell>
+                          <TableCell className="text-right">{sale.rate.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{sale.totalAmount.toFixed(2)}</TableCell>
+                          <TableCell>{sale.paymentType}</TableCell>
+                      </TableRow>
+                      ))
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
   );
 }
-
-    
