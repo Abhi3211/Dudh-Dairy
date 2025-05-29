@@ -75,7 +75,7 @@ export default function MilkCollectionPage() {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties.filter(p => p.type === "Customer")); // Assuming milk suppliers are "Customer" type
+      setAvailableParties(parties); 
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties:", error);
       toast({ title: "Error", description: "Could not fetch parties for suggestions.", variant: "destructive" });
@@ -96,7 +96,7 @@ export default function MilkCollectionPage() {
       }));
       console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length);
       if (processedEntries.length > 0) {
-        console.log('Data (sample):', JSON.parse(JSON.stringify(processedEntries[0])));
+        console.log('CLIENT: First processed entry (sample):', JSON.parse(JSON.stringify(processedEntries[0])));
       }
       setAllEntries(processedEntries);
     } catch (error) {
@@ -121,7 +121,7 @@ export default function MilkCollectionPage() {
   }, [availableParties]);
 
   const allKnownCustomerNames = useMemo(() => {
-    return milkSuppliers.map(p => p.name).sort();
+    return milkSuppliers.map(p => p.name).sort((a, b) => a.localeCompare(b));
   }, [milkSuppliers]);
 
 
@@ -134,7 +134,7 @@ export default function MilkCollectionPage() {
     const fat = parseFloat(fatStr);
     const rate = parseFloat(rateStr);
 
-    if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat >= 0 && !isNaN(rate) && rate > 0) { // fat can be 0
+    if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat >= 0 && !isNaN(rate) && rate > 0) {
       return (quantity * fat * rate).toFixed(2);
     }
     return "";
@@ -153,7 +153,7 @@ export default function MilkCollectionPage() {
             }
             const entryDateStr = format(entry.date, 'yyyy-MM-dd');
             const match = entryDateStr === targetDateStr;
-            console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr}, target date: ${targetDateStr}, match: ${match}`);
+            console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (type: ${typeof entry.date}, instanceof Date: ${entry.date instanceof Date}), target date: ${targetDateStr}, match: ${match}`);
             return match;
         });
     }
@@ -165,7 +165,7 @@ export default function MilkCollectionPage() {
     
     console.log("CLIENT: Resulting filteredEntries count:", shiftAndDateFiltered.length);
     if (shiftAndDateFiltered.length > 0 && shiftAndDateFiltered.length < 5) { 
-        console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(shiftAndDateFiltered)));
+        console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(shiftAndDateFiltered.map(e => ({...e, date: e.date.toISOString()})))));
     }
     return shiftAndDateFiltered;
   }, [allEntries, tableFilterDate, shiftFilter]);
@@ -193,7 +193,7 @@ export default function MilkCollectionPage() {
         return;
       }
       setIsLoadingParties(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); // Milk suppliers are Customers
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
       if (result.success) {
         setCustomerNameInput(trimmedValue);
         toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
@@ -239,7 +239,7 @@ export default function MilkCollectionPage() {
       toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" });
       return;
     }
-    if (isNaN(fatP) || fatP < 0) { // FAT can be 0
+    if (isNaN(fatP) || fatP < 0) { 
         toast({ title: "Error", description: "Please enter a valid FAT percentage (must be >= 0).", variant: "destructive" });
         return;
     }
@@ -296,7 +296,7 @@ export default function MilkCollectionPage() {
 
   const handleEdit = (entry: MilkCollectionEntry) => {
     setEditingEntryId(entry.id);
-    setDate(entry.date); // Date is already a JS Date object
+    setDate(entry.date); 
     setShift(entry.shift);
     setCustomerNameInput(entry.customerName);
     setQuantityLtr(String(entry.quantityLtr));
@@ -387,17 +387,17 @@ export default function MilkCollectionPage() {
                       <CommandInput 
                         placeholder="Search or add new customer..." 
                         value={customerNameInput} 
-                        onValueChange={handleCustomerNameInputChange} // Use the same handler for CommandInput
+                        onValueChange={handleCustomerNameInputChange}
                        />
                       <CommandList>
                         {isLoadingParties ? (
-                           <CommandItem disabled>Loading customers...</CommandItem>
+                           <CommandItem disabled>Loading milk suppliers...</CommandItem>
                         ) : (
                           <>
                             {customerNameInput.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
                                <CommandItem
                                 key={`__CREATE__${customerNameInput.trim()}`}
-                                value={`__CREATE__${customerNameInput.trim()}`} // Value is important for onSelect
+                                value={`__CREATE__${customerNameInput.trim()}`}
                                 onSelect={() => handleCustomerSelect(customerNameInput.trim(), true)}
                               >
                                 <PlusCircle className="mr-2 h-4 w-4" />
@@ -407,7 +407,7 @@ export default function MilkCollectionPage() {
                             {filteredCustomerSuggestions.map((name) => (
                               <CommandItem
                                 key={name}
-                                value={name} // Value is important for onSelect
+                                value={name}
                                 onSelect={() => handleCustomerSelect(name)}
                               >
                                 {name}
@@ -569,11 +569,7 @@ export default function MilkCollectionPage() {
                 </TableBody>
                 {filteredEntries.length > 0 && (
                   <TableFooter>
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-right font-semibold">Total Amount:</TableCell>
-                      <TableCell className="text-right font-bold">{totalFilteredAmount.toFixed(2)}</TableCell>
-                      <TableCell /> {/* Empty cell for actions column */}
-                    </TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-right font-semibold">Total Amount:</TableCell><TableCell className="text-right font-bold">{totalFilteredAmount.toFixed(2)}</TableCell><TableCell /></TableRow>
                   </TableFooter>
                 )}
               </Table>
@@ -588,7 +584,7 @@ export default function MilkCollectionPage() {
               <AlertDialogTitle>Are you sure?</AlertDialogTitle>
               <AlertDialogDescription>
                 This action cannot be undone. This will permanently delete the milk collection entry for
-                "{entryToDelete.customerName}" on {format(entryToDelete.date, 'P')} ({entryToDelete.shift} shift).
+                "{entryToDelete.customerName}" on {entryToDelete.date instanceof Date && !isNaN(entryToDelete.date.getTime()) ? format(entryToDelete.date, 'P') : 'Invalid Date'} ({entryToDelete.shift} shift).
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
