@@ -3,7 +3,7 @@ export interface MilkCollectionEntry {
   id: string;
   date: Date;
   shift: "Morning" | "Evening";
-  customerName: string;
+  customerName: string; // This is the person supplying milk
   quantityLtr: number;
   fatPercentage: number;
   ratePerLtr: number; // This is the rate factor
@@ -23,6 +23,18 @@ export interface SaleEntry {
   rate: number;
   totalAmount: number;
   paymentType: "Cash" | "Credit";
+}
+
+export interface BulkSaleEntry {
+  id: string;
+  date: Date;
+  customerName: string; // The bulk buyer
+  quantityLtr: number;
+  fatPercentage: number;
+  rateFactor: number; // Rate per FAT point
+  totalAmount: number; // quantityLtr * fatPercentage * rateFactor
+  paymentType: "Cash" | "Credit";
+  remarks?: string;
 }
 
 export interface PashuAaharTransaction {

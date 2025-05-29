@@ -10,8 +10,9 @@ import {
   Package,
   Users,
   IndianRupee,
-  BarChart3, // Added for Profit/Loss
-  Receipt,   // Added for Expenses
+  BarChart3, 
+  Receipt,   
+  Truck, // Added for Bulk Sales
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,17 +30,16 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
-  adminOnly?: boolean; // New property for role-based visibility
+  adminOnly?: boolean; 
 }
 
-// IMPORTANT: This is a placeholder for actual role management.
-// In a real app, this would come from your authentication system.
-const userRole: "admin" | "accountant" = "admin"; // Change to "accountant" to test non-admin view
+const userRole: "admin" | "accountant" = "admin"; 
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/milk-collection", label: "Milk Collection", icon: Milk },
   { href: "/sales", label: "Sales Entry", icon: ShoppingCart },
+  { href: "/bulk-sales", label: "Bulk Sales", icon: Truck }, // New Bulk Sales Link
   { href: "/pashu-aahar", label: "Pashu Aahar", icon: Package },
   { href: "/parties", label: "Parties", icon: Users },
   { href: "/payments", label: "Payments", icon: IndianRupee },
@@ -56,6 +56,14 @@ export function SidebarNav() {
       return userRole === 'admin';
     }
     return true;
+  }).sort((a, b) => { // Keep Dashboard first, then Profit/Loss last if admin
+    if (a.href === "/") return -1;
+    if (b.href === "/") return 1;
+    if (userRole === 'admin') {
+      if (a.href === "/profit-loss") return 1;
+      if (b.href === "/profit-loss") return -1;
+    }
+    return 0;
   });
 
   return (
