@@ -26,7 +26,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
 
-// Static list of some dealer names for initial suggestions
 const MOCK_DEALER_NAMES = ["Rajesh Dairy", "Suresh Milk Co.", "Anand Farms", "Krishna Dairy"];
 
 export default function MilkCollectionPage() {
@@ -34,9 +33,8 @@ export default function MilkCollectionPage() {
   const [allEntries, setAllEntries] = useState<MilkCollectionEntry[]>([]);
   const [isLoadingEntries, setIsLoadingEntries] = useState(true);
   
-  // Form state
-  const [date, setDate] = useState<Date | undefined>(undefined); // Date for new entry form
-  const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined); // Date for filtering the table
+  const [date, setDate] = useState<Date | undefined>(undefined);
+  const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
   const [time, setTime] = useState<string>("");
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
@@ -46,26 +44,29 @@ export default function MilkCollectionPage() {
 
 
   const fetchEntries = useCallback(async () => {
+    console.log('CLIENT: fetchEntries called. Setting isLoadingEntries to true.');
     setIsLoadingEntries(true);
     try {
       const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
-      console.log('CLIENT: fetchEntries called. Fetched entries from Firestore. Count:', fetchedEntries.length);
+      // Log with JSON.stringify to see date objects correctly in console
+      console.log('CLIENT: Fetched milk collection entries from Firestore. Count:', fetchedEntries.length, 'Data:', JSON.parse(JSON.stringify(fetchedEntries)));
       setAllEntries(fetchedEntries);
     } catch (error) {
-      console.error("Failed to fetch milk collection entries:", error);
+      console.error("CLIENT: Failed to fetch milk collection entries:", error);
       toast({ title: "Error", description: "Could not fetch milk collection entries.", variant: "destructive" });
     } finally {
+      console.log('CLIENT: fetchEntries finished. Setting isLoadingEntries to false.');
       setIsLoadingEntries(false);
     }
   }, [toast]);
 
   useEffect(() => {
-    // Initialize dates client-side to avoid hydration issues
-    setDate(new Date()); // For the form
-    setTableFilterDate(new Date()); // For the table filter
+    console.log("CLIENT: Initial useEffect running to set dates and fetch entries.");
+    setDate(new Date()); 
+    setTableFilterDate(new Date()); 
     setTime(new Date().toTimeString().substring(0, 5));
     fetchEntries();
-  }, [fetchEntries]); // fetchEntries is memoized
+  }, [fetchEntries]); 
 
   const uniqueDealerNamesFromEntries = useMemo(() => {
     const names = new Set(allEntries.map(entry => entry.dealerName));
@@ -94,14 +95,26 @@ export default function MilkCollectionPage() {
 
   const filteredEntries = useMemo(() => {
     console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Total entries being filtered:", allEntries.length);
-    if (!tableFilterDate) return allEntries; // Show all if no table filter date is selected
+    if (!tableFilterDate) {
+        console.log("CLIENT: No tableFilterDate selected, returning all entries. Count:", allEntries.length);
+        return allEntries;
+    }
     
     const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
     const result = allEntries.filter(entry => {
+        if (!entry.date || !(entry.date instanceof Date)) {
+            console.warn("CLIENT: Invalid or missing date in entry during filtering:", entry);
+            return false;
+        }
         const entryDateStr = format(entry.date, 'yyyy-MM-dd');
-        return entryDateStr === targetDateStr;
+        const match = entryDateStr === targetDateStr;
+        // console.log(`CLIENT: Filtering entry ID ${entry.id}: entryDateStr=${entryDateStr}, targetDateStr=${targetDateStr}, match=${match}`);
+        return match;
     });
     console.log("CLIENT: Resulting filteredEntries count:", result.length);
+    if (result.length > 0 && result.length < 5) { // Log only if few results for brevity
+        console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(result)));
+    }
     return result;
   }, [allEntries, tableFilterDate]);
 
@@ -133,7 +146,7 @@ export default function MilkCollectionPage() {
 
     const qLtr = parseFloat(qLtrStr);
     const fatP = parseFloat(fatPStr);
-    const finalRateFactor = parseFloat(finalRateStr); // Renamed to avoid confusion, this is the "rate" from the formula
+    const finalRateFactor = parseFloat(finalRateStr); 
 
     if (isNaN(qLtr) || qLtr <= 0) {
       toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" });
@@ -156,10 +169,11 @@ export default function MilkCollectionPage() {
       dealerName: dealerNameInput.trim(),
       quantityLtr: qLtr,
       fatPercentage: fatP,
-      ratePerLtr: finalRateFactor, // Storing the input "rate" value, though its meaning changed
+      ratePerLtr: finalRateFactor,
       totalAmount: finalTotalAmount,
     };
     
+    console.log("CLIENT: Submitting new entry data:", JSON.parse(JSON.stringify(newEntryData)));
     setIsLoadingEntries(true); 
     const result = await addMilkCollectionEntryToFirestore(newEntryData);
     
@@ -168,9 +182,9 @@ export default function MilkCollectionPage() {
       setDealerNameInput("");
       setQuantityLtr("");
       setFatPercentage("");
-      // setRateInputValue("6.7"); // Keep rate as user might want to reuse for next entry.
-      setTime(new Date().toTimeString().substring(0,5)); // Reset time for next entry
-      setDate(new Date()); // Reset form date for next entry
+      // setRateInputValue("6.7"); // Keep rate for next entry
+      setTime(new Date().toTimeString().substring(0,5)); 
+      // setDate(new Date()); // Keep date for next entry or let user change
       await fetchEntries(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
@@ -258,7 +272,7 @@ export default function MilkCollectionPage() {
               </div>
               <div>
                 <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹/Ltr)
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹)
                 </Label>
                 <Input 
                   id="ratePerLtr" 
@@ -292,10 +306,10 @@ export default function MilkCollectionPage() {
                 <CardDescription className="mt-1">
                   {tableFilterDate ? `Showing collections for ${format(tableFilterDate, 'PPP')}` : "Select a date to view collections."}
                   {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
-                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && allEntries.length > 0 && ` (No entries for this date. Checked ${allEntries.length} total entries)`}
+                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date. Checked ${allEntries.length} total entries)`}
                 </CardDescription>
               </div>
-              <div className="w-full sm:w-auto sm:min-w-[240px]"> {/* Ensure DatePicker has enough space */}
+              <div className="w-full sm:w-auto sm:min-w-[240px]">
                 <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
                 <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
               </div>
@@ -332,7 +346,7 @@ export default function MilkCollectionPage() {
                   ) : (
                     filteredEntries.map((entry) => (
                       <TableRow key={entry.id}>
-                        <TableCell>{format(entry.date, 'P')}</TableCell>
+                        <TableCell>{entry.date instanceof Date ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
                         <TableCell>{entry.time}</TableCell>
                         <TableCell>{entry.dealerName}</TableCell>
                         <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
@@ -351,6 +365,3 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
-    
-
-    
