@@ -33,11 +33,12 @@ export async function getDashboardSummaryAndChartData(
     pashuAaharSalesAmount: 0,
     totalCashIn: 0,
     totalCreditOut: 0,
-    totalOutstandingAmount: 0, // Set to 0, actual calculation is complex and not yet implemented
+    totalOutstandingAmount: 0, // Will be calculated
   };
 
   const daysInRange = eachDayOfInterval({ start: clientStartDate, end: clientEndDate });
   const dailyAggregator: Record<string, { purchasedValue: number; soldValue: number }> = {};
+  const partyBalances = new Map<string, number>(); // To track outstanding balances by party
 
   daysInRange.forEach(day => {
     const formattedDate = format(day, "MMM dd");
@@ -58,6 +59,10 @@ export async function getDashboardSummaryAndChartData(
       const entry = doc.data() as Omit<MilkCollectionEntry, 'id' | 'date'> & { date: Timestamp };
       summary.milkPurchasedLitres += entry.quantityLtr || 0;
       summary.milkPurchasedAmount += entry.totalAmount || 0;
+
+      // Update party balance: Dairy owes this to the customer
+      const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
+      partyBalances.set(entry.customerName, currentPartyBalance - (entry.netAmountPayable || 0));
 
       if (entry.date) {
         const entryDateStr = format(entry.date.toDate(), "MMM dd");
@@ -95,6 +100,9 @@ export async function getDashboardSummaryAndChartData(
         summary.totalCashIn += currentSaleAmount;
       } else if (entry.paymentType === "Credit") {
         summary.totalCreditOut += currentSaleAmount;
+        // Update party balance: Customer owes this to the dairy
+        const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
+        partyBalances.set(entry.customerName, currentPartyBalance + currentSaleAmount);
       }
       
       if (entry.date) {
@@ -107,10 +115,17 @@ export async function getDashboardSummaryAndChartData(
 
   } catch (error) {
     console.error("SERVER ACTION: Error fetching dashboard data from Firestore:", error);
-    // Return empty/default data or throw error, depending on desired error handling
-    // For now, returning summary with potentially partial data and empty chart
     return { summary, chartSeries: [] };
   }
+  
+  // Calculate total outstanding amount (sum of positive balances)
+  let calculatedOutstanding = 0;
+  for (const balance of partyBalances.values()) {
+    if (balance > 0) {
+      calculatedOutstanding += balance;
+    }
+  }
+  summary.totalOutstandingAmount = parseFloat(calculatedOutstanding.toFixed(2));
   
   const chartSeries: ChartDataPoint[] = daysInRange.map(day => {
     const formattedDate = format(day, "MMM dd");
