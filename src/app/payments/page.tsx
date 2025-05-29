@@ -28,16 +28,24 @@ import { IndianRupee, ArrowRightLeft, User, Banknote, StickyNote, PlusCircle } f
 import type { PaymentEntry } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { usePageTitle } from '@/context/PageTitleContext';
 
-const rawInitialPayments: (Omit<PaymentEntry, 'id' | 'date'> & { tempId: string, dateIsToday: boolean, dateTimestamp?: number })[] = [
-  { tempId: "P1", dateIsToday: true, type: "Received", partyName: "Cash Sale", partyType: "Customer", amount: 500, mode: "Cash", notes: "Retail milk sale" },
-  { tempId: "P2", dateIsToday: false, dateTimestamp: Date.now() - 86400000, type: "Paid", partyName: "Rajesh Kumar", partyType: "Dealer", amount: 1200, mode: "Bank", notes: "Weekly settlement" },
+const rawInitialPayments: (Omit<PaymentEntry, 'id' | 'date'> & { tempId: string, dateOffset: number })[] = [
+  { tempId: "P1", dateOffset: 0, type: "Received", partyName: "Cash Sale", partyType: "Customer", amount: 500, mode: "Cash", notes: "Retail milk sale" },
+  { tempId: "P2", dateOffset: -1, type: "Paid", partyName: "Rajesh Kumar", partyType: "Customer", amount: 1200, mode: "Bank", notes: "Weekly settlement" },
 ];
 
-const partyTypes: PaymentEntry['partyType'][] = ["Customer", "Dealer", "Supplier", "Employee"];
+const partyTypes: PaymentEntry['partyType'][] = ["Customer", "Supplier", "Employee"]; // "Dealer" removed
 const paymentModes: PaymentEntry['mode'][] = ["Cash", "Bank", "UPI"];
 
 export default function PaymentsPage() {
+  const { setPageTitle } = usePageTitle();
+  const pageSpecificTitle = "Record Payments";
+
+  useEffect(() => {
+    setPageTitle(pageSpecificTitle);
+  }, [setPageTitle, pageSpecificTitle]);
+
   const { toast } = useToast();
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
 
@@ -52,7 +60,8 @@ export default function PaymentsPage() {
   useEffect(() => {
     setDate(new Date());
     const processedPayments = rawInitialPayments.map(p => {
-      const entryDate = p.dateIsToday ? new Date() : new Date(p.dateTimestamp!);
+      const entryDate = new Date();
+      entryDate.setDate(entryDate.getDate() + p.dateOffset);
       return { ...p, id: p.tempId, date: entryDate };
     }).sort((a,b) => b.date.getTime() - a.date.getTime());
     setPayments(processedPayments);
@@ -95,7 +104,7 @@ export default function PaymentsPage() {
 
   return (
     <div>
-      <PageHeader title="Record Payments" description="Log all incoming and outgoing payments." />
+      <PageHeader title={pageSpecificTitle} description="Log all incoming and outgoing payments." />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">
           <CardHeader><CardTitle>New Payment</CardTitle></CardHeader>
@@ -193,5 +202,3 @@ export default function PaymentsPage() {
     </div>
   );
 }
-
-    

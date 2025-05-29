@@ -22,8 +22,16 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { addPashuAaharTransactionToFirestore, getPashuAaharTransactionsFromFirestore } from "./actions";
+import { usePageTitle } from '@/context/PageTitleContext';
 
 export default function PashuAaharPage() {
+  const { setPageTitle } = usePageTitle();
+  const pageSpecificTitle = "Pashu Aahar Stock";
+
+  useEffect(() => {
+    setPageTitle(pageSpecificTitle);
+  }, [setPageTitle, pageSpecificTitle]);
+
   const { toast } = useToast();
   const [transactions, setTransactions] = useState<PashuAaharTransaction[]>([]);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
@@ -50,13 +58,12 @@ export default function PashuAaharPage() {
   }, [toast]);
 
   useEffect(() => {
-    setDate(new Date()); // Initialize date client-side
+    setDate(new Date()); 
     fetchTransactions();
   }, [fetchTransactions]);
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
-    // Sort transactions chronologically for accurate stock calculation
     const sortedTransactionsForStock = [...transactions].sort((a, b) => a.date.getTime() - b.date.getTime());
 
     sortedTransactionsForStock.forEach(tx => {
@@ -67,8 +74,6 @@ export default function PashuAaharPage() {
       if (tx.type === "Purchase") {
         stockCalc[pName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
-        // Assuming sales also update stock (though sales form is separate)
-        // For now, this means sales recorded elsewhere should also be PashuAaharTransaction type
         stockCalc[pName] = Math.max(0, stockCalc[pName] - tx.quantityBags);
       }
     });
@@ -109,7 +114,7 @@ export default function PashuAaharPage() {
     
     if (result.success) {
       toast({ title: "Success", description: "Pashu Aahar purchase recorded." });
-      await fetchTransactions(); // Re-fetch to update list and stock
+      await fetchTransactions(); 
       
       setProductName("");
       setSupplierName("");
@@ -124,7 +129,7 @@ export default function PashuAaharPage() {
   
   return (
     <div>
-      <PageHeader title="Pashu Aahar Stock" description="Track stock levels and record purchases in bags." />
+      <PageHeader title={pageSpecificTitle} description="Track stock levels and record purchases in bags." />
       
       <Card className="mb-6">
         <CardHeader>
@@ -203,7 +208,7 @@ export default function PashuAaharPage() {
           </CardContent>
         </Card>
 
-        <Card className="md:col-span-1"> {/* Changed from lg:col-span-2 to md:col-span-1 to balance the layout */}
+        <Card className="md:col-span-1"> 
           <CardHeader>
             <CardTitle>Transaction History</CardTitle>
             <CardDescription>Pashu Aahar purchases and sales affecting stock.</CardDescription>

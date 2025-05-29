@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useCallback } from "react";
+import { useState, type FormEvent, useEffect, useCallback, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,11 +28,12 @@ import { IndianRupee, ListChecks, FileText, PlusCircle, CalendarDays, Users } fr
 import type { ExpenseEntry, Party } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { usePageTitle } from '@/context/PageTitleContext';
 
 // Mock parties for selection in salary, ensure types are consistent with updated Party type
 const mockParties: Party[] = [
   { id: "EMP1", name: "Anita Sharma (Accountant)", type: "Employee" },
-  { id: "CUST1", name: "Rajesh Kumar", type: "Customer" }, // Changed from Dealer
+  { id: "CUST1", name: "Rajesh Kumar", type: "Customer" },
   { id: "SUP1", name: "Local Cafe Supplies", type: "Supplier" },
 ];
 
@@ -45,6 +46,13 @@ const rawInitialExpenses: (Omit<ExpenseEntry, 'id' | 'date'> & { tempId: string,
 const expenseCategories: ExpenseEntry['category'][] = ["Salary", "Miscellaneous"];
 
 export default function ExpensesPage() {
+  const { setPageTitle } = usePageTitle();
+  const pageSpecificTitle = "Expenses";
+
+  useEffect(() => {
+    setPageTitle(pageSpecificTitle);
+  }, [setPageTitle, pageSpecificTitle]);
+
   const { toast } = useToast();
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [availableParties] = useState<Party[]>(mockParties); 
@@ -118,14 +126,13 @@ export default function ExpensesPage() {
   };
 
   const partiesForSalary = useMemo(() => {
-    // Salary typically paid to Employees or specific Suppliers (contractors)
     return availableParties.filter(p => p.type === "Employee" || p.type === "Supplier");
   }, [availableParties]);
 
   return (
     <div>
       <PageHeader
-        title="Expenses"
+        title={pageSpecificTitle}
         description="Track and manage your business expenses."
       />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -251,5 +258,3 @@ export default function ExpensesPage() {
     </div>
   );
 }
-
-    

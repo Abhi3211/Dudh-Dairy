@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, differenceInDays, addDays } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import type { FullProfitLossData, ProfitLossSummaryData, PlChartDataPoint } from "@/lib/types";
+import { usePageTitle } from '@/context/PageTitleContext';
 
 // IMPORTANT: This is a placeholder for actual role management.
 const userRole: "admin" | "accountant" = "admin";
@@ -20,8 +21,6 @@ const userRole: "admin" | "accountant" = "admin";
 
 // Simulated data fetching function
 const getPlData = async (startDate: Date, endDate: Date): Promise<FullProfitLossData> => {
-  // await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay - REMOVED
-
   const periodDays = Math.max(1, differenceInDays(endDate, startDate) + 1);
   
   let totalMilkSales = 0;
@@ -34,10 +33,10 @@ const getPlData = async (startDate: Date, endDate: Date): Promise<FullProfitLoss
 
   for (let i = 0; i < periodDays; i++) {
     const currentDate = addDays(startDate, i);
-    const dailyMilkSales = Math.random() * 1500 + 800; // Daily milk sales
-    const dailyGheeSales = Math.random() * 200 + 40;    // Daily ghee sales
-    const dailyPashuAaharSales = Math.random() * 150 + 20; // Daily pashu aahar sales
-    const dailyCostOfGoodsSold = Math.random() * 1200 + 600; // Daily milk purchases
+    const dailyMilkSales = Math.random() * 1500 + 800; 
+    const dailyGheeSales = Math.random() * 200 + 40;   
+    const dailyPashuAaharSales = Math.random() * 150 + 20; 
+    const dailyCostOfGoodsSold = Math.random() * 1200 + 600; 
 
     totalMilkSales += dailyMilkSales;
     totalGheeSales += dailyGheeSales;
@@ -46,7 +45,6 @@ const getPlData = async (startDate: Date, endDate: Date): Promise<FullProfitLoss
     
     const dailyRevenue = dailyMilkSales + dailyGheeSales + dailyPashuAaharSales;
     const dailyGrossProfit = dailyRevenue - dailyCostOfGoodsSold;
-    // Simulate daily operating expenses, e.g., 10% of daily revenue + some fixed daily cost
     const dailyOperatingExpenses = (dailyRevenue * 0.10) + (Math.random() * 50 + 50); 
     totalOperatingExpenses += dailyOperatingExpenses;
     
@@ -78,11 +76,18 @@ const getPlData = async (startDate: Date, endDate: Date): Promise<FullProfitLoss
 };
 
 const chartConfig = {
-  netProfit: { label: "Net Profit/Loss", color: "hsl(var(--chart-1))" }, // Using chart-1 (Saffron)
+  netProfit: { label: "Net Profit/Loss", color: "hsl(var(--chart-1))" }, 
 } satisfies ChartConfig;
 
 
 export default function ProfitLossPage() {
+  const { setPageTitle } = usePageTitle();
+  const pageSpecificTitle = userRole === "admin" ? "Profit & Loss Statement" : "Access Denied";
+
+  useEffect(() => {
+    setPageTitle(pageSpecificTitle);
+  }, [setPageTitle, pageSpecificTitle]);
+
   const [filterType, setFilterType] = useState<string>("monthly");
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>(undefined);
@@ -113,7 +118,7 @@ export default function ProfitLossPage() {
       case "custom":
         start = customStartDate || subDays(today, 7);
         end = customEndDate || today;
-        if (start > end) end = start; 
+        if (start && end && start > end) end = start; 
         break;
     }
     return { startDate: start, endDate: end };
@@ -126,6 +131,12 @@ export default function ProfitLossPage() {
     }
     setIsLoading(true);
     const { startDate, endDate } = calculateDateRange();
+    
+    if (!startDate || !endDate) {
+        setIsLoading(false);
+        return;
+    }
+
     const data = await getPlData(startDate, endDate);
     setPlData(data);
 
@@ -144,11 +155,10 @@ export default function ProfitLossPage() {
     );
 
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); // filterType added as it affects periodPrefix
+  }, [calculateDateRange, filterType]); 
 
 
   useEffect(() => {
-    // Initialize custom dates on client mount
     if (customStartDate === undefined) {
       setCustomStartDate(startOfMonth(new Date()));
     }
@@ -191,7 +201,7 @@ export default function ProfitLossPage() {
   return (
     <div>
       <PageHeader
-        title="Profit & Loss Statement"
+        title={pageSpecificTitle}
         description={displayedDateRangeString.replace("Showing data for ", "Financial performance for the period: ")}
       />
       
@@ -227,7 +237,6 @@ export default function ProfitLossPage() {
         </CardContent>
       </Card>
 
-      {/* P/L Summary Card */}
       <Card>
         <CardHeader>
           <CardTitle>Profit/Loss Report</CardTitle>
@@ -304,7 +313,6 @@ export default function ProfitLossPage() {
         </CardContent>
       </Card>
 
-      {/* Trend Chart Card */}
       {userRole === "admin" && (
         <Card className="mt-6">
           <CardHeader>
@@ -320,33 +328,35 @@ export default function ProfitLossPage() {
               </div>
             ) : plData && plData.chartSeries && plData.chartSeries.length > 0 ? (
               <ChartContainer config={chartConfig} className="w-full h-full">
-                <LineChart data={plData.chartSeries} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false}/>
-                  <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
-                  <YAxis 
-                    tickLine={false} 
-                    axisLine={false} 
-                    tickMargin={8} 
-                    tickFormatter={(value) => `₹${value >= 1000 || value <= -1000 ? (value / 1000).toFixed(1) + 'k' : value.toFixed(0)}`}
-                    allowDecimals={false} 
-                  />
-                  <Tooltip 
-                    content={<ChartTooltipContent 
-                      indicator="line" 
-                      formatter={(value, name, entry) => {
-                        const dataPoint = entry.payload as PlChartDataPoint | undefined;
-                        return (
-                          <div className="flex flex-col">
-                            <span className="text-xs text-muted-foreground">{name} ({dataPoint?.date})</span>
-                            <span className="font-bold">₹{Number(value).toFixed(2)}</span>
-                          </div>
-                        );
-                      }}
-                    />} 
-                  />
-                  <Legend />
-                  <Line type="monotone" dataKey="netProfit" stroke="var(--color-netProfit)" strokeWidth={2} dot={false} name="Net Profit/Loss" />
-                </LineChart>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={plData.chartSeries} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+                    <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
+                    <YAxis 
+                      tickLine={false} 
+                      axisLine={false} 
+                      tickMargin={8} 
+                      tickFormatter={(value) => `₹${value >= 1000 || value <= -1000 ? (value / 1000).toFixed(1) + 'k' : value.toFixed(0)}`}
+                      allowDecimals={false} 
+                    />
+                    <Tooltip 
+                      content={<ChartTooltipContent 
+                        indicator="line" 
+                        formatter={(value, name, entry) => {
+                          const dataPoint = entry.payload as PlChartDataPoint | undefined;
+                          return (
+                            <div className="flex flex-col">
+                              <span className="text-xs text-muted-foreground">{name} ({dataPoint?.date})</span>
+                              <span className="font-bold">₹{Number(value).toFixed(2)}</span>
+                            </div>
+                          );
+                        }}
+                      />} 
+                    />
+                    <Legend />
+                    <Line type="monotone" dataKey="netProfit" stroke="var(--color-netProfit)" strokeWidth={2} dot={false} name="Net Profit/Loss" />
+                  </LineChart>
+                </ResponsiveContainer>
               </ChartContainer>
             ) : (
               <div className="flex items-center justify-center h-full">

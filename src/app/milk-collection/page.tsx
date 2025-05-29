@@ -45,9 +45,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { usePageTitle } from '@/context/PageTitleContext';
 
 
 export default function MilkCollectionPage() {
+  const { setPageTitle } = usePageTitle();
+  const pageSpecificTitle = "Milk Collection";
+
+  useEffect(() => {
+    setPageTitle(pageSpecificTitle);
+  }, [setPageTitle, pageSpecificTitle]);
+
   const { toast } = useToast();
   const [allEntries, setAllEntries] = useState<MilkCollectionEntry[]>([]);
   const [isLoadingEntries, setIsLoadingEntries] = useState(true);
@@ -98,7 +106,7 @@ export default function MilkCollectionPage() {
         ...entry,
         date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
       })).sort((a, b) => b.date.getTime() - a.date.getTime());
-      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length);
+      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length, 'Data (sample):', processedEntries.length > 0 ? JSON.parse(JSON.stringify(processedEntries[0])) : 'No data');
       setAllEntries(processedEntries);
     } catch (error) {
       console.error("CLIENT: Failed to fetch milk collection entries:", error);
@@ -181,7 +189,11 @@ export default function MilkCollectionPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    setIsCustomerPopoverOpen(!!value.trim());
+    if (value.trim()) {
+      setIsCustomerPopoverOpen(true);
+    } else {
+      setIsCustomerPopoverOpen(false);
+    }
   }, []);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
@@ -213,10 +225,7 @@ export default function MilkCollectionPage() {
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
-    // Date and shift persist by design after recent update
-    // setShift("Morning"); 
-    // setDate(new Date()); 
-    // setRateInputValue("6.7"); 
+    // Date and shift persist by design
     setAdvancePaid("");
     setRemarks("");
     setEditingEntryId(null);
@@ -343,7 +352,7 @@ export default function MilkCollectionPage() {
 
   return (
     <div>
-      <PageHeader title="Milk Collection" description="Record new milk collection entries." />
+      <PageHeader title={pageSpecificTitle} description="Record new milk collection entries." />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">
           <CardHeader>
@@ -639,4 +648,3 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
-

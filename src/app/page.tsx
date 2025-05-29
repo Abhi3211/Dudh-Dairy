@@ -13,7 +13,8 @@ import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/u
 import type { DailySummary, ChartDataPoint, DashboardData } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { getDashboardSummaryAndChartData } from "./dashboard/actions"; // Import the new server action
+import { getDashboardSummaryAndChartData } from "./dashboard/actions";
+import { usePageTitle } from '@/context/PageTitleContext';
 
 const chartConfig = {
   purchasedValue: { label: "Purchase Value", color: "hsl(var(--chart-4))" }, // Reddish
@@ -21,6 +22,13 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 export default function DashboardPage() {
+  const { setPageTitle } = usePageTitle();
+  const pageSpecificTitle = "Summary Dashboard";
+
+  useEffect(() => {
+    setPageTitle(pageSpecificTitle);
+  }, [setPageTitle, pageSpecificTitle]);
+
   const [filterType, setFilterType] = useState<string>("daily");
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>(undefined);
@@ -32,8 +40,8 @@ export default function DashboardPage() {
 
   const calculateDateRange = useCallback(() => {
     const today = new Date();
-    let start = customStartDate !== undefined ? customStartDate : today; // Default to today if customStartDate is not set yet by useEffect
-    let end = customEndDate !== undefined ? customEndDate : today; // Default to today if customEndDate is not set yet
+    let start = customStartDate !== undefined ? customStartDate : today;
+    let end = customEndDate !== undefined ? customEndDate : today;
 
     switch (filterType) {
       case "daily":
@@ -49,14 +57,12 @@ export default function DashboardPage() {
         end = endOfMonth(today);
         break;
       case "custom":
-        // Use custom dates if they are valid, otherwise default to a range
         start = customStartDate || subDays(today, 7); 
         end = customEndDate || today; 
         break;
     }
-    // Ensure end date is not before start date for custom ranges
     if (filterType === 'custom' && start && end && end < start) {
-        end = start; // Or handle as an error/toast
+        end = start;
     }
     return { startDate: start, endDate: end };
   }, [filterType, customStartDate, customEndDate]);
@@ -84,11 +90,9 @@ export default function DashboardPage() {
       setChartData(data.chartSeries);
     } catch (error) {
       console.error("CLIENT: Error fetching dashboard data:", error);
-      setSummary(null); // Or set to a default error state
+      setSummary(null);
       setChartData([]);
-      // Optionally, show a toast message to the user
     }
-
 
     const formattedStartDate = format(startDate, "MMM dd, yyyy");
     const formattedEndDate = format(endDate, "MMM dd, yyyy");
@@ -105,11 +109,9 @@ export default function DashboardPage() {
     );
 
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); // Added filterType as it affects periodPrefix logic
+  }, [calculateDateRange, filterType, customStartDate, customEndDate]); // Added customStartDate and customEndDate to dependencies
 
   useEffect(() => {
-    // Initialize custom dates on client mount to avoid hydration issues with new Date()
-    // and ensure calculateDateRange has valid defaults if custom is selected early
     if (customStartDate === undefined) {
       setCustomStartDate(subDays(new Date(), 7));
     }
@@ -118,12 +120,10 @@ export default function DashboardPage() {
     }
   }, []); 
 
-
   useEffect(() => {
-    // Ensure custom dates are set before fetching if filterType is 'custom'
     if (filterType === 'custom' && (customStartDate === undefined || customEndDate === undefined)) {
       console.log("CLIENT: useEffect - Custom filter selected, but dates not yet initialized. Skipping fetch.");
-      return; // Don't fetch if custom dates are not ready
+      return;
     }
     fetchData();
   }, [fetchData, filterType, customStartDate, customEndDate]); 
@@ -145,7 +145,7 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <PageHeader title="Summary Dashboard" description="Overview of dairy operations." />
+      <PageHeader title={pageSpecificTitle} description="Overview of dairy operations." />
       
       <Card className="mb-6">
         <CardHeader>

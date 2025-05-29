@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { User, PlusCircle, Trash2 } from "lucide-react"; // Removed Milk, IndianRupee, TrendingUp, TrendingDown
+import { User, PlusCircle, Trash2 } from "lucide-react";
 import type { Party, PartyLedgerEntry } from "@/lib/types";
 import {
   AlertDialog,
@@ -38,14 +38,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore } from "./actions";
-
+import { usePageTitle } from '@/context/PageTitleContext';
 
 const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   if (!party) return [];
   
   const rawLedgerEntries: (Omit<PartyLedgerEntry, 'id'|'date'|'balance'> & {tempId: string, dateOffset: number})[] = [];
 
-  if (party.type === "Customer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) { // Changed from Dealer to Customer
+  if (party.type === "Customer" && (party.name.includes("Rajesh") || party.name.includes("Sunita"))) {
     rawLedgerEntries.push(
       { tempId: "L1", dateOffset: -2, description: "Milk Supplied to Dairy", milkQuantityLtr: 10.5, credit: 420 },
       { tempId: "L2", dateOffset: -1, description: "Payment Received from Dairy", debit: 300 },
@@ -58,12 +58,12 @@ const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
         { tempId: "CL2", dateOffset: 0, description: "Payment Received", credit: 500 }
     );
   }
-   if (party.type === "Customer" && party.name.includes("Nash")) { // Example for Nash as a Customer
+   if (party.type === "Customer" && party.name.includes("Nash")) { 
      rawLedgerEntries.push(
         { tempId: "NL1", dateOffset: -3, description: "Milk Supplied to Dairy", milkQuantityLtr: 15.0, credit: 650 },
-        { tempId: "NL2", dateOffset: -2, description: "Pashu Aahar Purchased on Credit", debit: 1200 },
-        { tempId: "NL3", dateOffset: -1, description: "Payment Received from Dairy (settlement)", debit: 300 },
-         { tempId: "NL4", dateOffset: 0, description: "Payment Made for Pashu Aahar", credit: 1000 }
+        { tempId: "NL2", dateOffset: -2, description: "Pashu Aahar Purchased on Credit", debit: 1200 }, // This is a sale to Nash by the dairy
+        { tempId: "NL3", dateOffset: -1, description: "Payment Received from Dairy (milk settlement)", debit: 300 }, // Dairy pays Nash
+         { tempId: "NL4", dateOffset: 0, description: "Payment Made for Pashu Aahar", credit: 1000 } // Nash pays dairy
     );
   }
   if (party.type === "Supplier" && party.name.includes("Feeds")) {
@@ -75,10 +75,9 @@ const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
    if (party.type === "Employee" && party.name.includes("Anita")) {
     rawLedgerEntries.push(
         { tempId: "EL1", dateOffset: -5, description: "Salary Advance", debit: 2000 },
-        { tempId: "EL2", dateOffset: 0, description: "Salary Paid", credit: 10000 } // Assuming salary is a credit to employee from dairy's books (expense)
+        { tempId: "EL2", dateOffset: 0, description: "Salary Paid", credit: 10000 } 
     );
   }
-
 
   return rawLedgerEntries.map(entry => {
     const date = new Date();
@@ -87,9 +86,16 @@ const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
   }).sort((a, b) => a.date.getTime() - b.date.getTime());
 };
 
-const partyTypes: Party['type'][] = ["Customer", "Supplier", "Employee"]; // "Dealer" removed
+const partyTypes: Party['type'][] = ["Customer", "Supplier", "Employee"];
 
 export default function PartiesPage() {
+  const { setPageTitle } = usePageTitle();
+  const pageSpecificTitle = "Parties & Ledgers";
+
+  useEffect(() => {
+    setPageTitle(pageSpecificTitle);
+  }, [setPageTitle, pageSpecificTitle]);
+
   const { toast } = useToast();
   const [parties, setParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true); 
@@ -97,7 +103,7 @@ export default function PartiesPage() {
   const [ledgerEntries, setLedgerEntries] = useState<PartyLedgerEntry[]>([]);
 
   const [newPartyName, setNewPartyName] = useState("");
-  const [newPartyType, setNewPartyType] = useState<Party['type']>("Customer"); // Default to Customer
+  const [newPartyType, setNewPartyType] = useState<Party['type']>("Customer");
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [partyToDelete, setPartyToDelete] = useState<Party | null>(null);
@@ -193,7 +199,7 @@ export default function PartiesPage() {
 
   return (
     <div>
-      <PageHeader title="Parties & Ledgers" description="Manage parties and view their transaction ledgers." />
+      <PageHeader title={pageSpecificTitle} description="Manage parties and view their transaction ledgers." />
 
       <div className="mb-6">
         <Label htmlFor="partySelect">Select Party to View Ledger</Label>
@@ -220,8 +226,6 @@ export default function PartiesPage() {
           <CardHeader className="px-0 pt-0 pb-4">
              <CardTitle className="text-xl">Ledger for: {selectedParty.name} ({selectedParty.type})</CardTitle>
           </CardHeader>
-
-          {/* Dealer-specific summary cards removed as "Dealer" type is removed */}
 
           <Card>
             <CardHeader>

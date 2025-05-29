@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useMemo, useCallback } from "react";
+import { useState, type FormEvent, useEffect, useMemo, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import { useToast } from "@/hooks/use-toast";
 import { addSaleEntryToFirestore, getSaleEntriesFromFirestore } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageTitle } from '@/context/PageTitleContext';
 
 const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
   { categoryName: "Milk", unit: "Ltr" },
@@ -48,13 +49,20 @@ const knownPashuAaharProducts: string[] = [
 ];
 
 export default function SalesPage() {
+  const { setPageTitle } = usePageTitle();
+  const pageSpecificTitle = "Sales Entry";
+
+  useEffect(() => {
+    setPageTitle(pageSpecificTitle);
+  }, [setPageTitle, pageSpecificTitle]);
+
   const { toast } = useToast();
   const [sales, setSales] = useState<SaleEntry[]>([]);
   const [isLoadingSales, setIsLoadingSales] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [date, setDate] = useState<Date | undefined>(undefined);
-  const [customerName, setCustomerName] = useState("");
+  const [customerNameInput, setCustomerNameInput] = useState(""); // Renamed from customerName for clarity
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
   const [specificPashuAaharName, setSpecificPashuAaharName] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
@@ -63,6 +71,7 @@ export default function SalesPage() {
 
   const [popoverOpenForPashuAahar, setPopoverOpenForPashuAahar] = useState(false);
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
+  const customerNameInputRef = useRef<HTMLInputElement>(null);
   
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true);
@@ -104,15 +113,13 @@ export default function SalesPage() {
     fetchParties();
   }, [fetchSales, fetchParties]);
 
-
-  const partiesForSalesSuggestions = useMemo(() => {
-    // Suggest parties who are 'Customer' 
-    return availableParties.filter(p => p.type === "Customer");
+  const allKnownCustomerNames = useMemo(() => {
+    // Customers for sales can be of type "Customer" or "Dealer" (who might also buy)
+    return availableParties
+      .filter(p => p.type === "Customer" || p.type === "Dealer")
+      .map(p => p.name)
+      .sort((a, b) => a.localeCompare(b));
   }, [availableParties]);
-
-  const allKnownCustomerNamesForSales = useMemo(() => {
-    return partiesForSalesSuggestions.map(p => p.name).sort();
-  }, [partiesForSalesSuggestions]);
 
   const totalAmount = useMemo(() => {
     const q = parseFloat(quantity);
@@ -136,11 +143,15 @@ export default function SalesPage() {
   }, []);
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
-    setCustomerName(value);
-    setIsCustomerPopoverOpen(!!value.trim());
+    setCustomerNameInput(value);
+    if (value.trim()) {
+        setIsCustomerPopoverOpen(true);
+    } else {
+        setIsCustomerPopoverOpen(false);
+    }
   }, []);
-
-  const handleSelectOrCreateCustomer = useCallback(async (currentValue: string, isCreateNew = false) => {
+  
+  const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
     if (isCreateNew) {
        if (!trimmedValue) {
@@ -149,9 +160,10 @@ export default function SalesPage() {
         return;
       }
       setIsLoadingParties(true);
+      // When creating from sales form, default to type "Customer"
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
       if (result.success) {
-        setCustomerName(trimmedValue);
+        setCustomerNameInput(trimmedValue);
         toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
         await fetchParties(); 
       } else {
@@ -159,22 +171,23 @@ export default function SalesPage() {
       }
       setIsLoadingParties(false);
     } else {
-      setCustomerName(trimmedValue);
+      setCustomerNameInput(trimmedValue);
     }
     setIsCustomerPopoverOpen(false);
+    customerNameInputRef.current?.focus();
   }, [toast, fetchParties]);
 
   const filteredCustomerSuggestions = useMemo(() => {
-    if (!customerName.trim()) return allKnownCustomerNamesForSales;
-    return allKnownCustomerNamesForSales.filter((name) =>
-      name.toLowerCase().includes(customerName.toLowerCase())
+    if (!customerNameInput.trim()) return allKnownCustomerNames;
+    return allKnownCustomerNames.filter((name) =>
+      name.toLowerCase().includes(customerNameInput.toLowerCase())
     );
-  }, [customerName, allKnownCustomerNamesForSales]);
+  }, [customerNameInput, allKnownCustomerNames]);
 
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !customerName.trim() || !quantity || !rate) {
+    if (!date || !customerNameInput.trim() || !quantity || !rate) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Customer, Quantity, Rate).", variant: "destructive" });
       return;
     }
@@ -210,7 +223,7 @@ export default function SalesPage() {
     setIsSubmitting(true);
     const newSaleData: Omit<SaleEntry, 'id'> = {
       date,
-      customerName: customerName.trim(),
+      customerName: customerNameInput.trim(),
       productName: finalProductName,
       quantity: parsedQuantity,
       unit: currentCategoryDetails.unit,
@@ -225,7 +238,7 @@ export default function SalesPage() {
       toast({ title: "Success", description: "Sale entry added." });
       await fetchSales(); 
       
-      setCustomerName("");
+      setCustomerNameInput("");
       setSpecificPashuAaharName("");
       setQuantity("");
       setRate("");
@@ -242,7 +255,7 @@ export default function SalesPage() {
 
   return (
     <div>
-      <PageHeader title="Sales Entry" description="Record product sales." />
+      <PageHeader title={pageSpecificTitle} description="Record product sales." />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">
           <CardHeader>
@@ -265,7 +278,8 @@ export default function SalesPage() {
                   <PopoverTrigger asChild>
                     <Input
                       id="customerNameInput"
-                      value={customerName}
+                      ref={customerNameInputRef}
+                      value={customerNameInput}
                       onChange={(e) => handleCustomerNameInputChange(e.target.value)}
                       placeholder="Start typing customer name"
                       autoComplete="off"
@@ -273,11 +287,17 @@ export default function SalesPage() {
                       className="w-full"
                     />
                   </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+                  <PopoverContent 
+                    className="w-[--radix-popover-trigger-width] p-0" 
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    side="bottom"
+                    align="start"
+                    sideOffset={0}
+                  >
                     <Command>
                       <CommandInput 
                         placeholder="Search or add new customer..." 
-                        value={customerName}
+                        value={customerNameInput}
                         onValueChange={handleCustomerNameInputChange}
                       />
                       <CommandList>
@@ -285,29 +305,29 @@ export default function SalesPage() {
                            <CommandItem disabled>Loading customers...</CommandItem>
                         ): (
                           <>
-                            {customerName.trim() && !allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                            {customerNameInput.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
                                <CommandItem
-                                key={`__CREATE__${customerName.trim()}`}
-                                value={`__CREATE__${customerName.trim()}`}
-                                onSelect={() => handleSelectOrCreateCustomer(customerName.trim(), true)}
+                                key={`__CREATE__${customerNameInput.trim()}`}
+                                value={`__CREATE__${customerNameInput.trim()}`}
+                                onSelect={() => handleCustomerSelect(customerNameInput.trim(), true)}
                               >
                                 <PlusCircle className="mr-2 h-4 w-4" />
-                                Add new customer: "{customerName.trim()}"
+                                Add new customer: "{customerNameInput.trim()}"
                               </CommandItem>
                             )}
                             {filteredCustomerSuggestions.map((name) => (
                                 <CommandItem
                                   key={name}
                                   value={name}
-                                  onSelect={() => handleSelectOrCreateCustomer(name)}
+                                  onSelect={() => handleCustomerSelect(name)}
                                 >
                                   {name}
                                 </CommandItem>
                               ))}
-                             {filteredCustomerSuggestions.length === 0 && customerName.trim() && allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                             {filteredCustomerSuggestions.length === 0 && customerNameInput.trim() && allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
                                 <CommandEmpty>No existing customers match. Select "Add new..." above.</CommandEmpty>
                              )}
-                             {allKnownCustomerNamesForSales.length === 0 && !customerName.trim() && (
+                             {allKnownCustomerNames.length === 0 && !customerNameInput.trim() && (
                                 <CommandEmpty>No customers found. Type to add a new one.</CommandEmpty>
                              )}
                           </>
@@ -350,7 +370,9 @@ export default function SalesPage() {
                     <PopoverContent
                       className="w-[var(--radix-popover-trigger-width)] p-0"
                       onOpenAutoFocus={(e) => e.preventDefault()}
-                      sideOffset={5}
+                      side="bottom"
+                      align="start"
+                      sideOffset={0}
                     >
                        <Command>
                         <CommandInput 
@@ -467,5 +489,3 @@ export default function SalesPage() {
     </div>
   );
 }
-
-    
