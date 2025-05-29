@@ -28,8 +28,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-
-const MOCK_DEALER_NAMES = ["Rajesh Dairy", "Suresh Milk Co.", "Anand Farms", "Krishna Dairy"];
+// Static list of some customer names for initial suggestions
+const MOCK_MILK_SUPPLIER_NAMES = ["Rajesh Dairy", "Suresh Milk Co.", "Anand Farms", "Krishna Dairy", "Priya Milk Center"];
 
 export default function MilkCollectionPage() {
   const { toast } = useToast();
@@ -40,11 +40,11 @@ export default function MilkCollectionPage() {
   const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
   const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
   const [shiftFilter, setShiftFilter] = useState<"All" | "Morning" | "Evening">("All");
-  const [dealerNameInput, setDealerNameInput] = useState<string>("");
+  const [customerNameInput, setCustomerNameInput] = useState<string>(""); // Renamed from dealerNameInput
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateInputValue, setRateInputValue] = useState<string>("6.7"); 
-  const [isDealerPopoverOpen, setIsDealerPopoverOpen] = useState(false);
+  const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false); // Renamed from isDealerPopoverOpen
 
   const fetchEntries = useCallback(async () => {
     console.log('CLIENT: fetchEntries called. Setting isLoadingEntries to true.');
@@ -74,14 +74,14 @@ export default function MilkCollectionPage() {
     fetchEntries();
   }, [fetchEntries]); 
 
-  const uniqueDealerNamesFromEntries = useMemo(() => {
-    const names = new Set(allEntries.map(entry => entry.dealerName));
+  const uniqueCustomerNamesFromEntries = useMemo(() => { // Renamed
+    const names = new Set(allEntries.map(entry => entry.customerName)); // Changed to customerName
     return Array.from(names);
   }, [allEntries]);
 
-  const allKnownDealerNames = useMemo(() => {
-    return Array.from(new Set([...MOCK_DEALER_NAMES, ...uniqueDealerNamesFromEntries])).sort();
-  }, [uniqueDealerNamesFromEntries]);
+  const allKnownCustomerNames = useMemo(() => { // Renamed
+    return Array.from(new Set([...MOCK_MILK_SUPPLIER_NAMES, ...uniqueCustomerNamesFromEntries])).sort();
+  }, [uniqueCustomerNamesFromEntries]);
 
 
   const totalAmountDisplay = useMemo(() => {
@@ -94,7 +94,7 @@ export default function MilkCollectionPage() {
     const rate = parseFloat(rateStr);
 
     if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat > 0 && !isNaN(rate) && rate > 0) {
-      return (quantity * fat * rate).toFixed(2);
+      return (quantity * fat * rate).toFixed(2); // Using Quantity * Fat * Rate
     }
     return "";
   }, [quantityLtr, fatPercentage, rateInputValue]);
@@ -142,24 +142,24 @@ export default function MilkCollectionPage() {
   }, [filteredEntries]);
 
 
-  const handleDealerNameInputChange = useCallback((value: string) => {
-    setDealerNameInput(value);
+  const handleCustomerNameInputChange = useCallback((value: string) => { // Renamed
+    setCustomerNameInput(value); // Renamed
     if (value.trim()) {
-      setIsDealerPopoverOpen(true);
+      setIsCustomerPopoverOpen(true); // Renamed
     } else {
-      setIsDealerPopoverOpen(false);
+      setIsCustomerPopoverOpen(false); // Renamed
     }
   }, []);
 
-  const handleDealerSelect = useCallback((currentValue: string) => {
-    setDealerNameInput(currentValue);
-    setIsDealerPopoverOpen(false);
+  const handleCustomerSelect = useCallback((currentValue: string) => { // Renamed
+    setCustomerNameInput(currentValue); // Renamed
+    setIsCustomerPopoverOpen(false); // Renamed
   }, []);
 
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !shift || !dealerNameInput.trim() || !quantityLtr || !fatPercentage || !rateInputValue) {
+    if (!date || !shift || !customerNameInput.trim() || !quantityLtr || !fatPercentage || !rateInputValue) { // Changed to customerNameInput
       toast({ title: "Error", description: "Please fill all fields.", variant: "destructive" });
       return;
     }
@@ -185,12 +185,12 @@ export default function MilkCollectionPage() {
       return;
     }
 
-    const finalTotalAmount = qLtr * fatP * finalRateFactor;
+    const finalTotalAmount = qLtr * fatP * finalRateFactor; // Using Quantity * Fat * Rate
 
     const newEntryData: Omit<MilkCollectionEntry, 'id'> = {
       date, 
       shift,
-      dealerName: dealerNameInput.trim(),
+      customerName: customerNameInput.trim(), // Changed to customerName
       quantityLtr: qLtr,
       fatPercentage: fatP,
       ratePerLtr: finalRateFactor,
@@ -203,11 +203,10 @@ export default function MilkCollectionPage() {
     
     if (result.success) {
       toast({ title: "Success", description: "Milk collection entry added." });
-      setDealerNameInput("");
+      setCustomerNameInput(""); // Changed to customerNameInput
       setQuantityLtr("");
       setFatPercentage("");
-      // The 'shift' and 'date' states are intentionally not reset here to persist them for the next entry.
-      // setShift("Morning"); // Removed to persist shift
+      // date and shift persist
       await fetchEntries(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
@@ -251,16 +250,16 @@ export default function MilkCollectionPage() {
               </div>
               
               <div>
-                <Label htmlFor="dealerNameInput" className="flex items-center mb-1">
-                  <User className="h-4 w-4 mr-2 text-muted-foreground" /> Dealer Name
+                <Label htmlFor="customerNameInput" className="flex items-center mb-1"> {/* Changed htmlFor */}
+                  <User className="h-4 w-4 mr-2 text-muted-foreground" /> Customer Name {/* Changed Label text */}
                 </Label>
-                <Popover open={isDealerPopoverOpen} onOpenChange={setIsDealerPopoverOpen}>
+                <Popover open={isCustomerPopoverOpen} onOpenChange={setIsCustomerPopoverOpen}> {/* Changed state */}
                   <PopoverTrigger asChild>
                     <Input
-                      id="dealerNameInput"
-                      value={dealerNameInput}
-                      onChange={(e) => handleDealerNameInputChange(e.target.value)}
-                      placeholder="Start typing dealer name"
+                      id="customerNameInput" // Changed id
+                      value={customerNameInput} // Changed state
+                      onChange={(e) => handleCustomerNameInputChange(e.target.value)} // Changed handler
+                      placeholder="Start typing customer name" // Changed placeholder
                       autoComplete="off"
                       required
                       className="w-full"
@@ -268,19 +267,19 @@ export default function MilkCollectionPage() {
                   </PopoverTrigger>
                   <PopoverContent className="w-[--radix-popover-trigger-width] p-0" side="bottom" align="start" sideOffset={0} onOpenAutoFocus={(e) => e.preventDefault()}>
                     <Command>
-                      <CommandInput placeholder="Search dealers..." />
+                      <CommandInput placeholder="Search customers..." /> {/* Changed placeholder */}
                       <CommandList>
-                        <CommandEmpty>No dealer found.</CommandEmpty>
+                        <CommandEmpty>No customer found.</CommandEmpty> {/* Changed text */}
                         <CommandGroup>
-                          {allKnownDealerNames
+                          {allKnownCustomerNames // Changed list
                             .filter((name) =>
-                              name.toLowerCase().includes(dealerNameInput.toLowerCase())
+                              name.toLowerCase().includes(customerNameInput.toLowerCase()) // Changed state for filter
                             )
                             .map((name) => (
                               <CommandItem
                                 key={name}
                                 value={name}
-                                onSelect={handleDealerSelect}
+                                onSelect={handleCustomerSelect} // Changed handler
                               >
                                 {name}
                               </CommandItem>
@@ -378,7 +377,7 @@ export default function MilkCollectionPage() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Shift</TableHead>
-                    <TableHead>Dealer</TableHead>
+                    <TableHead>Customer</TableHead> {/* Changed header text */}
                     <TableHead className="text-right">Qty (Ltr)</TableHead>
                     <TableHead className="text-right">FAT (%)</TableHead>
                     <TableHead className="text-right">Rate (₹)</TableHead>
@@ -398,7 +397,7 @@ export default function MilkCollectionPage() {
                       <TableRow key={entry.id}>
                         <TableCell>{entry.date instanceof Date && !isNaN(entry.date.getTime()) ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
                         <TableCell>{entry.shift}</TableCell>
-                        <TableCell>{entry.dealerName}</TableCell>
+                        <TableCell>{entry.customerName}</TableCell> {/* Changed to customerName */}
                         <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
                         <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
                         <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
@@ -423,5 +422,3 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
-
-    

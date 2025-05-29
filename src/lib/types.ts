@@ -2,12 +2,12 @@
 export interface MilkCollectionEntry {
   id: string;
   date: Date;
-  shift: "Morning" | "Evening"; // Changed from time
-  dealerName: string;
+  shift: "Morning" | "Evening";
+  customerName: string; // Renamed from dealerName
   quantityLtr: number;
   fatPercentage: number;
-  ratePerLtr?: number; // This was the 'rate factor'
-  totalAmount?: number;
+  ratePerLtr: number; // This is the rate factor
+  totalAmount: number;
 }
 
 export interface SaleEntry {

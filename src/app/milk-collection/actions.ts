@@ -10,7 +10,6 @@ export async function addMilkCollectionEntryToFirestore(
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addMilkCollectionEntryToFirestore called with data:", JSON.parse(JSON.stringify(entryData)));
   try {
-    // Firebase SDK handles JS Date to Timestamp conversion automatically
     const docRef = await addDoc(collection(db, 'milkCollections'), entryData);
     console.log("SERVER ACTION: Milk collection entry successfully added to Firestore with ID:", docRef.id);
     return { success: true, id: docRef.id };
@@ -27,7 +26,6 @@ export async function getMilkCollectionEntriesFromFirestore(): Promise<MilkColle
   console.log("SERVER ACTION: getMilkCollectionEntriesFromFirestore called.");
   try {
     const entriesCollection = collection(db, 'milkCollections');
-    // Order by date descending. Shift order can be handled client-side if needed or by more complex query.
     console.log("SERVER ACTION: Querying 'milkCollections' ordered by date desc.");
     const q = query(entriesCollection, orderBy('date', 'desc'));
     const entrySnapshot = await getDocs(q);
@@ -56,11 +54,11 @@ export async function getMilkCollectionEntriesFromFirestore(): Promise<MilkColle
       return {
         id: doc.id,
         date: entryDate,
-        shift: data.shift || "Morning", // Default to Morning if undefined, though it should be set
-        dealerName: data.dealerName || "Unknown Dealer",
+        shift: data.shift || "Morning",
+        customerName: data.customerName || "Unknown Customer", // Changed from dealerName
         quantityLtr: typeof data.quantityLtr === 'number' ? data.quantityLtr : 0,
         fatPercentage: typeof data.fatPercentage === 'number' ? data.fatPercentage : 0,
-        ratePerLtr: typeof data.ratePerLtr === 'number' ? data.ratePerLtr : 0,
+        ratePerLtr: typeof data.ratePerLtr === 'number' ? data.ratePerLtr : 0, // This is the rate factor
         totalAmount: typeof data.totalAmount === 'number' ? data.totalAmount : 0,
       } as MilkCollectionEntry;
     });
