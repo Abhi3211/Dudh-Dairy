@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon, Download } from "lucide-react"; // Added Download
+import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon, Download, Briefcase } from "lucide-react"; 
 import type { Party, PartyLedgerEntry } from "@/lib/types";
 import {
   AlertDialog,
@@ -37,54 +37,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
-import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore } from "./actions";
+import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore, getPartyTransactions } from "./actions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-// Updated getPartyLedger to include shifts for some entries
-const getPartyLedger = (party: Party | undefined): PartyLedgerEntry[] => {
-  if (!party) return [];
-  
-  const rawLedgerEntries: (Omit<PartyLedgerEntry, 'id'|'date'|'balance'> & {tempId: string, dateOffset: number, shift?: "Morning" | "Evening"})[] = [];
-
-  if (party.type === "Customer") {
-    // Simulating a customer who supplies milk AND buys other products
-    if (party.name.includes("Rajesh") || party.name.includes("Sunita") || party.name.includes("Nash")) {
-      rawLedgerEntries.push(
-        { tempId: "L1", dateOffset: -2, description: "Milk Supplied to Dairy", milkQuantityLtr: 10.5, credit: 420, shift: "Morning" },
-        { tempId: "L4", dateOffset: -2, description: "Milk Supplied to Dairy", milkQuantityLtr: 8.0, credit: 320, shift: "Evening" },
-        { tempId: "L2", dateOffset: -1, description: "Payment Received from Dairy", debit: 300 }, // Dairy pays for milk
-        { tempId: "L3", dateOffset: 0, description: "Milk Supplied to Dairy", milkQuantityLtr: 12.0, credit: 480, shift: "Morning" },
-        { tempId: "L5", dateOffset: -1, description: "Pashu Aahar Purchased on Credit", debit: 750}, // Customer buys Pashu Aahar
-        { tempId: "L6", dateOffset: 0, description: "Payment Made by Customer (for Pashu Aahar)", credit: 750} // Customer pays for Pashu Aahar
-      );
-    }
-    if (party.name.includes("Cafe")) { // Simulating a customer who only buys
-       rawLedgerEntries.push(
-          { tempId: "CL1", dateOffset: -1, description: "Milk Sold on Credit", debit: 600 },
-          { tempId: "CL2", dateOffset: 0, description: "Payment Received from Customer", credit: 500 }
-      );
-    }
-  }
-  if (party.type === "Supplier" && party.name.includes("Feeds")) {
-    rawLedgerEntries.push(
-        { tempId: "SL1", dateOffset: -2, description: "Pashu Aahar Purchase (Goods Received)", credit: 5000 },
-        { tempId: "SL2", dateOffset: -1, description: "Payment Made to Supplier", debit: 4000 }
-    );
-  }
-   if (party.type === "Employee" && party.name.includes("Anita")) {
-    rawLedgerEntries.push(
-        { tempId: "EL1", dateOffset: -5, description: "Salary Advance", debit: 2000 },
-        { tempId: "EL2", dateOffset: 0, description: "Salary Paid", credit: 10000 } 
-    );
-  }
-
-  return rawLedgerEntries.map(entry => {
-    const date = new Date();
-    date.setDate(date.getDate() + entry.dateOffset);
-    return { ...entry, id: entry.tempId, date, balance: 0 }; 
-  }).sort((a, b) => a.date.getTime() - b.date.getTime());
-};
 
 const partyTypes: Party['type'][] = ["Customer", "Supplier", "Employee"];
 
@@ -99,12 +55,13 @@ export default function PartiesPage() {
   const { toast } = useToast();
   const [parties, setParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true); 
+  const [isSubmittingParty, setIsSubmittingParty] = useState(false);
   const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined);
   
   const [allLedgerEntriesForParty, setAllLedgerEntriesForParty] = useState<PartyLedgerEntry[]>([]);
+  const [isLoadingLedger, setIsLoadingLedger] = useState(false);
   const [ledgerFilterDate, setLedgerFilterDate] = useState<Date | undefined>(undefined);
   const [ledgerShiftFilter, setLedgerShiftFilter] = useState<"All" | "Morning" | "Evening">("All");
-
 
   const [newPartyName, setNewPartyName] = useState("");
   const [newPartyType, setNewPartyType] = useState<Party['type']>("Customer");
@@ -118,7 +75,7 @@ export default function PartiesPage() {
       const fetchedParties = await getPartiesFromFirestore();
       setParties(fetchedParties);
     } catch (error) {
-      console.error("Failed to fetch parties:", error);
+      console.error("CLIENT: Failed to fetch parties:", error);
       toast({ title: "Error", description: "Could not fetch parties from the database.", variant: "destructive" });
     } finally {
       setIsLoadingParties(false);
@@ -133,21 +90,31 @@ export default function PartiesPage() {
   const selectedParty = useMemo(() => parties.find(p => p.id === selectedPartyId), [parties, selectedPartyId]);
 
   useEffect(() => {
-    if (selectedParty) {
-      const initialLedger = getPartyLedger(selectedParty); 
-      let runningBalance = 0;
-      const calculatedEntries = initialLedger
-        .map(entry => {
-          runningBalance = runningBalance + (entry.debit || 0) - (entry.credit || 0);
-          return { ...entry, balance: runningBalance };
-        });
-      setAllLedgerEntriesForParty(calculatedEntries);
-    } else {
-      setAllLedgerEntriesForParty([]);
-    }
-  }, [selectedParty]);
+    const fetchLedger = async () => {
+      if (selectedParty) {
+        setIsLoadingLedger(true);
+        console.log(`CLIENT: Fetching ledger for party: ${selectedParty.name}`);
+        try {
+          const transactions = await getPartyTransactions(selectedParty.name); // Using party name for now
+          setAllLedgerEntriesForParty(transactions);
+          console.log(`CLIENT: Fetched ${transactions.length} ledger entries for ${selectedParty.name}`);
+        } catch (error) {
+          console.error(`CLIENT: Error fetching ledger for ${selectedParty.name}:`, error);
+          toast({ title: "Error", description: "Could not fetch ledger entries.", variant: "destructive" });
+          setAllLedgerEntriesForParty([]);
+        } finally {
+          setIsLoadingLedger(false);
+        }
+      } else {
+        setAllLedgerEntriesForParty([]);
+      }
+    };
+    fetchLedger();
+  }, [selectedParty, toast]);
 
   const filteredLedgerEntries = useMemo(() => {
+    console.log("CLIENT: Recalculating filteredLedgerEntries for Parties page. Selected ledgerFilterDate:", ledgerFilterDate ? format(ledgerFilterDate, 'yyyy-MM-dd') : 'undefined', "Selected ledgerShiftFilter:", ledgerShiftFilter, "Total entries being filtered:", allLedgerEntriesForParty.length);
+    
     let dateFiltered = allLedgerEntriesForParty;
     if (ledgerFilterDate !== undefined) {
         const targetDateStr = format(ledgerFilterDate, 'yyyy-MM-dd');
@@ -163,6 +130,7 @@ export default function PartiesPage() {
     if (ledgerShiftFilter !== "All") {
         shiftAndDateFiltered = dateFiltered.filter(entry => entry.shift === ledgerShiftFilter);
     }
+    console.log("CLIENT: Parties page - Resulting filteredLedgerEntries count:", shiftAndDateFiltered.length);
     return shiftAndDateFiltered;
   }, [allLedgerEntriesForParty, ledgerFilterDate, ledgerShiftFilter]);
 
@@ -182,18 +150,18 @@ export default function PartiesPage() {
       type: newPartyType,
     };
     
-    setIsLoadingParties(true);
+    setIsSubmittingParty(true);
     const result = await addPartyToFirestore(partyData);
     
     if (result.success) {
-      await fetchParties();
+      await fetchParties(); // Re-fetch parties to update the list including the new one
       setNewPartyName("");
       setNewPartyType("Customer");
       toast({ title: "Success", description: `Party "${partyData.name}" added.` });
     } else {
       toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
     }
-    setIsLoadingParties(false);
+    setIsSubmittingParty(false);
   };
 
   const openDeleteDialog = (party: Party) => {
@@ -203,20 +171,20 @@ export default function PartiesPage() {
 
   const confirmDeleteParty = async () => {
     if (partyToDelete) {
-      setIsLoadingParties(true);
+      setIsSubmittingParty(true);
       const result = await deletePartyFromFirestore(partyToDelete.id);
       
       if (result.success) {
-        await fetchParties();
+        await fetchParties(); // Re-fetch parties
         toast({ title: "Success", description: `Party "${partyToDelete.name}" deleted.` });
         if (selectedPartyId === partyToDelete.id) {
-          setSelectedPartyId(undefined);
+          setSelectedPartyId(undefined); // Clear selection if deleted party was selected
         }
-        setPartyToDelete(null);
       } else {
         toast({ title: "Error", description: result.error || "Failed to delete party.", variant: "destructive" });
       }
-       setIsLoadingParties(false);
+      setPartyToDelete(null);
+      setIsSubmittingParty(false);
     }
     setDeleteDialogOpen(false);
   };
@@ -224,7 +192,7 @@ export default function PartiesPage() {
   const escapeCSVField = (field: any): string => {
     const str = String(field === undefined || field === null ? "" : field);
     if (str.includes(",")) {
-      return `"${str.replace(/"/g, '""')}"`; // Escape double quotes and wrap in double quotes
+      return `"${str.replace(/"/g, '""')}"`; 
     }
     return str;
   };
@@ -278,7 +246,6 @@ export default function PartiesPage() {
     }
   }, [filteredLedgerEntries, selectedParty, toast]);
 
-
   return (
     <div>
       <PageHeader title={pageSpecificTitle} description="Manage parties and view their transaction ledgers." />
@@ -309,7 +276,7 @@ export default function PartiesPage() {
             <CardHeader>
              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1">
-                    <CardTitle>Transaction History for {selectedParty.name}</CardTitle>
+                    <CardTitle>Transaction History for {selectedParty.name} <span className="text-sm font-normal text-muted-foreground">({selectedParty.type})</span></CardTitle>
                     <CardDescription className="mt-1">
                         Current Overall Balance: ₹{currentOverallBalance.toFixed(2)}
                         {currentOverallBalance > 0 && " (Party Owes Us)"}
@@ -317,7 +284,8 @@ export default function PartiesPage() {
                         {currentOverallBalance === 0 && " (Settled)"}
                         <br />
                         {ledgerFilterDate ? `Showing transactions for ${format(ledgerFilterDate, 'PPP')}${ledgerShiftFilter !== 'All' ? ` (${ledgerShiftFilter} shift)` : ''}` : "Select a date to filter ledger."}
-                        {ledgerFilterDate && filteredLedgerEntries.length === 0 && ` (No transactions for this filter. Checked ${allLedgerEntriesForParty.length} total entries for party)`}
+                        {isLoadingLedger && " Loading ledger..."}
+                        {!isLoadingLedger && ledgerFilterDate && filteredLedgerEntries.length === 0 && ` (No transactions for this filter. Checked ${allLedgerEntriesForParty.length} total entries for party)`}
                     </CardDescription>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-end">
@@ -339,30 +307,38 @@ export default function PartiesPage() {
                     <Label htmlFor="ledgerDateFilter" className="sr-only">Filter by date</Label>
                     <DatePicker date={ledgerFilterDate} setDate={setLedgerFilterDate} />
                     </div>
-                    <Button onClick={handleExportCSV} variant="outline" size="sm" className="ml-auto sm:ml-2 mt-2 sm:mt-0" disabled={filteredLedgerEntries.length === 0}>
+                    <Button onClick={handleExportCSV} variant="outline" size="sm" className="ml-auto sm:ml-2 mt-2 sm:mt-0" disabled={filteredLedgerEntries.length === 0 || isLoadingLedger}>
                         <Download className="h-4 w-4 mr-2" /> Export CSV
                     </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Shift</TableHead><TableHead>Description</TableHead><TableHead>Milk Qty (Ltr)</TableHead><TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {filteredLedgerEntries.length === 0 && (<TableRow><TableCell colSpan={7} className="text-center">No transactions match the current filter.</TableCell></TableRow>)}
-                  {filteredLedgerEntries.map(entry => (
-                    <TableRow key={entry.id}>
-                      <TableCell>{format(entry.date, 'P')}</TableCell>
-                      <TableCell>{entry.shift || "-"}</TableCell>
-                      <TableCell>{entry.description}</TableCell>
-                      <TableCell>{entry.milkQuantityLtr ? `${entry.milkQuantityLtr.toFixed(1)}L` : '-'}</TableCell>
-                      <TableCell className="text-right text-chart-4">{entry.debit?.toFixed(2) || "-"}</TableCell>
-                      <TableCell className="text-right text-chart-3">{entry.credit?.toFixed(2) || "-"}</TableCell>
-                      <TableCell className="text-right font-medium">{entry.balance.toFixed(2)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              {isLoadingLedger ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Shift</TableHead><TableHead>Description</TableHead><TableHead>Milk Qty (Ltr)</TableHead><TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {filteredLedgerEntries.length === 0 && !isLoadingLedger && (<TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No transactions match the current filter for this party.</TableCell></TableRow>)}
+                    {filteredLedgerEntries.map(entry => (
+                      <TableRow key={entry.id}>
+                        <TableCell>{entry.date instanceof Date && !isNaN(entry.date.getTime()) ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
+                        <TableCell>{entry.shift || "-"}</TableCell>
+                        <TableCell>{entry.description}</TableCell>
+                        <TableCell>{entry.milkQuantityLtr ? `${entry.milkQuantityLtr.toFixed(1)}L` : '-'}</TableCell>
+                        <TableCell className="text-right text-chart-4">{entry.debit?.toFixed(2) || "-"}</TableCell>
+                        <TableCell className="text-right text-chart-3">{entry.credit?.toFixed(2) || "-"}</TableCell>
+                        <TableCell className="text-right font-medium">{entry.balance.toFixed(2)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -371,7 +347,7 @@ export default function PartiesPage() {
       {!selectedPartyId && !isLoadingParties && parties.length === 0 && (
         <p className="text-center text-muted-foreground my-8">No parties found. Add one to get started.</p>
       )}
-       {!selectedPartyId && isLoadingParties && (
+       {!selectedPartyId && isLoadingParties && !selectedParty && ( // Added !selectedParty to ensure this shows only when no party is selected
         <p className="text-center text-muted-foreground my-8">Loading parties...</p>
       )}
 
@@ -383,7 +359,7 @@ export default function PartiesPage() {
             <form onSubmit={handleAddPartySubmit} className="space-y-4">
               <div><Label htmlFor="newPartyName">Party Name</Label><Input id="newPartyName" value={newPartyName} onChange={(e) => setNewPartyName(e.target.value)} placeholder="Enter party name" required /></div>
               <div><Label htmlFor="newPartyType">Party Type</Label><Select value={newPartyType} onValueChange={(value: Party['type']) => setNewPartyType(value)}><SelectTrigger id="newPartyType"><SelectValue placeholder="Select party type" /></SelectTrigger><SelectContent>{partyTypes.map(type => (<SelectItem key={type} value={type}>{type}</SelectItem>))}</SelectContent></Select></div>
-              <Button type="submit" className="w-full" disabled={isLoadingParties}><PlusCircle className="h-4 w-4 mr-2" /> {isLoadingParties ? 'Adding...' : 'Add Party'}</Button>
+              <Button type="submit" className="w-full" disabled={isSubmittingParty}><PlusCircle className="h-4 w-4 mr-2" /> {isSubmittingParty ? 'Adding...' : 'Add Party'}</Button>
             </form>
           </CardContent>
         </Card>
@@ -408,7 +384,7 @@ export default function PartiesPage() {
                       <TableCell>{party.name}</TableCell>
                       <TableCell>{party.type}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => openDeleteDialog(party)} disabled={isLoadingParties}>
+                        <Button variant="ghost" size="icon" onClick={() => openDeleteDialog(party)} disabled={isSubmittingParty}>
                           <Trash2 className="h-4 w-4 text-destructive" /><span className="sr-only">Delete {party.name}</span>
                         </Button>
                       </TableCell>
@@ -421,17 +397,16 @@ export default function PartiesPage() {
         </Card>
       </div>
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone. This will permanently delete the party "{partyToDelete?.name}".</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteParty} className="bg-destructive hover:bg-destructive/90" disabled={isLoadingParties}>{isLoadingParties ? 'Deleting...' : 'Delete'}</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {deleteDialogOpen && partyToDelete && (
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogDescription>This action cannot be undone. This will permanently delete the party "{partyToDelete?.name}".</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter><AlertDialogCancel onClick={() => {setDeleteDialogOpen(false); setPartyToDelete(null);}}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteParty} className="bg-destructive hover:bg-destructive/90" disabled={isSubmittingParty}>{isSubmittingParty ? 'Deleting...' : 'Delete'}</AlertDialogAction></AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }
-
-
-    
