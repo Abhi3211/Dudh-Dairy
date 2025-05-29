@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -17,7 +18,7 @@ import {
   TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter, MoreHorizontal, Edit, Trash2 } from "lucide-react";
+import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter, MoreHorizontal, Edit, Trash2, StickyNote } from "lucide-react";
 import type { MilkCollectionEntry, Party } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
@@ -63,6 +64,9 @@ export default function MilkCollectionPage() {
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateInputValue, setRateInputValue] = useState<string>("6.7"); 
+  const [advancePaid, setAdvancePaid] = useState<string>("");
+  const [remarks, setRemarks] = useState<string>("");
+
 
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true);
@@ -75,7 +79,7 @@ export default function MilkCollectionPage() {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties); 
+      setAvailableParties(parties.filter(p => p.type === "Customer")); 
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties:", error);
       toast({ title: "Error", description: "Could not fetch parties for suggestions.", variant: "destructive" });
@@ -135,10 +139,17 @@ export default function MilkCollectionPage() {
     const rate = parseFloat(rateStr);
 
     if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat >= 0 && !isNaN(rate) && rate > 0) {
-      return (quantity * fat * rate).toFixed(2);
+      return (quantity * fat * rate);
     }
-    return "";
+    return 0;
   }, [quantityLtr, fatPercentage, rateInputValue]);
+
+  const netAmountPayableDisplay = useMemo(() => {
+    const advanceStr = advancePaid.replace(',', '.');
+    const advance = parseFloat(advanceStr) || 0;
+    return totalAmountDisplay - advance;
+  }, [totalAmountDisplay, advancePaid]);
+
 
   const filteredEntries = useMemo(() => {
     console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Selected shiftFilter:", shiftFilter, "Total entries being filtered:", allEntries.length);
@@ -170,8 +181,8 @@ export default function MilkCollectionPage() {
     return shiftAndDateFiltered;
   }, [allEntries, tableFilterDate, shiftFilter]);
   
-  const totalFilteredAmount = useMemo(() => {
-    return filteredEntries.reduce((sum, entry) => sum + (entry.totalAmount || 0), 0);
+  const totalFilteredNetAmount = useMemo(() => {
+    return filteredEntries.reduce((sum, entry) => sum + (entry.netAmountPayable || 0), 0);
   }, [filteredEntries]);
 
 
@@ -193,7 +204,7 @@ export default function MilkCollectionPage() {
         return;
       }
       setIsLoadingParties(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); // Milk suppliers are 'Customer' type
       if (result.success) {
         setCustomerNameInput(trimmedValue);
         toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
@@ -213,6 +224,8 @@ export default function MilkCollectionPage() {
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
+    setAdvancePaid("");
+    setRemarks("");
     // Keep date and shift as they are, for rapid entry
     // setRateInputValue("6.7"); // Optionally reset rate, or keep it
     setEditingEntryId(null);
@@ -223,17 +236,19 @@ export default function MilkCollectionPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!date || !shift || !customerNameInput.trim() || !quantityLtr || !fatPercentage || !rateInputValue) {
-      toast({ title: "Error", description: "Please fill all fields.", variant: "destructive" });
+      toast({ title: "Error", description: "Please fill all required fields (Date, Shift, Customer Name, Quantity, FAT, Rate).", variant: "destructive" });
       return;
     }
 
     const qLtrStr = quantityLtr.replace(',', '.');
     const fatPStr = fatPercentage.replace(',', '.');
     const finalRateStr = rateInputValue.replace(',', '.');
+    const advancePaidStr = advancePaid.replace(',', '.');
 
     const qLtr = parseFloat(qLtrStr);
     const fatP = parseFloat(fatPStr);
     const finalRateFactor = parseFloat(finalRateStr); 
+    const parsedAdvancePaid = parseFloat(advancePaidStr) || 0;
 
     if (isNaN(qLtr) || qLtr <= 0) {
       toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" });
@@ -247,8 +262,14 @@ export default function MilkCollectionPage() {
       toast({ title: "Error", description: "Please enter a valid rate factor (must be > 0).", variant: "destructive" });
       return;
     }
+    if (isNaN(parsedAdvancePaid) || parsedAdvancePaid < 0) {
+      toast({ title: "Error", description: "Advance paid must be a valid non-negative number.", variant: "destructive"});
+      return;
+    }
+
 
     const finalTotalAmount = qLtr * fatP * finalRateFactor; 
+    const finalNetAmountPayable = finalTotalAmount - parsedAdvancePaid;
 
     const entryData: Omit<MilkCollectionEntry, 'id'> = {
       date, 
@@ -258,6 +279,9 @@ export default function MilkCollectionPage() {
       fatPercentage: fatP,
       ratePerLtr: finalRateFactor,
       totalAmount: finalTotalAmount,
+      advancePaid: parsedAdvancePaid,
+      remarks: remarks.trim(),
+      netAmountPayable: finalNetAmountPayable,
     };
     
     console.log("CLIENT: Submitting entry data:", JSON.parse(JSON.stringify(entryData)));
@@ -302,6 +326,8 @@ export default function MilkCollectionPage() {
     setQuantityLtr(String(entry.quantityLtr));
     setFatPercentage(String(entry.fatPercentage));
     setRateInputValue(String(entry.ratePerLtr));
+    setAdvancePaid(String(entry.advancePaid || ""));
+    setRemarks(entry.remarks || "");
   };
 
   const handleDeleteClick = (entry: MilkCollectionEntry) => {
@@ -427,17 +453,19 @@ export default function MilkCollectionPage() {
                 </Popover>
               </div>
 
-              <div>
-                <Label htmlFor="quantityLtr" className="flex items-center mb-1">
-                  <Scale className="h-4 w-4 mr-2 text-muted-foreground" /> Quantity (Ltr)
-                </Label>
-                <Input id="quantityLtr" type="text" inputMode="decimal" value={quantityLtr} onChange={(e) => setQuantityLtr(e.target.value)} placeholder="e.g., 10.5" required />
-              </div>
-              <div>
-                <Label htmlFor="fatPercentage" className="flex items-center mb-1">
-                  <Percent className="h-4 w-4 mr-2 text-muted-foreground" /> FAT (%)
-                </Label>
-                <Input id="fatPercentage" type="text" inputMode="decimal" value={fatPercentage} onChange={(e) => setFatPercentage(e.target.value)} placeholder="e.g., 3.8" required />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="quantityLtr" className="flex items-center mb-1">
+                    <Scale className="h-4 w-4 mr-2 text-muted-foreground" /> Quantity (Ltr)
+                  </Label>
+                  <Input id="quantityLtr" type="text" inputMode="decimal" value={quantityLtr} onChange={(e) => setQuantityLtr(e.target.value)} placeholder="e.g., 10.5" required />
+                </div>
+                <div>
+                  <Label htmlFor="fatPercentage" className="flex items-center mb-1">
+                    <Percent className="h-4 w-4 mr-2 text-muted-foreground" /> FAT (%)
+                  </Label>
+                  <Input id="fatPercentage" type="text" inputMode="decimal" value={fatPercentage} onChange={(e) => setFatPercentage(e.target.value)} placeholder="e.g., 3.8" required />
+                </div>
               </div>
               <div>
                 <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
@@ -458,8 +486,27 @@ export default function MilkCollectionPage() {
                 <Label htmlFor="totalAmount" className="flex items-center mb-1">
                   <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Total Amount (₹)
                 </Label>
-                <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay}` : ""} readOnly className="font-semibold bg-muted/50" />
+                <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay.toFixed(2)}` : "₹ 0.00"} readOnly className="font-semibold bg-muted/50" />
               </div>
+              <div>
+                <Label htmlFor="advancePaid" className="flex items-center mb-1">
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Advance Paid (₹)
+                </Label>
+                <Input id="advancePaid" type="text" inputMode="decimal" value={advancePaid} onChange={(e) => setAdvancePaid(e.target.value)} placeholder="e.g., 50" />
+              </div>
+               <div>
+                <Label htmlFor="netAmountPayable" className="flex items-center mb-1">
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Net Amount Payable (₹)
+                </Label>
+                <Input id="netAmountPayable" value={`₹ ${netAmountPayableDisplay.toFixed(2)}`} readOnly className="font-semibold bg-muted/50" />
+              </div>
+              <div>
+                <Label htmlFor="remarks" className="flex items-center mb-1">
+                  <StickyNote className="h-4 w-4 mr-2 text-muted-foreground" /> Remarks
+                </Label>
+                <Textarea id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional notes about this collection" />
+              </div>
+
               <Button type="submit" className="w-full" disabled={isLoadingEntries || isLoadingParties}>
                 {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
                 {isLoadingEntries && !editingEntryId ? 'Adding...' : (isLoadingEntries && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Entry' : 'Add Entry'))}
@@ -488,7 +535,7 @@ export default function MilkCollectionPage() {
                 <div className="w-full sm:min-w-[180px]">
                   <Label htmlFor="shiftFilterSelect" className="sr-only">Filter by shift</Label>
                   <Select value={shiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setShiftFilter(value)}>
-                    <SelectTrigger id="shiftFilterSelect">
+                    <SelectTrigger id="shiftFilterSelect" className="min-w-[150px]">
                       <Filter className="h-3 w-3 mr-2 text-muted-foreground" />
                       <SelectValue placeholder="Filter by shift" />
                     </SelectTrigger>
@@ -523,14 +570,17 @@ export default function MilkCollectionPage() {
                     <TableHead className="text-right">Qty (Ltr)</TableHead>
                     <TableHead className="text-right">FAT (%)</TableHead>
                     <TableHead className="text-right">Rate (₹)</TableHead>
-                    <TableHead className="text-right">Amount (₹)</TableHead>
+                    <TableHead className="text-right">Total (₹)</TableHead>
+                    <TableHead className="text-right">Advance (₹)</TableHead>
+                    <TableHead className="text-right">Net Payable (₹)</TableHead>
+                    <TableHead>Remarks</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredEntries.length === 0 && !isLoadingEntries ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground">
+                      <TableCell colSpan={11} className="text-center text-muted-foreground">
                         {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}.` : "Select a date and shift to view entries."}
                         {tableFilterDate && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
@@ -545,6 +595,9 @@ export default function MilkCollectionPage() {
                         <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
                         <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
+                        <TableCell className="text-right text-destructive">{entry.advancePaid ? entry.advancePaid.toFixed(2) : "-"}</TableCell>
+                        <TableCell className="text-right font-semibold">{entry.netAmountPayable ? entry.netAmountPayable.toFixed(2) : "-"}</TableCell>
+                        <TableCell className="max-w-[150px] truncate" title={entry.remarks}>{entry.remarks || "-"}</TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -569,7 +622,11 @@ export default function MilkCollectionPage() {
                 </TableBody>
                 {filteredEntries.length > 0 && (
                   <TableFooter>
-                    <TableRow><TableCell colSpan={6} className="text-right font-semibold">Total Amount:</TableCell><TableCell className="text-right font-bold">{totalFilteredAmount.toFixed(2)}</TableCell><TableCell /></TableRow>
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-right font-semibold">Total Net Payable:</TableCell>
+                      <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
+                      <TableCell colSpan={2} />
+                    </TableRow>
                   </TableFooter>
                 )}
               </Table>

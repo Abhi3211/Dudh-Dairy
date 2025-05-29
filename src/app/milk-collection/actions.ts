@@ -27,7 +27,7 @@ export async function getMilkCollectionEntriesFromFirestore(): Promise<MilkColle
   try {
     const entriesCollection = collection(db, 'milkCollections');
     console.log("SERVER ACTION: Querying 'milkCollections' ordered by date desc.");
-    const q = query(entriesCollection, orderBy('date', 'desc')); // Simplified query
+    const q = query(entriesCollection, orderBy('date', 'desc'));
     const entrySnapshot = await getDocs(q);
     console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} documents from Firestore.`);
 
@@ -36,7 +36,7 @@ export async function getMilkCollectionEntriesFromFirestore(): Promise<MilkColle
       return [];
     }
 
-    const entryList = entrySnapshot.docs.map(docSnapshot => { // Renamed doc to docSnapshot
+    const entryList = entrySnapshot.docs.map(docSnapshot => {
       const data = docSnapshot.data();
       console.log(`SERVER ACTION: Processing document ID: ${docSnapshot.id}, Raw Data:`, JSON.parse(JSON.stringify(data)));
       
@@ -60,6 +60,9 @@ export async function getMilkCollectionEntriesFromFirestore(): Promise<MilkColle
         fatPercentage: typeof data.fatPercentage === 'number' ? data.fatPercentage : 0,
         ratePerLtr: typeof data.ratePerLtr === 'number' ? data.ratePerLtr : 0, 
         totalAmount: typeof data.totalAmount === 'number' ? data.totalAmount : 0,
+        advancePaid: typeof data.advancePaid === 'number' ? data.advancePaid : 0,
+        remarks: typeof data.remarks === 'string' ? data.remarks : "",
+        netAmountPayable: typeof data.netAmountPayable === 'number' ? data.netAmountPayable : (data.totalAmount || 0) - (data.advancePaid || 0),
       } as MilkCollectionEntry;
     });
     console.log("SERVER ACTION: Successfully processed entries. Mapped entries count:", entryList.length);

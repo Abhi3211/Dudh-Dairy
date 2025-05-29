@@ -3,11 +3,14 @@ export interface MilkCollectionEntry {
   id: string;
   date: Date;
   shift: "Morning" | "Evening";
-  customerName: string; // Renamed from dealerName
+  customerName: string;
   quantityLtr: number;
   fatPercentage: number;
-  ratePerLtr: number; // This is the rate factor that gets multiplied by FAT and Quantity
-  totalAmount: number;
+  ratePerLtr: number; // This is the rate factor
+  totalAmount: number; // Gross amount: quantity * fat * rate
+  advancePaid?: number;
+  remarks?: string;
+  netAmountPayable: number; // totalAmount - (advancePaid || 0)
 }
 
 export interface SaleEntry {
@@ -36,7 +39,7 @@ export interface PashuAaharTransaction {
 export interface Party {
   id: string;
   name: string;
-  type: "Customer" | "Supplier" | "Employee"; // "Dealer" type removed
+  type: "Customer" | "Supplier" | "Employee";
 }
 
 export interface PartyLedgerEntry {
@@ -56,7 +59,7 @@ export interface PaymentEntry {
   date: Date;
   type: "Received" | "Paid";
   partyName: string;
-  partyType: "Customer" | "Supplier" | "Employee"; // "Dealer" type removed, ensure consistency with Party['type']
+  partyType: "Customer" | "Supplier" | "Employee";
   amount: number;
   mode: "Cash" | "Bank" | "UPI";
   notes?: string;
