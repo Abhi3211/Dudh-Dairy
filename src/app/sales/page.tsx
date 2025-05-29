@@ -25,13 +25,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays } from "lucide-react";
+import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays, MoreHorizontal, Edit, Trash2 } from "lucide-react";
 import type { SaleEntry, Party } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-import { addSaleEntryToFirestore, getSaleEntriesFromFirestore } from "./actions";
+import { addSaleEntryToFirestore, getSaleEntriesFromFirestore, updateSaleEntryInFirestore, deleteSaleEntryFromFirestore } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { usePageTitle } from '@/context/PageTitleContext';
 
 const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
@@ -62,7 +78,7 @@ export default function SalesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [date, setDate] = useState<Date | undefined>(undefined);
-  const [customerNameInput, setCustomerNameInput] = useState(""); // Renamed from customerName for clarity
+  const [customerNameInput, setCustomerNameInput] = useState("");
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
   const [specificPashuAaharName, setSpecificPashuAaharName] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
@@ -75,6 +91,10 @@ export default function SalesPage() {
   
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true);
+
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [entryToDelete, setEntryToDelete] = useState<SaleEntry | null>(null);
 
   const fetchParties = useCallback(async () => {
     setIsLoadingParties(true);
@@ -98,7 +118,6 @@ export default function SalesPage() {
         date: s.date instanceof Date ? s.date : new Date(s.date)
       }));
       setSales(processedSales);
-      console.log('CLIENT: Fetched sales entries:', processedSales);
     } catch (error) {
       console.error("CLIENT: Failed to fetch sales entries:", error);
       toast({ title: "Error", description: "Could not fetch sales entries.", variant: "destructive" });
@@ -108,15 +127,16 @@ export default function SalesPage() {
   }, [toast]);
 
   useEffect(() => {
-    setDate(new Date());
+    if (!editingEntryId) {
+      setDate(new Date());
+    }
     fetchSales();
     fetchParties();
-  }, [fetchSales, fetchParties]);
+  }, [fetchSales, fetchParties, editingEntryId]);
 
   const allKnownCustomerNames = useMemo(() => {
-    // Customers for sales can be of type "Customer" or "Dealer" (who might also buy)
     return availableParties
-      .filter(p => p.type === "Customer" || p.type === "Dealer")
+      .filter(p => p.type === "Customer" || p.type === "Dealer") // Keep Dealer for now as per previous setup
       .map(p => p.name)
       .sort((a, b) => a.localeCompare(b));
   }, [availableParties]);
@@ -144,11 +164,7 @@ export default function SalesPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    if (value.trim()) {
-        setIsCustomerPopoverOpen(true);
-    } else {
-        setIsCustomerPopoverOpen(false);
-    }
+    setIsCustomerPopoverOpen(!!value.trim());
   }, []);
   
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
@@ -159,8 +175,7 @@ export default function SalesPage() {
         setIsCustomerPopoverOpen(false);
         return;
       }
-      setIsLoadingParties(true);
-      // When creating from sales form, default to type "Customer"
+      setIsSubmitting(true); // or setIsLoadingParties(true)
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
       if (result.success) {
         setCustomerNameInput(trimmedValue);
@@ -169,7 +184,7 @@ export default function SalesPage() {
       } else {
         toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
       }
-      setIsLoadingParties(false);
+      setIsSubmitting(false); // or setIsLoadingParties(false)
     } else {
       setCustomerNameInput(trimmedValue);
     }
@@ -184,6 +199,19 @@ export default function SalesPage() {
     );
   }, [customerNameInput, allKnownCustomerNames]);
 
+  const resetFormFields = useCallback(() => {
+    if (!editingEntryId) setDate(new Date()); // Only reset date if not editing
+    // Date persists during edits, shift persists by design (though no shift here)
+    setCustomerNameInput("");
+    setSelectedCategoryIndex("0");
+    setSpecificPashuAaharName("");
+    setQuantity("");
+    setRate("");
+    setPaymentType("Cash");
+    setEditingEntryId(null);
+    setIsCustomerPopoverOpen(false);
+    setPopoverOpenForPashuAahar(false);
+  }, [editingEntryId]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -221,7 +249,7 @@ export default function SalesPage() {
     }
 
     setIsSubmitting(true);
-    const newSaleData: Omit<SaleEntry, 'id'> = {
+    const saleData: Omit<SaleEntry, 'id'> = {
       date,
       customerName: customerNameInput.trim(),
       productName: finalProductName,
@@ -232,26 +260,83 @@ export default function SalesPage() {
       paymentType,
     };
     
-    const result = await addSaleEntryToFirestore(newSaleData);
+    let result;
+    if (editingEntryId) {
+      result = await updateSaleEntryInFirestore(editingEntryId, saleData);
+      if (result.success) {
+        toast({ title: "Success", description: "Sale entry updated." });
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to update entry.", variant: "destructive" });
+      }
+    } else {
+      result = await addSaleEntryToFirestore(saleData);
+      if (result.success) {
+        toast({ title: "Success", description: "Sale entry added." });
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to add entry.", variant: "destructive" });
+      }
+    }
     
     if (result.success) {
-      toast({ title: "Success", description: "Sale entry added." });
+      resetFormFields();
       await fetchSales(); 
-      
-      setCustomerNameInput("");
-      setSpecificPashuAaharName("");
-      setQuantity("");
-      setRate("");
-      setPopoverOpenForPashuAahar(false);
-      setIsCustomerPopoverOpen(false);
-      setDate(new Date()); 
-      setSelectedCategoryIndex("0");
-      setPaymentType("Cash");
-    } else {
-      toast({ title: "Error", description: result.error || "Failed to add sale entry.", variant: "destructive" });
     }
     setIsSubmitting(false);
   };
+
+  const handleEdit = (entry: SaleEntry) => {
+    setEditingEntryId(entry.id);
+    setDate(entry.date);
+    setCustomerNameInput(entry.customerName);
+    
+    const categoryIndex = productCategories.findIndex(
+      (cat) => cat.categoryName === entry.productName || (cat.categoryName === "Pashu Aahar" && cat.unit === entry.unit)
+    );
+
+    if (productCategories[categoryIndex]?.categoryName === "Pashu Aahar") {
+        setSelectedCategoryIndex(String(categoryIndex !== -1 ? categoryIndex : 0));
+        setSpecificPashuAaharName(entry.productName);
+    } else if (categoryIndex !== -1) {
+        setSelectedCategoryIndex(String(categoryIndex));
+        setSpecificPashuAaharName("");
+    } else {
+        // Fallback if product name doesn't match main categories (e.g. older data)
+        // Try to find if it's one of the known Pashu Aahar products
+        const pashuAaharCatIndex = productCategories.findIndex(cat => cat.categoryName === "Pashu Aahar");
+        if (knownPashuAaharProducts.includes(entry.productName) && pashuAaharCatIndex !== -1) {
+            setSelectedCategoryIndex(String(pashuAaharCatIndex));
+            setSpecificPashuAaharName(entry.productName);
+        } else {
+            setSelectedCategoryIndex("0"); // Default to Milk
+            setSpecificPashuAaharName("");
+        }
+    }
+
+    setQuantity(String(entry.quantity));
+    setRate(String(entry.rate));
+    setPaymentType(entry.paymentType);
+  };
+
+  const handleDeleteClick = (entry: SaleEntry) => {
+    setEntryToDelete(entry);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!entryToDelete) return;
+    setIsSubmitting(true);
+    const result = await deleteSaleEntryFromFirestore(entryToDelete.id);
+    if (result.success) {
+      toast({ title: "Success", description: "Sale entry deleted." });
+      await fetchSales();
+    } else {
+      toast({ title: "Error", description: result.error || "Failed to delete entry.", variant: "destructive" });
+    }
+    setShowDeleteDialog(false);
+    setEntryToDelete(null);
+    setIsSubmitting(false);
+  };
+
 
   return (
     <div>
@@ -259,7 +344,7 @@ export default function SalesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">
           <CardHeader>
-            <CardTitle>New Sale</CardTitle>
+            <CardTitle>{editingEntryId ? "Edit Sale" : "New Sale"}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -324,7 +409,7 @@ export default function SalesPage() {
                                   {name}
                                 </CommandItem>
                               ))}
-                             {filteredCustomerSuggestions.length === 0 && customerNameInput.trim() && allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
+                             {filteredCustomerSuggestions.length === 0 && customerNameInput.trim() && (
                                 <CommandEmpty>No existing customers match. Select "Add new..." above.</CommandEmpty>
                              )}
                              {allKnownCustomerNames.length === 0 && !customerNameInput.trim() && (
@@ -390,7 +475,7 @@ export default function SalesPage() {
                                 key={suggestion}
                                 value={suggestion}
                                 onSelect={(currentValue) => { 
-                                    setSpecificPashuAaharName(currentValue);
+                                    setSpecificPashuAaharName(currentValue); // Use the passed currentValue
                                     setPopoverOpenForPashuAahar(false);
                                 }}
                                 >
@@ -432,8 +517,14 @@ export default function SalesPage() {
                 </Select>
               </div>
               <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingParties}>
-                <PlusCircle className="h-4 w-4 mr-2" /> {isSubmitting ? 'Adding...' : (isLoadingSales || isLoadingParties ? 'Loading...' : 'Add Sale')}
+                {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
+                {isSubmitting && !editingEntryId ? 'Adding...' : (isSubmitting && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Sale' : 'Add Sale'))}
               </Button>
+               {editingEntryId && (
+                <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting}>
+                  Cancel Edit
+                </Button>
+              )}
             </form>
           </CardContent>
         </Card>
@@ -460,12 +551,13 @@ export default function SalesPage() {
                     <TableHead className="text-right">Rate (₹)</TableHead>
                     <TableHead className="text-right">Total (₹)</TableHead>
                     <TableHead>Payment</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sales.length === 0 && !isLoadingSales ? (
                       <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground">No sales recorded yet.</TableCell>
+                          <TableCell colSpan={8} className="text-center text-muted-foreground">No sales recorded yet.</TableCell>
                       </TableRow>
                   ) : (
                       sales.map((sale) => (
@@ -477,6 +569,24 @@ export default function SalesPage() {
                           <TableCell className="text-right">{sale.rate.toFixed(2)}</TableCell>
                           <TableCell className="text-right">{sale.totalAmount.toFixed(2)}</TableCell>
                           <TableCell>{sale.paymentType}</TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                  <span className="sr-only">Actions</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onSelect={() => handleEdit(sale)}>
+                                  <Edit className="mr-2 h-4 w-4" /> Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => handleDeleteClick(sale)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
                       </TableRow>
                       ))
                   )}
@@ -486,6 +596,25 @@ export default function SalesPage() {
           </CardContent>
         </Card>
       </div>
+      {showDeleteDialog && entryToDelete && (
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the sale entry for
+                "{entryToDelete.productName}" to "{entryToDelete.customerName}" on {entryToDelete.date instanceof Date && !isNaN(entryToDelete.date.getTime()) ? format(entryToDelete.date, 'P') : 'Invalid Date'}.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {setShowDeleteDialog(false); setEntryToDelete(null);}}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
+                {isSubmitting ? 'Deleting...' : 'Delete'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }
