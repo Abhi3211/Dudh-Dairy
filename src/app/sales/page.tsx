@@ -26,14 +26,12 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays } from "lucide-react";
-import type { SaleEntry } from "@/lib/types";
+import type { SaleEntry, Party } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { addSaleEntryToFirestore, getSaleEntriesFromFirestore } from "./actions";
+import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
 import { Skeleton } from "@/components/ui/skeleton";
-
-
-const MOCK_CUSTOMER_NAMES_INITIAL = ["Retail Cash Sale", "Hotel Anapurna", "Sharma Sweets"];
 
 const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
   { categoryName: "Milk", unit: "Ltr" },
@@ -65,8 +63,22 @@ export default function SalesPage() {
 
   const [popoverOpenForPashuAahar, setPopoverOpenForPashuAahar] = useState(false);
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
-  const [mockCustomerNamesList, setMockCustomerNamesList] = useState<string[]>(MOCK_CUSTOMER_NAMES_INITIAL);
+  
+  const [availableParties, setAvailableParties] = useState<Party[]>([]);
+  const [isLoadingParties, setIsLoadingParties] = useState(true);
 
+  const fetchParties = useCallback(async () => {
+    setIsLoadingParties(true);
+    try {
+      const parties = await getPartiesFromFirestore();
+      setAvailableParties(parties);
+    } catch (error) {
+      console.error("CLIENT: Failed to fetch parties:", error);
+      toast({ title: "Error", description: "Could not fetch parties for customer suggestions.", variant: "destructive" });
+    } finally {
+      setIsLoadingParties(false);
+    }
+  }, [toast]);
 
   const fetchSales = useCallback(async () => {
     setIsLoadingSales(true);
@@ -89,13 +101,17 @@ export default function SalesPage() {
   useEffect(() => {
     setDate(new Date());
     fetchSales();
-  }, [fetchSales]);
+    fetchParties();
+  }, [fetchSales, fetchParties]);
 
+
+  const partiesOfTypeCustomer = useMemo(() => {
+    return availableParties.filter(p => p.type === "Customer");
+  }, [availableParties]);
 
   const allKnownCustomerNames = useMemo(() => {
-    const namesFromSales = new Set(sales.map(s => s.customerName));
-    return Array.from(new Set([...mockCustomerNamesList, ...namesFromSales])).sort();
-  }, [sales, mockCustomerNamesList]);
+    return partiesOfTypeCustomer.map(p => p.name).sort();
+  }, [partiesOfTypeCustomer]);
 
   const totalAmount = useMemo(() => {
     const q = parseFloat(quantity);
@@ -123,22 +139,36 @@ export default function SalesPage() {
     setIsCustomerPopoverOpen(!!value.trim());
   }, []);
 
-  const handleSelectOrCreateCustomer = useCallback((currentValue: string) => {
+  const handleSelectOrCreateCustomer = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
-    if (trimmedValue.startsWith("__CREATE__")) {
-      const newName = trimmedValue.substring("__CREATE__".length);
-      if (newName && !allKnownCustomerNames.includes(newName)) {
-        setMockCustomerNamesList(prev => [...prev, newName].sort());
-        setCustomerName(newName);
-        toast({ title: "Info", description: `Customer "${newName}" will be used for this sale.` });
-      } else if (newName) {
-        setCustomerName(newName); // It was already known or in a weird state, just set it
+    if (isCreateNew) {
+       if (!trimmedValue) {
+        toast({ title: "Error", description: "Customer name cannot be empty.", variant: "destructive" });
+        setIsCustomerPopoverOpen(false);
+        return;
       }
+      setIsLoadingParties(true);
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
+      if (result.success) {
+        setCustomerName(trimmedValue);
+        toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
+        await fetchParties(); // Re-fetch parties
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
+      }
+      setIsLoadingParties(false);
     } else {
       setCustomerName(trimmedValue);
     }
     setIsCustomerPopoverOpen(false);
-  }, [allKnownCustomerNames, toast]);
+  }, [toast, fetchParties]);
+
+  const filteredCustomerSuggestions = useMemo(() => {
+    if (!customerName.trim()) return allKnownCustomerNames;
+    return allKnownCustomerNames.filter((name) =>
+      name.toLowerCase().includes(customerName.toLowerCase())
+    );
+  }, [customerName, allKnownCustomerNames]);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -192,9 +222,8 @@ export default function SalesPage() {
     
     if (result.success) {
       toast({ title: "Success", description: "Sale entry added." });
-      await fetchSales(); // Re-fetch to update list
+      await fetchSales(); 
       
-      // Reset form fields
       setCustomerName("");
       setSpecificPashuAaharName("");
       setQuantity("");
@@ -251,38 +280,37 @@ export default function SalesPage() {
                         onValueChange={handleCustomerNameInputChange}
                       />
                       <CommandList>
-                        {customerName.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
-                           <CommandItem
-                            key={`__CREATE__${customerName.trim()}`}
-                            value={`__CREATE__${customerName.trim()}`}
-                            onSelect={() => handleSelectOrCreateCustomer(`__CREATE__${customerName.trim()}`)}
-                          >
-                            <PlusCircle className="mr-2 h-4 w-4" />
-                            Add new customer: "{customerName.trim()}"
-                          </CommandItem>
+                        {isLoadingParties ? (
+                           <CommandItem disabled>Loading customers...</CommandItem>
+                        ): (
+                          <>
+                            {customerName.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                               <CommandItem
+                                key={`__CREATE__${customerName.trim()}`}
+                                value={`__CREATE__${customerName.trim()}`}
+                                onSelect={() => handleSelectOrCreateCustomer(customerName.trim(), true)}
+                              >
+                                <PlusCircle className="mr-2 h-4 w-4" />
+                                Add new customer: "{customerName.trim()}"
+                              </CommandItem>
+                            )}
+                            {filteredCustomerSuggestions.map((name) => (
+                                <CommandItem
+                                  key={name}
+                                  value={name}
+                                  onSelect={() => handleSelectOrCreateCustomer(name)}
+                                >
+                                  {name}
+                                </CommandItem>
+                              ))}
+                             {filteredCustomerSuggestions.length === 0 && customerName.trim() && allKnownCustomerNames.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                                <CommandEmpty>No existing customers match. Select "Add new..." above.</CommandEmpty>
+                             )}
+                             {allKnownCustomerNames.length === 0 && !customerName.trim() && (
+                                <CommandEmpty>No customers found. Type to add a new one.</CommandEmpty>
+                             )}
+                          </>
                         )}
-                        {allKnownCustomerNames
-                          .filter((name) =>
-                            name.toLowerCase().includes(customerName.toLowerCase())
-                          )
-                          .map((name) => (
-                            <CommandItem
-                              key={name}
-                              value={name}
-                              onSelect={() => handleSelectOrCreateCustomer(name)}
-                            >
-                              {name}
-                            </CommandItem>
-                          ))}
-                         {allKnownCustomerNames.filter(name => name.toLowerCase().includes(customerName.toLowerCase())).length === 0 && 
-                          !customerName.trim() &&
-                           <CommandEmpty>Type to search or add a new customer.</CommandEmpty>
-                         }
-                         {allKnownCustomerNames.filter(name => name.toLowerCase().includes(customerName.toLowerCase())).length === 0 && 
-                          customerName.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
-                            <CommandEmpty>No existing customers match. Select "Add new..." above.</CommandEmpty>
-                          )
-                         }
                       </CommandList>
                     </Command>
                   </PopoverContent>
@@ -380,7 +408,7 @@ export default function SalesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales}>
+              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingParties}>
                 <PlusCircle className="h-4 w-4 mr-2" /> {isSubmitting ? 'Adding...' : (isLoadingSales ? 'Loading...' : 'Add Sale')}
               </Button>
             </form>
