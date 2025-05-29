@@ -14,6 +14,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter } from "lucide-react";
@@ -38,7 +39,7 @@ export default function MilkCollectionPage() {
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
   const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
-  const [shiftFilter, setShiftFilter] = useState<"All" | "Morning" | "Evening">("All"); // New state for shift filter
+  const [shiftFilter, setShiftFilter] = useState<"All" | "Morning" | "Evening">("All");
   const [dealerNameInput, setDealerNameInput] = useState<string>("");
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
@@ -136,6 +137,10 @@ export default function MilkCollectionPage() {
     return shiftAndDateFiltered;
   }, [allEntries, tableFilterDate, shiftFilter]);
   
+  const totalFilteredAmount = useMemo(() => {
+    return filteredEntries.reduce((sum, entry) => sum + (entry.totalAmount || 0), 0);
+  }, [filteredEntries]);
+
 
   const handleDealerNameInputChange = useCallback((value: string) => {
     setDealerNameInput(value);
@@ -330,9 +335,9 @@ export default function MilkCollectionPage() {
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div className="flex-1">
-                <CardTitle>Recent Collections</CardTitle>
+                <CardTitle>Daily Ledger</CardTitle>
                 <CardDescription className="mt-1">
-                  {tableFilterDate ? `Showing collections for ${format(tableFilterDate, 'PPP')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}` : "Select a date to view collections."}
+                  {tableFilterDate ? `Ledger for ${format(tableFilterDate, 'PPP')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}` : "Select a date to view ledger."}
                   {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
                   {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date${shiftFilter !== 'All' ? ` and shift` : ''}. Checked ${allEntries.length} total entries)`}
                 </CardDescription>
@@ -401,6 +406,14 @@ export default function MilkCollectionPage() {
                     ))
                   )}
                 </TableBody>
+                {filteredEntries.length > 0 && (
+                  <TableFooter>
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-right font-semibold">Total Amount:</TableCell>
+                      <TableCell className="text-right font-bold">{totalFilteredAmount.toFixed(2)}</TableCell>
+                    </TableRow>
+                  </TableFooter>
+                )}
               </Table>
             )}
           </CardContent>
@@ -409,3 +422,5 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+
+    
