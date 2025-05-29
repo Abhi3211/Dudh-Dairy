@@ -49,7 +49,7 @@ export default function MilkCollectionPage() {
     setIsLoadingEntries(true);
     try {
       const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
-      console.log('CLIENT: fetchEntries called. Fetched entries from Firestore. Count:', fetchedEntries.length, 'Data:', JSON.stringify(fetchedEntries.map(e => ({...e, date: e.date.toISOString()})), null, 2));
+      console.log('CLIENT: fetchEntries called. Fetched entries from Firestore. Count:', fetchedEntries.length);
       setAllEntries(fetchedEntries);
     } catch (error) {
       console.error("Failed to fetch milk collection entries:", error);
@@ -79,16 +79,18 @@ export default function MilkCollectionPage() {
 
   const totalAmountDisplay = useMemo(() => {
     const quantityStr = quantityLtr.replace(',', '.');
+    const fatStr = fatPercentage.replace(',', '.');
     const rateStr = rateInputValue.replace(',', '.');
     
     const quantity = parseFloat(quantityStr);
+    const fat = parseFloat(fatStr);
     const rate = parseFloat(rateStr);
 
-    if (!isNaN(quantity) && quantity > 0 && !isNaN(rate) && rate > 0) {
-      return (quantity * rate).toFixed(2);
+    if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat > 0 && !isNaN(rate) && rate > 0) {
+      return (quantity * fat * rate).toFixed(2);
     }
     return "";
-  }, [quantityLtr, rateInputValue]);
+  }, [quantityLtr, fatPercentage, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
     console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Total entries being filtered:", allEntries.length);
@@ -99,7 +101,7 @@ export default function MilkCollectionPage() {
         const entryDateStr = format(entry.date, 'yyyy-MM-dd');
         return entryDateStr === targetDateStr;
     });
-    console.log("CLIENT: Resulting filteredEntries count:", result.length, "Entries:", result.map(e => ({...e, date: e.date.toISOString()})));
+    console.log("CLIENT: Resulting filteredEntries count:", result.length);
     return result;
   }, [allEntries, tableFilterDate]);
 
@@ -131,22 +133,22 @@ export default function MilkCollectionPage() {
 
     const qLtr = parseFloat(qLtrStr);
     const fatP = parseFloat(fatPStr);
-    const finalRate = parseFloat(finalRateStr);
+    const finalRateFactor = parseFloat(finalRateStr); // Renamed to avoid confusion, this is the "rate" from the formula
 
     if (isNaN(qLtr) || qLtr <= 0) {
       toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" });
       return;
     }
-    if (isNaN(fatP) || fatP < 0) { 
-        toast({ title: "Error", description: "Please enter a valid FAT percentage.", variant: "destructive" });
+    if (isNaN(fatP) || fatP <= 0) { 
+        toast({ title: "Error", description: "Please enter a valid FAT percentage (must be > 0).", variant: "destructive" });
         return;
     }
-    if (isNaN(finalRate) || finalRate <= 0) {
-      toast({ title: "Error", description: "Please enter a valid rate.", variant: "destructive" });
+    if (isNaN(finalRateFactor) || finalRateFactor <= 0) {
+      toast({ title: "Error", description: "Please enter a valid rate factor (must be > 0).", variant: "destructive" });
       return;
     }
 
-    const finalTotalAmount = qLtr * finalRate;
+    const finalTotalAmount = qLtr * fatP * finalRateFactor;
 
     const newEntryData: Omit<MilkCollectionEntry, 'id'> = {
       date, 
@@ -154,7 +156,7 @@ export default function MilkCollectionPage() {
       dealerName: dealerNameInput.trim(),
       quantityLtr: qLtr,
       fatPercentage: fatP,
-      ratePerLtr: finalRate,
+      ratePerLtr: finalRateFactor, // Storing the input "rate" value, though its meaning changed
       totalAmount: finalTotalAmount,
     };
     
@@ -315,7 +317,7 @@ export default function MilkCollectionPage() {
                     <TableHead>Dealer</TableHead>
                     <TableHead className="text-right">Qty (Ltr)</TableHead>
                     <TableHead className="text-right">FAT (%)</TableHead>
-                    <TableHead className="text-right">Rate (₹/Ltr)</TableHead>
+                    <TableHead className="text-right">Rate (₹)</TableHead>
                     <TableHead className="text-right">Amount (₹)</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -349,4 +351,6 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+    
+
     
