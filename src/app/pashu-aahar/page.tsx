@@ -129,7 +129,8 @@ export default function PashuAaharPage() {
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
-    const sortedTransactionsForStock = [...transactions].sort((a, b) => a.date.getTime() - b.date.getTime());
+    // Create a mutable copy and sort for accurate stock calculation over time
+    const sortedTransactionsForStock = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     sortedTransactionsForStock.forEach(tx => {
       const pName = tx.productName.trim();
@@ -139,13 +140,14 @@ export default function PashuAaharPage() {
       if (tx.type === "Purchase") {
         stockCalc[pName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
-         // This assumes sales affecting pashu aahar stock are recorded via the Sales module
-         // and would ideally decrement stock here if fully integrated.
-         // For now, this page mainly handles purchases affecting stock.
+         // If sales from other modules affect stock, this would be the place to decrement.
+         // For now, this page primarily tracks additions to stock via purchases.
+         // Example: stockCalc[pName] -= tx.quantityBags; (if 'tx' represented a sale of Pashu Aahar)
       }
     });
     setCurrentStockByProduct(stockCalc);
   }, [transactions]);
+
 
   const totalTransactionAmount = useMemo(() => {
     return transactions.reduce((sum, tx) => sum + tx.totalAmount, 0);
@@ -208,13 +210,13 @@ export default function PashuAaharPage() {
 
   const handleSupplierNameInputChange = useCallback((value: string) => {
     setSupplierNameInput(value);
-    if (value.trim()){
-        setIsSupplierPopoverOpen(true);
+    if (value.trim() && availableSuppliers.length > 0) {
+      setIsSupplierPopoverOpen(true);
     } else {
-        setIsSupplierPopoverOpen(false);
+      setIsSupplierPopoverOpen(false);
     }
-  }, []);
-
+  }, [availableSuppliers]);
+  
   const handleSupplierSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
     if (isCreateNew) {
@@ -223,7 +225,7 @@ export default function PashuAaharPage() {
         setIsSupplierPopoverOpen(false);
         return;
       }
-      setIsSubmitting(true); // Use general isSubmitting
+      setIsSubmitting(true); 
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Supplier" }); 
       if (result.success && result.id) {
         setSupplierNameInput(trimmedValue);
@@ -365,7 +367,7 @@ export default function PashuAaharPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>{editingTransactionId ? "Edit Purchase" : "Record Purchase"}</CardTitle>
@@ -404,14 +406,14 @@ export default function PashuAaharPage() {
                     className="w-[--radix-popover-trigger-width] p-0" 
                     side="bottom" 
                     align="start" 
-                    sideOffset={4} // Small offset to avoid overlap
+                    sideOffset={4}
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
                     <Command>
                       <CommandInput 
                         placeholder="Search or add new product..." 
                         value={productName} 
-                        onValueChange={handleProductNameInputChange} // Keep main input synced
+                        onValueChange={handleProductNameInputChange}
                        />
                       <CommandList>
                           <CommandEmpty>No product found.</CommandEmpty>
@@ -419,7 +421,7 @@ export default function PashuAaharPage() {
                             {productName.trim() && !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
                               <CommandItem
                                 key={`__CREATE_PRODUCT__${productName.trim()}`}
-                                value={`__CREATE_PRODUCT__${productName.trim()}`} // Ensure unique value for create
+                                value={`__CREATE_PRODUCT__${productName.trim()}`} 
                                 onSelect={() => handleProductSelect(productName.trim(), true)}
                               >
                                 <PlusCircle className="mr-2 h-4 w-4" />
@@ -468,14 +470,14 @@ export default function PashuAaharPage() {
                     className="w-[--radix-popover-trigger-width] p-0" 
                     side="bottom" 
                     align="start" 
-                    sideOffset={4} // Small offset
+                    sideOffset={4} 
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
                     <Command>
                       <CommandInput 
                         placeholder="Search or add new supplier..." 
-                        value={supplierNameInput}  // Bind to supplierNameInput
-                        onValueChange={handleSupplierNameInputChange} // Keep main input synced
+                        value={supplierNameInput}
+                        onValueChange={handleSupplierNameInputChange}
                        />
                       <CommandList>
                         {isLoadingParties ? (
@@ -487,7 +489,7 @@ export default function PashuAaharPage() {
                                 {supplierNameInput.trim() && !availableSuppliers.some(s => s.toLowerCase() === supplierNameInput.trim().toLowerCase()) && (
                                   <CommandItem
                                     key={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`}
-                                    value={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`} // Ensure unique value
+                                    value={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`} 
                                     onSelect={() => handleSupplierSelect(supplierNameInput.trim(), true)}
                                   >
                                     <PlusCircle className="mr-2 h-4 w-4" />
@@ -535,7 +537,7 @@ export default function PashuAaharPage() {
           </CardContent>
         </Card>
 
-        <Card className="md:col-span-1"> 
+        <Card className="lg:col-span-2"> 
           <CardHeader>
             <CardTitle>Transaction History</CardTitle>
             <CardDescription>Pashu Aahar purchases.</CardDescription>
@@ -638,3 +640,5 @@ export default function PashuAaharPage() {
     </div>
   );
 }
+
+    
