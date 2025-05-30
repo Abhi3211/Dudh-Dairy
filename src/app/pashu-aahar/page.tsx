@@ -125,11 +125,9 @@ export default function PashuAaharPage() {
       if (tx.type === "Purchase") {
         stockCalc[pName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
-        // This assumes sales affecting Pashu Aahar stock are also recorded here or reconciled elsewhere.
-        // For simplicity, we only consider "Purchase" for stock increment for now.
-        // If sales are recorded in a different system, this stock won't reflect that.
-        // To properly decrement stock for sales, sales entries would need to specify pashu aahar product and quantity.
-        // Or, this module could also handle sales, setting tx.type to "Sale".
+         // If sales are tracked in this module, decrement stock here.
+         // For now, assuming sales transactions are not directly managed for stock decrement in this particular module's transaction list
+         // stockCalc[pName] -= tx.quantityBags; 
       }
     });
     setCurrentStockByProduct(stockCalc);
@@ -140,7 +138,7 @@ export default function PashuAaharPage() {
   }, [transactions]);
 
   const resetFormFields = useCallback(() => {
-    setDate(new Date());
+    if (!editingTransactionId) setDate(new Date()); // Only reset date if not editing
     setProductName("");
     setSupplierNameInput("");
     setQuantityBags("");
@@ -148,7 +146,7 @@ export default function PashuAaharPage() {
     setEditingTransactionId(null);
     setTransactionToEdit(null);
     setIsSupplierPopoverOpen(false);
-  }, []);
+  }, [editingTransactionId]);
 
   const availableSuppliers = useMemo(() => {
     return availableParties.filter(p => p.type === "Supplier");
@@ -346,10 +344,10 @@ export default function PashuAaharPage() {
                       value={supplierNameInput}
                       onChange={(e) => handleSupplierNameInputChange(e.target.value)}
                       onFocus={() => {
-                        if (supplierNameInput.trim() && filteredSupplierSuggestions.length > 0 && !availableSuppliers.find(s => s.name === supplierNameInput)) {
+                        if (supplierNameInput.trim() && filteredSupplierSuggestions.length > 0) {
                            setIsSupplierPopoverOpen(true);
                         } else if (!supplierNameInput.trim() && availableSuppliers.length > 0){
-                           setIsSupplierPopoverOpen(true);
+                           setIsSupplierPopoverOpen(true); // Open if input is empty but suggestions exist
                         }
                       }}
                       placeholder="Start typing supplier name"
@@ -369,7 +367,7 @@ export default function PashuAaharPage() {
                       <CommandInput 
                         placeholder="Search or add new supplier..." 
                         value={supplierNameInput} 
-                        onValueChange={handleSupplierNameInputChange}
+                        onValueChange={handleSupplierNameInputChange} // Ensures main input state syncs
                        />
                       <CommandList>
                         {isLoadingParties ? (
@@ -395,8 +393,8 @@ export default function PashuAaharPage() {
                                 {name}
                               </CommandItem>
                             ))}
-                             {filteredSupplierSuggestions.length === 0 && supplierNameInput.trim() && availableSuppliers.some(s => s.name.toLowerCase() === supplierNameInput.trim().toLowerCase()) && (
-                                <CommandEmpty>No existing suppliers match. Select "Add new..." above.</CommandEmpty>
+                             {filteredSupplierSuggestions.length === 0 && supplierNameInput.trim() && !availableSuppliers.some(name => name.toLowerCase() === supplierNameInput.trim().toLowerCase()) && ( // Condition to only show "No existing..." if create new is not shown
+                                <CommandEmpty>No existing suppliers match. Select "Add new..." above if needed.</CommandEmpty>
                              )}
                              {availableSuppliers.length === 0 && !supplierNameInput.trim() && (
                                 <CommandEmpty>No suppliers found. Type to add a new one.</CommandEmpty>
@@ -435,7 +433,7 @@ export default function PashuAaharPage() {
         <Card className="md:col-span-1"> 
           <CardHeader>
             <CardTitle>Transaction History</CardTitle>
-            <CardDescription>Pashu Aahar purchases (sales affecting stock shown here too if implemented).</CardDescription>
+            <CardDescription>Pashu Aahar purchases.</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoadingTransactions && transactions.length === 0 ? (
