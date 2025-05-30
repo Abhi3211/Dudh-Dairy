@@ -6,7 +6,7 @@ import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarRail } f
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { Toaster } from "@/components/ui/toaster";
 import { Button } from "@/components/ui/button";
-import { PanelLeft } from "lucide-react";
+import { PanelLeft, Menu } from "lucide-react"; // Added Menu icon
 import { PageTitleProvider } from '@/context/PageTitleContext';
 import { HeaderTitle } from '@/components/layout/HeaderTitle';
 
@@ -47,7 +47,7 @@ export default function RootLayout({
                 <div className="md:hidden">
                   <SidebarTrigger asChild>
                     <Button variant="outline" size="icon" className="h-8 w-8">
-                      <PanelLeft className="h-4 w-4" />
+                      <Menu className="h-4 w-4" /> {/* Changed to Menu icon */}
                       <span className="sr-only">Toggle Menu</span>
                     </Button>
                   </SidebarTrigger>
