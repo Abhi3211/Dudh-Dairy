@@ -160,7 +160,7 @@ export default function BulkSalesPage() {
             if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) {
                 return false;
             }
-            const entryDate = new Date(entry.date.getFullYear(), entry.date.getMonth(), entry.date.getDate()); // Normalize to start of day
+            const entryDate = new Date(entry.date.getFullYear(), entry.date.getMonth(), entry.date.getDate()); 
             
             const start = tableFilterStartDate ? new Date(tableFilterStartDate.getFullYear(), tableFilterStartDate.getMonth(), tableFilterStartDate.getDate()) : null;
             const end = tableFilterEndDate ? new Date(tableFilterEndDate.getFullYear(), tableFilterEndDate.getMonth(), tableFilterEndDate.getDate()) : null;
@@ -594,11 +594,11 @@ export default function BulkSalesPage() {
                     {!isLoadingEntries && (tableFilterStartDate || tableFilterEndDate) && filteredEntries.length === 0 && ` (No entries for this filter. Checked ${allEntries.length} total entries)`}
                   </CardDescription>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-end">
-                  <div className="w-full sm:min-w-[180px]">
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:items-center">
+                  <div className="w-full sm:w-auto">
                     <Label htmlFor="bsShiftFilterSelect" className="sr-only">Filter by shift</Label>
                     <Select value={shiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setShiftFilter(value)}>
-                      <SelectTrigger id="bsShiftFilterSelect" className="min-w-[150px]">
+                      <SelectTrigger id="bsShiftFilterSelect" className="w-full sm:w-[170px]">
                         <Filter className="h-3 w-3 mr-2 text-muted-foreground" />
                         <SelectValue placeholder="Filter by shift" />
                       </SelectTrigger>
@@ -609,17 +609,17 @@ export default function BulkSalesPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="w-full sm:min-w-[200px]">
+                  <div className="w-full sm:w-auto">
                     <Label htmlFor="tableStartDateFilter" className="sr-only">Start Date</Label>
-                    <DatePicker date={tableFilterStartDate} setDate={setTableFilterStartDate} />
+                    <DatePicker date={tableFilterStartDate} setDate={setTableFilterStartDate} className="w-full sm:w-[170px]" />
                   </div>
-                  <div className="w-full sm:min-w-[200px]">
+                  <div className="w-full sm:w-auto">
                     <Label htmlFor="tableEndDateFilter" className="sr-only">End Date</Label>
-                    <DatePicker date={tableFilterEndDate} setDate={setTableFilterEndDate} />
+                    <DatePicker date={tableFilterEndDate} setDate={setTableFilterEndDate} className="w-full sm:w-[170px]" />
                   </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button onClick={handleExportCSV} variant="outline" size="icon" className="ml-auto sm:ml-0 mt-2 sm:mt-0 sm:self-end h-10 w-10" disabled={filteredEntries.length === 0 || isLoadingEntries}>
+                      <Button onClick={handleExportCSV} variant="outline" size="icon" className="w-full sm:w-10 mt-2 sm:mt-0 h-10" disabled={filteredEntries.length === 0 || isLoadingEntries}>
                           <Download className="h-4 w-4" />
                           <span className="sr-only">Export CSV</span>
                       </Button>
