@@ -3,7 +3,7 @@
 
 import { db } from '@/lib/firebase';
 import type { PashuAaharTransaction } from '@/lib/types';
-import { collection, addDoc, getDocs, query, orderBy, Timestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, Timestamp, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
 
 export async function addPashuAaharTransactionToFirestore(
   transactionData: Omit<PashuAaharTransaction, 'id'>
@@ -106,25 +106,39 @@ export async function deletePashuAaharTransactionFromFirestore(
 
 export async function getUniquePashuAaharProductNamesFromFirestore(): Promise<string[]> {
   console.log("SERVER ACTION: getUniquePashuAaharProductNamesFromFirestore called.");
+  const productNames = new Set<string>();
+
   try {
-    const transactionsCollection = collection(db, 'pashuAaharTransactions');
-    const transactionSnapshot = await getDocs(transactionsCollection);
-
-    if (transactionSnapshot.empty) {
-      console.log("SERVER ACTION: No Pashu Aahar transactions found. Returning empty array for product names.");
-      return [];
+    // Fetch from Pashu Aahar Purchases
+    const purchaseTransactionsCollection = collection(db, 'pashuAaharTransactions');
+    const purchaseSnapshot = await getDocs(purchaseTransactionsCollection);
+    if (!purchaseSnapshot.empty) {
+      purchaseSnapshot.docs.forEach(docSnapshot => {
+        const data = docSnapshot.data();
+        if (data.productName && typeof data.productName === 'string') {
+          productNames.add(data.productName.trim());
+        }
+      });
     }
+    console.log(`SERVER ACTION: Found ${productNames.size} unique names after purchase transactions.`);
 
-    const productNames = new Set<string>();
-    transactionSnapshot.docs.forEach(docSnapshot => {
-      const data = docSnapshot.data();
-      if (data.productName && typeof data.productName === 'string') {
-        productNames.add(data.productName.trim());
-      }
-    });
+    // Fetch from Sales Entries (where unit is "Bags")
+    const salesCollection = collection(db, 'salesEntries');
+    const salesQuery = query(salesCollection, where('unit', '==', 'Bags'));
+    const salesSnapshot = await getDocs(salesQuery);
+    if (!salesSnapshot.empty) {
+      salesSnapshot.docs.forEach(docSnapshot => {
+        const data = docSnapshot.data();
+        if (data.productName && typeof data.productName === 'string') {
+          productNames.add(data.productName.trim());
+        }
+      });
+    }
+    console.log(`SERVER ACTION: Found ${productNames.size} unique names after sales entries.`);
+
 
     const uniqueNamesArray = Array.from(productNames).sort((a, b) => a.localeCompare(b));
-    console.log("SERVER ACTION: Successfully fetched unique Pashu Aahar product names. Count:", uniqueNamesArray.length);
+    console.log("SERVER ACTION: Successfully fetched and combined unique Pashu Aahar product names. Count:", uniqueNamesArray.length);
     return uniqueNamesArray;
   } catch (error) {
     console.error("SERVER ACTION: Error fetching unique Pashu Aahar product names from Firestore:", error);
