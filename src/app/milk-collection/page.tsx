@@ -84,49 +84,61 @@ export default function MilkCollectionPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [entryToDelete, setEntryToDelete] = useState<MilkCollectionEntry | null>(null);
 
+  useEffect(() => {
+    setDate(undefined); // Initialize date as undefined
+    setTableFilterDate(undefined); // Initialize tableFilterDate as undefined
+  }, []);
+
+  useEffect(() => {
+    if (date === undefined && !editingEntryId) { // Only set to new Date if not editing and not already set
+      setDate(new Date());
+    }
+    if (tableFilterDate === undefined) {
+      setTableFilterDate(new Date());
+    }
+  }, [date, tableFilterDate, editingEntryId]);
+
+
   const fetchParties = useCallback(async () => {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
+      // In Milk Collection, "Customers" are those supplying milk, typically of type "Customer" in our unified Party model
       setAvailableParties(parties.filter(p => p.type === "Customer")); 
     } catch (error) {
-      console.error("CLIENT: Failed to fetch parties:", error);
-      toast({ title: "Error", description: "Could not fetch parties for suggestions.", variant: "destructive" });
+      console.error("CLIENT: Failed to fetch parties for milk collection:", error);
+      toast({ title: "Error", description: "Could not fetch parties.", variant: "destructive" });
     } finally {
       setIsLoadingParties(false);
     }
   }, [toast]);
   
   const fetchEntries = useCallback(async () => {
-    console.log('CLIENT: fetchEntries called. Setting isLoadingEntries to true.');
+    console.log('CLIENT: MilkCollection - fetchEntries called. Setting isLoadingEntries to true.');
     setIsLoadingEntries(true);
     try {
       const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
-      console.log('CLIENT: Raw fetched entries from Firestore:', JSON.parse(JSON.stringify(fetchedEntries)));
+      console.log('CLIENT: MilkCollection - Raw fetched entries from Firestore:', JSON.parse(JSON.stringify(fetchedEntries)));
       const processedEntries = fetchedEntries.map(entry => ({
         ...entry,
         date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
-      })).sort((a, b) => b.date.getTime() - a.date.getTime());
-      console.log('CLIENT: Processed milk collection entries. Count:', processedEntries.length, 'Data (sample):', processedEntries.length > 0 ? JSON.parse(JSON.stringify(processedEntries[0])) : 'No data');
+      })).sort((a, b) => b.date.getTime() - a.date.getTime()); // Sort by date desc by default
+      console.log('CLIENT: MilkCollection - Processed entries. Count:', processedEntries.length, 'Data (sample):', processedEntries.length > 0 ? JSON.parse(JSON.stringify(processedEntries[0])) : 'No data');
       setAllEntries(processedEntries);
     } catch (error) {
-      console.error("CLIENT: Failed to fetch milk collection entries:", error);
+      console.error("CLIENT: MilkCollection - Failed to fetch entries:", error);
       toast({ title: "Error", description: "Could not fetch milk collection entries.", variant: "destructive" });
     } finally {
-      console.log('CLIENT: fetchEntries finished. Setting isLoadingEntries to false.');
+      console.log('CLIENT: MilkCollection - fetchEntries finished. Setting isLoadingEntries to false.');
       setIsLoadingEntries(false);
     }
   }, [toast]);
 
   useEffect(() => {
-    console.log("CLIENT: Initial useEffect running to set dates and fetch entries/parties.");
-    if (!editingEntryId) { // Only set date if not in edit mode
-        setDate(new Date());
-    }
-    setTableFilterDate(new Date()); 
+    console.log("CLIENT: MilkCollection - Initial useEffect for data fetching.");
     fetchEntries();
     fetchParties();
-  }, [fetchEntries, fetchParties, editingEntryId]); 
+  }, [fetchEntries, fetchParties]); 
 
   const allKnownCustomerNames = useMemo(() => {
     return availableParties.map(p => p.name).sort((a, b) => a.localeCompare(b));
@@ -143,32 +155,23 @@ export default function MilkCollectionPage() {
     const rate = parseFloat(rateStr);
 
     if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat >= 0 && !isNaN(rate) && rate > 0) {
-      return (quantity * fat * rate);
+      return (quantity * fat * rate); // Corrected formula
     }
     return 0;
   }, [quantityLtr, fatPercentage, rateInputValue]);
 
-  const netAmountPayableDisplay = useMemo(() => {
-    const grossAmount = totalAmountDisplay;
-    const advance = parseFloat(advancePaid.replace(',', '.')) || 0;
-    return grossAmount - advance;
-  }, [totalAmountDisplay, advancePaid]);
-
-
   const filteredEntries = useMemo(() => {
-    console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Selected shiftFilter:", shiftFilter, "Total entries being filtered:", allEntries.length);
-    
     let dateFiltered = allEntries;
-    if (tableFilterDate !== undefined) {
+    if (tableFilterDate) {
         const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
         dateFiltered = allEntries.filter(entry => {
             if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) {
-                console.warn(`CLIENT: Invalid or missing date in entry (ID: ${entry.id}) during date filtering. Date value:`, entry.date);
+                console.warn(`CLIENT: MilkCollection - Invalid or missing date in entry (ID: ${entry.id}) during date filtering. Date value:`, entry.date);
                 return false;
             }
             const entryDateStr = format(entry.date, 'yyyy-MM-dd');
             const match = entryDateStr === targetDateStr;
-            // console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (raw: ${entry.date instanceof Date ? entry.date.toISOString() : String(entry.date)}), target date: ${targetDateStr}, match: ${match}`);
+            console.log(`CLIENT: MilkCollection - Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (raw: ${entry.date instanceof Date ? entry.date.toISOString() : String(entry.date)}), target date: ${targetDateStr}, match: ${match}`);
             return match;
         });
     }
@@ -177,11 +180,7 @@ export default function MilkCollectionPage() {
     if (shiftFilter !== "All") {
         shiftAndDateFiltered = dateFiltered.filter(entry => entry.shift === shiftFilter);
     } 
-    
-    console.log("CLIENT: Resulting filteredEntries count:", shiftAndDateFiltered.length);
-    // if (shiftAndDateFiltered.length > 0 && shiftAndDateFiltered.length < 5) { 
-    //     console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(shiftAndDateFiltered.map(e => ({...e, date: e.date instanceof Date ? e.date.toISOString() : String(e.date) })))));
-    // }
+    console.log("CLIENT: MilkCollection - Resulting filteredEntries count:", shiftAndDateFiltered.length);
     return shiftAndDateFiltered;
   }, [allEntries, tableFilterDate, shiftFilter]);
   
@@ -210,7 +209,8 @@ export default function MilkCollectionPage() {
         setIsCustomerPopoverOpen(false);
         return;
       }
-      setIsSubmitting(true);
+      setIsSubmitting(true); // Use general isSubmitting
+      // When adding a new customer in milk collection, they are the milk supplier, so type is "Customer"
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
       if (result.success && result.id) {
         setCustomerNameInput(trimmedValue);
@@ -228,19 +228,20 @@ export default function MilkCollectionPage() {
   }, [toast, fetchParties]);
 
   const resetFormFields = useCallback(() => {
-    if (!editingEntryId) {
-        setDate(new Date());
-        // Shift persists by design for new entries
+    // Date and Shift persist by design for new entries if not in edit mode
+    if (!editingEntryId && date) { 
+        // setDate(new Date()); // Date is now handled by useEffect for initialization
     }
+    // Shift persists by design for new entries if not editing.
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
-    // RateInputValue persists by design
+    // RateInputValue persists by design for new entries if not editing.
     setAdvancePaid("");
     setRemarks("");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
-  }, [editingEntryId]);
+  }, [editingEntryId, date]);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -261,24 +262,20 @@ export default function MilkCollectionPage() {
     const parsedAdvancePaid = parseFloat(advancePaidStr) || 0;
 
     if (isNaN(qLtr) || qLtr <= 0) {
-      toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" });
-      return;
+      toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" }); return;
     }
     if (isNaN(fatP) || fatP < 0) { 
-        toast({ title: "Error", description: "Please enter a valid FAT percentage (must be >= 0).", variant: "destructive" });
-        return;
+      toast({ title: "Error", description: "Please enter a valid FAT percentage (must be >= 0).", variant: "destructive" }); return;
     }
     if (isNaN(finalRateFactor) || finalRateFactor <= 0) {
-      toast({ title: "Error", description: "Please enter a valid rate factor (must be > 0).", variant: "destructive" });
-      return;
+      toast({ title: "Error", description: "Please enter a valid rate factor (must be > 0).", variant: "destructive" }); return;
     }
     if (isNaN(parsedAdvancePaid) || parsedAdvancePaid < 0) {
-      toast({ title: "Error", description: "Advance paid must be a valid non-negative number.", variant: "destructive"});
-      return;
+      toast({ title: "Error", description: "Advance paid must be a valid non-negative number.", variant: "destructive"}); return;
     }
 
 
-    const finalTotalAmount = qLtr * fatP * finalRateFactor; 
+    const finalTotalAmount = qLtr * fatP * finalRateFactor; // Corrected formula
     const finalNetAmountPayable = finalTotalAmount - parsedAdvancePaid;
 
     const entryData: Omit<MilkCollectionEntry, 'id'> = {
@@ -294,7 +291,7 @@ export default function MilkCollectionPage() {
       netAmountPayable: finalNetAmountPayable,
     };
     
-    console.log("CLIENT: Submitting entry data:", JSON.parse(JSON.stringify(entryData)));
+    console.log("CLIENT: MilkCollection - Submitting entry data:", JSON.parse(JSON.stringify(entryData)));
     setIsSubmitting(true); 
     
     let result;
@@ -429,7 +426,7 @@ export default function MilkCollectionPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <Label htmlFor="date" className="flex items-center mb-1">
-                  <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date for New Entry
+                  <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date
                 </Label>
                  <DatePicker date={date} setDate={setDate} />
               </div>
@@ -462,11 +459,13 @@ export default function MilkCollectionPage() {
                       ref={customerNameInputRef}
                       value={customerNameInput}
                       onChange={(e) => handleCustomerNameInputChange(e.target.value)}
-                      onFocus={() => {
-                        if (customerNameInput.trim() && filteredCustomerSuggestions.length > 0) {
+                       onFocus={() => {
+                         if (customerNameInput.trim() && filteredCustomerSuggestions.length > 0 && !availableParties.find(p=>p.name === customerNameInput)) {
+                           setIsCustomerPopoverOpen(true);
+                         } else if (!customerNameInput.trim() && allKnownCustomerNames.length > 0){
                             setIsCustomerPopoverOpen(true);
-                        }
-                      }}
+                         }
+                       }}
                       placeholder="Start typing customer name"
                       autoComplete="off"
                       required
@@ -540,7 +539,7 @@ export default function MilkCollectionPage() {
               </div>
               <div>
                 <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹)
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate Factor (₹)
                 </Label>
                 <Input 
                   id="ratePerLtr" 
@@ -693,8 +692,13 @@ export default function MilkCollectionPage() {
                 </TableBody>
                 {filteredEntries.length > 0 && (
                   <TableFooter>
-                    <TableRow><TableCell colSpan={6} className="text-right font-semibold">Total Gross Amount:</TableCell><TableCell className="text-right font-bold">{totalFilteredGrossAmount.toFixed(2)}</TableCell><TableCell />{/* For Advance Paid column */}<TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell><TableCell colSpan={2} />{/* For Remarks and Actions columns */}</TableRow>
-                    <TableRow><TableCell colSpan={8} className="text-right font-semibold">Total Net Payable:</TableCell><TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell><TableCell colSpan={2} /></TableRow>
+                    <TableRow>
+                        <TableCell colSpan={6} className="text-right font-semibold">Total Gross Amount:</TableCell>
+                        <TableCell className="text-right font-bold">{totalFilteredGrossAmount.toFixed(2)}</TableCell>
+                        <TableCell />{/* For Advance Paid column */}
+                        <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
+                        <TableCell colSpan={2} />{/* For Remarks and Actions columns */}
+                    </TableRow>
                   </TableFooter>
                 )}
               </Table>
@@ -724,6 +728,3 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
-
-
-    
