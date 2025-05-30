@@ -28,23 +28,24 @@ export async function getPashuAaharTransactionsFromFirestore(): Promise<PashuAah
     const transactionsCollection = collection(db, 'pashuAaharTransactions');
     const q = query(transactionsCollection, orderBy('date', 'desc'));
     const transactionSnapshot = await getDocs(q);
-    const transactionList = transactionSnapshot.docs.map(doc => {
-      const data = doc.data();
+    const transactionList = transactionSnapshot.docs.map(docSnapshot => {
+      const data = docSnapshot.data();
       let entryDate: Date;
       if (data.date instanceof Timestamp) {
         entryDate = data.date.toDate();
       } else if (typeof data.date === 'string' || typeof data.date === 'number') {
+        console.warn(`SERVER ACTION (PashuAahar): Document ID ${docSnapshot.id} 'date' field is not a Firestore Timestamp. Attempting to parse. Value:`, data.date);
         entryDate = new Date(data.date);
       } else {
-        console.warn(`SERVER ACTION (PashuAahar): Document ID ${doc.id} 'date' field is invalid. Using current date as fallback.`);
+        console.error(`SERVER ACTION (PashuAahar): Document ID ${docSnapshot.id} has an invalid 'date' field. Using current date as fallback. Value:`, data.date);
         entryDate = new Date();
       }
       return {
-        id: doc.id,
+        id: docSnapshot.id,
         date: entryDate,
-        type: data.type || "Purchase",
+        type: data.type || "Purchase", // Default to Purchase if not specified
         productName: data.productName || "Unknown Product",
-        supplierOrCustomerName: data.supplierOrCustomerName || "",
+        supplierOrCustomerName: data.supplierOrCustomerName || "", // Ensure this is always a string
         quantityBags: typeof data.quantityBags === 'number' ? data.quantityBags : 0,
         pricePerBag: typeof data.pricePerBag === 'number' ? data.pricePerBag : 0,
         totalAmount: typeof data.totalAmount === 'number' ? data.totalAmount : 0,
