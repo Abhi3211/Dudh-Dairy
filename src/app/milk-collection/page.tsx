@@ -22,7 +22,7 @@ import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon,
 import type { MilkCollectionEntry, Party } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { format, startOfMonth } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { addMilkCollectionEntryToFirestore, getMilkCollectionEntriesFromFirestore, updateMilkCollectionEntryInFirestore, deleteMilkCollectionEntryFromFirestore } from "./actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -45,6 +45,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePageTitle } from '@/context/PageTitleContext';
 
 
@@ -63,7 +64,9 @@ export default function MilkCollectionPage() {
   
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
-  const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
+  
+  const [tableFilterStartDate, setTableFilterStartDate] = useState<Date | undefined>(undefined);
+  const [tableFilterEndDate, setTableFilterEndDate] = useState<Date | undefined>(undefined);
   const [shiftFilter, setShiftFilter] = useState<"All" | "Morning" | "Evening">("All");
   
   const [customerNameInput, setCustomerNameInput] = useState<string>("");
@@ -88,10 +91,13 @@ export default function MilkCollectionPage() {
     if (date === undefined && !editingEntryId) { 
       setDate(new Date());
     }
-    if (tableFilterDate === undefined) {
-      setTableFilterDate(new Date());
+    if (tableFilterStartDate === undefined) {
+        setTableFilterStartDate(startOfMonth(new Date()));
     }
-  }, [date, tableFilterDate, editingEntryId]);
+    if (tableFilterEndDate === undefined) {
+        setTableFilterEndDate(new Date()); 
+    }
+  }, [date, tableFilterStartDate, tableFilterEndDate, editingEntryId]);
 
 
   const fetchParties = useCallback(async () => {
@@ -136,7 +142,7 @@ export default function MilkCollectionPage() {
 
   const filteredPartiesForSuggestions = useMemo(() => {
     return availableParties
-      .filter(p => p.type === "Customer")
+      .filter(p => p.type === "Customer") 
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [availableParties]);
 
@@ -156,17 +162,19 @@ export default function MilkCollectionPage() {
   }, [quantityLtr, fatPercentage, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
-    console.log("CLIENT: MilkCollection - Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Selected shiftFilter:", shiftFilter, "Total entries being filtered:", allEntries.length);
     let dateFiltered = allEntries;
-    if (tableFilterDate) {
-        const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
+    if (tableFilterStartDate || tableFilterEndDate) {
         dateFiltered = allEntries.filter(entry => {
             if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) {
-                console.warn(`CLIENT: MilkCollection - Invalid or missing date in entry (ID: ${entry.id}) during date filtering. Date value:`, entry.date);
                 return false;
             }
-            const entryDateStr = format(entry.date, 'yyyy-MM-dd');
-            return entryDateStr === targetDateStr;
+            const entryDate = new Date(entry.date.getFullYear(), entry.date.getMonth(), entry.date.getDate());
+            const start = tableFilterStartDate ? new Date(tableFilterStartDate.getFullYear(), tableFilterStartDate.getMonth(), tableFilterStartDate.getDate()) : null;
+            const end = tableFilterEndDate ? new Date(tableFilterEndDate.getFullYear(), tableFilterEndDate.getMonth(), tableFilterEndDate.getDate()) : null;
+
+            if (start && entryDate < start) return false;
+            if (end && entryDate > end) return false;
+            return true;
         });
     }
 
@@ -174,9 +182,8 @@ export default function MilkCollectionPage() {
     if (shiftFilter !== "All") {
         shiftAndDateFiltered = dateFiltered.filter(entry => entry.shift === shiftFilter);
     } 
-    console.log("CLIENT: MilkCollection - Resulting filteredEntries count:", shiftAndDateFiltered.length);
     return shiftAndDateFiltered;
-  }, [allEntries, tableFilterDate, shiftFilter]);
+  }, [allEntries, tableFilterStartDate, tableFilterEndDate, shiftFilter]);
   
   const totalFilteredNetAmount = useMemo(() => {
     return filteredEntries.reduce((sum, entry) => sum + (entry.netAmountPayable || 0), 0);
@@ -233,19 +240,16 @@ export default function MilkCollectionPage() {
   }, [toast, fetchParties, availableParties]);
 
   const resetFormFields = useCallback(() => {
-    if (!editingEntryId) {
-        // Date persists by design for new entries if not in edit mode
-        // Shift persists by design for new entries if not editing.
-    }
+    // Date and Shift persist
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
-    // RateInputValue persists by design for new entries if not editing.
+    // RateInputValue persists
     setAdvancePaid("");
     setRemarks("");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
-  }, [editingEntryId]);
+  }, []);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -322,13 +326,6 @@ export default function MilkCollectionPage() {
     setIsSubmitting(false); 
   };
 
-  const filteredCustomerNameSuggestions = useMemo(() => {
-    if (!customerNameInput.trim()) return filteredPartiesForSuggestions;
-    return filteredPartiesForSuggestions.filter((party) =>
-      party.name.toLowerCase().includes(customerNameInput.toLowerCase())
-    );
-  }, [customerNameInput, filteredPartiesForSuggestions]);
-
   const handleEdit = (entry: MilkCollectionEntry) => {
     setEditingEntryId(entry.id);
     setDate(entry.date); 
@@ -376,8 +373,8 @@ export default function MilkCollectionPage() {
     }
 
     const headers = [
-      "Date", "Shift", "Customer", "Qty (Ltr)", "FAT (%)", "Rate (₹)", 
-      "Total (₹)", "Advance (₹)", "Net Payable (₹)", "Remarks"
+      "Date", "Shift", "Customer", "Qty", "FAT", "Rate", 
+      "Total", "Adv.", "Net Pay.", "Remarks"
     ];
     
     const rows = filteredEntries.map(entry => [
@@ -402,7 +399,11 @@ export default function MilkCollectionPage() {
     const link = document.createElement("a");
     if (link.download !== undefined) {
       const url = URL.createObjectURL(blob);
-      const filename = `milk_collection_ledger_${format(tableFilterDate || new Date(), 'yyyyMMdd')}.csv`;
+      const baseFilename = "milk_collection_ledger";
+      const startDateStr = tableFilterStartDate ? format(tableFilterStartDate, 'yyyyMMdd') : 'any_start';
+      const endDateStr = tableFilterEndDate ? format(tableFilterEndDate, 'yyyyMMdd') : 'any_end';
+      const filename = `${baseFilename}_${startDateStr}_to_${endDateStr}.csv`;
+
       link.setAttribute("href", url);
       link.setAttribute("download", filename);
       link.style.visibility = 'hidden';
@@ -414,317 +415,354 @@ export default function MilkCollectionPage() {
     } else {
         toast({ title: "Error", description: "CSV export is not supported by your browser.", variant: "destructive" });
     }
-  }, [filteredEntries, tableFilterDate, toast]);
+  }, [filteredEntries, tableFilterStartDate, tableFilterEndDate, toast]);
+
+  const ledgerDescription = useMemo(() => {
+    let desc = "Ledger for ";
+    if (tableFilterStartDate && tableFilterEndDate) {
+      if (format(tableFilterStartDate, 'yyyy-MM-dd') === format(tableFilterEndDate, 'yyyy-MM-dd')) {
+        desc += format(tableFilterStartDate, 'PPP');
+      } else {
+        desc += `${format(tableFilterStartDate, 'PPP')} to ${format(tableFilterEndDate, 'PPP')}`;
+      }
+    } else if (tableFilterStartDate) {
+      desc += `from ${format(tableFilterStartDate, 'PPP')}`;
+    } else if (tableFilterEndDate) {
+      desc += `up to ${format(tableFilterEndDate, 'PPP')}`;
+    } else {
+      desc = "Complete ledger (no date filter)";
+    }
+    if (shiftFilter !== 'All') {
+      desc += ` (${shiftFilter} shift)`;
+    }
+    return desc;
+  }, [tableFilterStartDate, tableFilterEndDate, shiftFilter]);
 
 
   return (
-    <div>
-      <PageHeader title={pageSpecificTitle} description="Record new milk collection entries." />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle>{editingEntryId ? "Edit Entry" : "New Entry"}</CardTitle>
-            <CardDescription>{editingEntryId ? "Modify the details of the existing record." : "Add a new milk collection record."}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="date" className="flex items-center mb-1">
-                  <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date
-                </Label>
-                 <DatePicker date={date} setDate={setDate} />
-              </div>
-              <div>
-                <Label className="flex items-center mb-1">Shift</Label>
-                <RadioGroup
-                  value={shift}
-                  onValueChange={(value: "Morning" | "Evening") => setShift(value)}
-                  className="flex space-x-4"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="Morning" id="morning" />
-                    <Label htmlFor="morning" className="font-normal flex items-center"><Sun className="h-4 w-4 mr-1 text-muted-foreground" />Morning</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="Evening" id="evening" />
-                    <Label htmlFor="evening" className="font-normal flex items-center"><Moon className="h-4 w-4 mr-1 text-muted-foreground" />Evening</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-              
-              <div>
-                <Label htmlFor="customerNameInput" className="flex items-center mb-1">
-                  <User className="h-4 w-4 mr-2 text-muted-foreground" /> Customer Name (Milk Supplier)
-                </Label>
-                <Popover open={isCustomerPopoverOpen} onOpenChange={setIsCustomerPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Input
-                      id="customerNameInput"
-                      ref={customerNameInputRef}
-                      value={customerNameInput}
-                      onChange={(e) => handleCustomerNameInputChange(e.target.value)}
-                       onFocus={() => {
-                         if (customerNameInput.trim() || filteredPartiesForSuggestions.length > 0) {
-                           setIsCustomerPopoverOpen(true);
-                         }
-                       }}
-                      placeholder="Start typing customer name"
-                      autoComplete="off"
-                      required
-                      className="w-full"
-                    />
-                  </PopoverTrigger>
-                  <PopoverContent 
-                    className="w-[--radix-popover-trigger-width] p-0" 
-                    side="bottom" 
-                    align="start" 
-                    sideOffset={4}
-                    onOpenAutoFocus={(e) => e.preventDefault()}
+    <TooltipProvider>
+      <div>
+        <PageHeader title={pageSpecificTitle} description="Record new milk collection entries." />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle>{editingEntryId ? "Edit Entry" : "New Entry"}</CardTitle>
+              <CardDescription>{editingEntryId ? "Modify the details of the existing record." : "Add a new milk collection record."}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="date" className="flex items-center mb-1">
+                    <CalendarDays className="h-4 w-4 mr-2 text-muted-foreground" /> Date
+                  </Label>
+                  <DatePicker date={date} setDate={setDate} />
+                </div>
+                <div>
+                  <Label className="flex items-center mb-1">Shift</Label>
+                  <RadioGroup
+                    value={shift}
+                    onValueChange={(value: "Morning" | "Evening") => setShift(value)}
+                    className="flex space-x-4"
                   >
-                    <Command>
-                      <CommandInput 
-                        placeholder="Search or add new milk supplier..." 
-                        value={customerNameInput} 
-                        onValueChange={handleCustomerNameInputChange}
-                       />
-                      <CommandList>
-                        {isLoadingParties ? (
-                           <CommandItem disabled>Loading milk suppliers...</CommandItem>
-                        ) : (
-                          <>
-                            {customerNameInput.trim() && !filteredPartiesForSuggestions.some(p => p.name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
-                               <CommandItem
-                                key={`__CREATE__${customerNameInput.trim()}`}
-                                value={`__CREATE__${customerNameInput.trim()}`}
-                                onSelect={() => handleCustomerSelect(customerNameInput.trim(), true)}
-                              >
-                                <PlusCircle className="mr-2 h-4 w-4" />
-                                Add new milk supplier: "{customerNameInput.trim()}"
-                              </CommandItem>
-                            )}
-                            {filteredCustomerNameSuggestions.map((party) => (
-                              <CommandItem
-                                key={party.id}
-                                value={party.name}
-                                onSelect={() => handleCustomerSelect(party.name)}
-                              >
-                                {party.name}
-                              </CommandItem>
-                            ))}
-                            <CommandEmpty>
-                              {filteredPartiesForSuggestions.length === 0 && !customerNameInput.trim() ? "No customers found. Type to add." : "No customers match."}
-                            </CommandEmpty>
-                          </>
-                        )}
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="Morning" id="morning" />
+                      <Label htmlFor="morning" className="font-normal flex items-center"><Sun className="h-4 w-4 mr-1 text-muted-foreground" />Morning</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="Evening" id="evening" />
+                      <Label htmlFor="evening" className="font-normal flex items-center"><Moon className="h-4 w-4 mr-1 text-muted-foreground" />Evening</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+                
+                <div>
+                  <Label htmlFor="customerNameInput" className="flex items-center mb-1">
+                    <User className="h-4 w-4 mr-2 text-muted-foreground" /> Customer Name (Milk Supplier)
+                  </Label>
+                  <Popover open={isCustomerPopoverOpen} onOpenChange={setIsCustomerPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Input
+                        id="customerNameInput"
+                        ref={customerNameInputRef}
+                        value={customerNameInput}
+                        onChange={(e) => handleCustomerNameInputChange(e.target.value)}
+                        onFocus={() => {
+                          if (customerNameInput.trim() || filteredPartiesForSuggestions.length > 0) {
+                            setIsCustomerPopoverOpen(true);
+                          }
+                        }}
+                        placeholder="Start typing customer name"
+                        autoComplete="off"
+                        required
+                        className="w-full"
+                      />
+                    </PopoverTrigger>
+                    <PopoverContent 
+                      className="w-[--radix-popover-trigger-width] p-0" 
+                      side="bottom" 
+                      align="start" 
+                      sideOffset={0} 
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                    >
+                      <Command>
+                        <CommandInput 
+                          placeholder="Search or add new milk supplier..." 
+                          value={customerNameInput} 
+                          onValueChange={handleCustomerNameInputChange}
+                        />
+                        <CommandList>
+                          {isLoadingParties ? (
+                            <CommandItem disabled>Loading milk suppliers...</CommandItem>
+                          ) : (
+                            <>
+                              <CommandGroup>
+                                {customerNameInput.trim() && !filteredPartiesForSuggestions.some(p => p.name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
+                                  <CommandItem
+                                  key={`__CREATE__${customerNameInput.trim()}`}
+                                  value={`__CREATE__${customerNameInput.trim()}`}
+                                  onSelect={() => handleCustomerSelect(customerNameInput.trim(), true)}
+                                  >
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Add new milk supplier: "{customerNameInput.trim()}"
+                                  </CommandItem>
+                                )}
+                                {filteredPartiesForSuggestions.map((party) => (
+                                  <CommandItem
+                                    key={party.id} 
+                                    value={party.name}
+                                    onSelect={() => handleCustomerSelect(party.name)}
+                                  >
+                                    {party.name}
+                                  </CommandItem>
+                                ))}
+                                <CommandEmpty>
+                                  {filteredPartiesForSuggestions.length === 0 && !customerNameInput.trim() ? "No customers found. Type to add." : "No customers match your search."}
+                                </CommandEmpty>
+                              </CommandGroup>
+                            </>
+                          )}
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="quantityLtr" className="flex items-center mb-1">
-                    <Scale className="h-4 w-4 mr-2 text-muted-foreground" /> Quantity (Ltr)
-                  </Label>
-                  <Input id="quantityLtr" type="text" inputMode="decimal" value={quantityLtr} onChange={(e) => setQuantityLtr(e.target.value)} placeholder="e.g., 10.5" required />
-                </div>
-                <div>
-                  <Label htmlFor="fatPercentage" className="flex items-center mb-1">
-                    <Percent className="h-4 w-4 mr-2 text-muted-foreground" /> FAT (%)
-                  </Label>
-                  <Input id="fatPercentage" type="text" inputMode="decimal" value={fatPercentage} onChange={(e) => setFatPercentage(e.target.value)} placeholder="e.g., 3.8" required />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹)
-                </Label>
-                <Input 
-                  id="ratePerLtr" 
-                  type="text" 
-                  inputMode="decimal"
-                  value={rateInputValue} 
-                  onChange={(e) => setRateInputValue(e.target.value)} 
-                  placeholder="e.g., 6.7" 
-                  required 
-                  className="font-semibold"
-                />
-              </div>
-              <div>
-                <Label htmlFor="totalAmount" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Total Amount (₹)
-                </Label>
-                <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay.toFixed(2)}` : "₹ 0.00"} readOnly className="font-semibold bg-muted/50" />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <Label htmlFor="advancePaid" className="flex items-center mb-1">
-                    <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Advance Paid (₹)
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="quantityLtr" className="flex items-center mb-1">
+                      <Scale className="h-4 w-4 mr-2 text-muted-foreground" /> Quantity (Ltr)
                     </Label>
-                    <Input id="advancePaid" type="text" inputMode="decimal" value={advancePaid} onChange={(e) => setAdvancePaid(e.target.value)} placeholder="e.g., 50" />
+                    <Input id="quantityLtr" type="text" inputMode="decimal" value={quantityLtr} onChange={(e) => setQuantityLtr(e.target.value)} placeholder="e.g., 10.5" required />
+                  </div>
+                  <div>
+                    <Label htmlFor="fatPercentage" className="flex items-center mb-1">
+                      <Percent className="h-4 w-4 mr-2 text-muted-foreground" /> FAT (%)
+                    </Label>
+                    <Input id="fatPercentage" type="text" inputMode="decimal" value={fatPercentage} onChange={(e) => setFatPercentage(e.target.value)} placeholder="e.g., 3.8" required />
+                  </div>
                 </div>
                 <div>
-                  <Label htmlFor="remarks" className="flex items-center mb-1">
-                    <StickyNote className="h-4 w-4 mr-2 text-muted-foreground" /> Remarks
+                  <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
+                    <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹)
                   </Label>
-                  <Textarea id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional notes" />
+                  <Input 
+                    id="ratePerLtr" 
+                    type="text" 
+                    inputMode="decimal"
+                    value={rateInputValue} 
+                    onChange={(e) => setRateInputValue(e.target.value)} 
+                    placeholder="e.g., 6.7" 
+                    required 
+                    className="font-semibold"
+                  />
                 </div>
-              </div>
+                <div>
+                  <Label htmlFor="totalAmount" className="flex items-center mb-1">
+                    <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Total Amount (₹)
+                  </Label>
+                  <Input id="totalAmount" value={totalAmountDisplay ? `₹ ${totalAmountDisplay.toFixed(2)}` : "₹ 0.00"} readOnly className="font-semibold bg-muted/50" />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                      <Label htmlFor="advancePaid" className="flex items-center mb-1">
+                      <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Advance Paid (₹)
+                      </Label>
+                      <Input id="advancePaid" type="text" inputMode="decimal" value={advancePaid} onChange={(e) => setAdvancePaid(e.target.value)} placeholder="e.g., 50" />
+                  </div>
+                  <div>
+                    <Label htmlFor="remarks" className="flex items-center mb-1">
+                      <StickyNote className="h-4 w-4 mr-2 text-muted-foreground" /> Remarks
+                    </Label>
+                    <Textarea id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional notes" />
+                  </div>
+                </div>
 
-              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingEntries || isLoadingParties}>
-                {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
-                {isSubmitting && !editingEntryId ? 'Adding...' : (isSubmitting && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Entry' : 'Add Entry'))}
-              </Button>
-              {editingEntryId && (
-                <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting}>
-                  Cancel Edit
+                <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingEntries || isLoadingParties}>
+                  {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
+                  {isSubmitting && !editingEntryId ? 'Adding...' : (isSubmitting && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Entry' : 'Add Entry'))}
                 </Button>
-              )}
-            </form>
-          </CardContent>
-        </Card>
+                {editingEntryId && (
+                  <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting}>
+                    Cancel Edit
+                  </Button>
+                )}
+              </form>
+            </CardContent>
+          </Card>
 
-        <Card className="lg:col-span-2">
-           <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div className="flex-1">
-                <CardTitle>Daily Ledger</CardTitle>
-                 <CardDescription className="mt-1">
-                  {tableFilterDate ? `Ledger for ${format(tableFilterDate, 'PPP')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}` : "Select a date to view ledger."}
-                  {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
-                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date${shiftFilter !== 'All' ? ` and shift` : ''}. Checked ${allEntries.length} total entries)`}
-                </CardDescription>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-end">
-                <div className="w-full sm:min-w-[180px]">
-                  <Label htmlFor="shiftFilterSelect" className="sr-only">Filter by shift</Label>
-                  <Select value={shiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setShiftFilter(value)}>
-                    <SelectTrigger id="shiftFilterSelect" className="min-w-[150px]">
-                      <Filter className="h-3 w-3 mr-2 text-muted-foreground" />
-                      <SelectValue placeholder="Filter by shift" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All Shifts</SelectItem>
-                      <SelectItem value="Morning">Morning</SelectItem>
-                      <SelectItem value="Evening">Evening</SelectItem>
-                    </SelectContent>
-                  </Select>
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div className="flex-1">
+                  <CardTitle>Daily Ledger</CardTitle>
+                  <CardDescription className="mt-1">
+                    {ledgerDescription}
+                    {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
+                    {!isLoadingEntries && (tableFilterStartDate || tableFilterEndDate) && filteredEntries.length === 0 && ` (No entries for this filter. Checked ${allEntries.length} total entries)`}
+                  </CardDescription>
                 </div>
-                <div className="w-full sm:min-w-[200px]">
-                  <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
-                  <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:items-center">
+                  <div className="w-full sm:w-auto">
+                    <Label htmlFor="shiftFilterSelect" className="sr-only">Filter by shift</Label>
+                    <Select value={shiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setShiftFilter(value)}>
+                      <SelectTrigger id="shiftFilterSelect" className="w-full sm:w-[170px]">
+                        <Filter className="h-3 w-3 mr-2 text-muted-foreground" />
+                        <SelectValue placeholder="Filter by shift" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="All">All Shifts</SelectItem>
+                        <SelectItem value="Morning">Morning</SelectItem>
+                        <SelectItem value="Evening">Evening</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-full sm:w-auto">
+                    <Label htmlFor="tableStartDateFilter" className="sr-only">Start Date</Label>
+                    <DatePicker date={tableFilterStartDate} setDate={setTableFilterStartDate} className="w-full sm:w-[170px]" />
+                  </div>
+                  <div className="w-full sm:w-auto">
+                    <Label htmlFor="tableEndDateFilter" className="sr-only">End Date</Label>
+                    <DatePicker date={tableFilterEndDate} setDate={setTableFilterEndDate} className="w-full sm:w-[170px]" />
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={handleExportCSV} variant="outline" size="icon" className="w-full sm:w-10 mt-2 sm:mt-0 h-10" disabled={filteredEntries.length === 0 || isLoadingEntries}>
+                          <Download className="h-4 w-4" />
+                          <span className="sr-only">Export CSV</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Export CSV</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                <Button onClick={handleExportCSV} variant="outline" size="sm" className="ml-auto sm:ml-0 mt-2 sm:mt-0 sm:self-end" disabled={filteredEntries.length === 0 || isLoadingEntries}>
-                    <Download className="h-4 w-4 mr-2" /> Export CSV
-                </Button>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoadingEntries && allEntries.length === 0 && !tableFilterDate ? ( 
-              <div className="space-y-2">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ) : (
-              <Table className="text-xs">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Shift</TableHead>
-                    <TableHead>Customer</TableHead> 
-                    <TableHead className="text-right">Qty (Ltr)</TableHead>
-                    <TableHead className="text-right">FAT (%)</TableHead>
-                    <TableHead className="text-right">Rate (₹)</TableHead>
-                    <TableHead className="text-right">Total (₹)</TableHead>
-                    <TableHead className="text-right">Advance (₹)</TableHead>
-                    <TableHead className="text-right">Net Payable (₹)</TableHead>
-                    <TableHead>Remarks</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredEntries.length === 0 && !isLoadingEntries ? (
+            </CardHeader>
+            <CardContent>
+              {isLoadingEntries && allEntries.length === 0 && (!tableFilterStartDate && !tableFilterEndDate) ? ( 
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : (
+                <Table className="text-xs">
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center text-muted-foreground">
-                        {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}.` : "Select a date and shift to view entries."}
-                        {tableFilterDate && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
-                      </TableCell>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Shift</TableHead>
+                      <TableHead>Customer</TableHead> 
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">FAT</TableHead>
+                      <TableHead className="text-right">Rate</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right">Adv.</TableHead>
+                      <TableHead className="text-right">Net Pay.</TableHead>
+                      <TableHead>Remarks</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ) : (
-                    filteredEntries.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell>{entry.date instanceof Date && !isNaN(entry.date.getTime()) ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
-                        <TableCell>{entry.shift}</TableCell>
-                        <TableCell>{entry.customerName}</TableCell>
-                        <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
-                        <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
-                        <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
-                        <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
-                        <TableCell className="text-right text-chart-4">{entry.advancePaid ? entry.advancePaid.toFixed(2) : "-"}</TableCell>
-                        <TableCell className="text-right font-semibold">{entry.netAmountPayable ? entry.netAmountPayable.toFixed(2) : "-"}</TableCell>
-                        <TableCell className="max-w-[100px] truncate" title={entry.remarks}>{entry.remarks || "-"}</TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <MoreHorizontal className="h-4 w-4" />
-                                <span className="sr-only">Actions</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => handleEdit(entry)}>
-                                <Edit className="mr-2 h-4 w-4" /> Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => handleDeleteClick(entry)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                                <Trash2 className="mr-2 h-4 w-4" /> Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredEntries.length === 0 && !isLoadingEntries ? (
+                      <TableRow>
+                        <TableCell colSpan={11} className="text-center text-muted-foreground">
+                          {(tableFilterStartDate || tableFilterEndDate) ? `No entries for the selected period${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}.` : "Select a date range to view entries."}
+                          {(tableFilterStartDate || tableFilterEndDate) && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
                         </TableCell>
                       </TableRow>
-                    ))
+                    ) : (
+                      filteredEntries.map((entry) => (
+                        <TableRow key={entry.id}>
+                          <TableCell>{entry.date instanceof Date && !isNaN(entry.date.getTime()) ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
+                          <TableCell>{entry.shift}</TableCell>
+                          <TableCell>{entry.customerName}</TableCell>
+                          <TableCell className="text-right">{entry.quantityLtr.toFixed(1)}</TableCell>
+                          <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
+                          <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
+                          <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
+                          <TableCell className="text-right text-chart-4">{entry.advancePaid ? entry.advancePaid.toFixed(2) : "-"}</TableCell>
+                          <TableCell className="text-right font-semibold">{entry.netAmountPayable ? entry.netAmountPayable.toFixed(2) : "-"}</TableCell>
+                          <TableCell className="max-w-[100px] truncate" title={entry.remarks}>{entry.remarks || "-"}</TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                  <span className="sr-only">Actions</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onSelect={() => handleEdit(entry)}>
+                                  <Edit className="mr-2 h-4 w-4" /> Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => handleDeleteClick(entry)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                  {filteredEntries.length > 0 && (
+                    <TableFooter>
+                      <TableRow>
+                          <TableCell colSpan={6} className="text-right font-semibold">Total Gross Amount:</TableCell>
+                          <TableCell className="text-right font-bold">{totalFilteredGrossAmount.toFixed(2)}</TableCell>
+                          <TableCell />
+                          <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
+                          <TableCell colSpan={2} />
+                      </TableRow>
+                    </TableFooter>
                   )}
-                </TableBody>
-                {filteredEntries.length > 0 && (
-                  <TableFooter>
-                    <TableRow>
-                        <TableCell colSpan={6} className="text-right font-semibold">Total Gross Amount:</TableCell>
-                        <TableCell className="text-right font-bold">{totalFilteredGrossAmount.toFixed(2)}</TableCell>
-                        <TableCell />
-                        <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
-                        <TableCell colSpan={2} />
-                    </TableRow>
-                  </TableFooter>
-                )}
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+        {showDeleteDialog && entryToDelete && (
+          <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone. This will permanently delete the milk collection entry for
+                  "{entryToDelete.customerName}" on {entryToDelete.date instanceof Date && !isNaN(entryToDelete.date.getTime()) ? format(entryToDelete.date, 'P') : 'Invalid Date'} ({entryToDelete.shift} shift).
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => {setShowDeleteDialog(false); setEntryToDelete(null);}}>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
+                  {isSubmitting ? 'Deleting...' : 'Delete'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
-      {showDeleteDialog && entryToDelete && (
-        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This action cannot be undone. This will permanently delete the milk collection entry for
-                "{entryToDelete.customerName}" on {entryToDelete.date instanceof Date && !isNaN(entryToDelete.date.getTime()) ? format(entryToDelete.date, 'P') : 'Invalid Date'} ({entryToDelete.shift} shift).
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => {setShowDeleteDialog(false); setEntryToDelete(null);}}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
-                {isSubmitting ? 'Deleting...' : 'Delete'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
-    </div>
+    </TooltipProvider>
   );
 }
 
