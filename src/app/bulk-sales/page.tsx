@@ -18,7 +18,7 @@ import {
   TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, CreditCard, MoreHorizontal, Edit, Trash2, StickyNote, Sun, Moon, Filter } from "lucide-react";
+import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, CreditCard, MoreHorizontal, Edit, Trash2, StickyNote, Sun, Moon, Filter, Download } from "lucide-react";
 import type { BulkSaleEntry, Party } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
@@ -72,7 +72,7 @@ export default function BulkSalesPage() {
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
   const [rateFactor, setRateFactor] = useState<string>("6.7"); 
-  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit"); // Default to Credit
+  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit");
   const [remarks, setRemarks] = useState<string>("");
 
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
@@ -113,13 +113,15 @@ export default function BulkSalesPage() {
   }, [toast]);
 
   useEffect(() => {
-    if (!editingEntryId) {
+    if (!editingEntryId && date === undefined) { // Only set form date if not editing and not already set
         setDate(new Date());
     }
-    setTableFilterDate(new Date()); 
+    if (tableFilterDate === undefined) { // Initialize table filter date if not already set
+        setTableFilterDate(new Date()); 
+    }
     fetchEntries();
     fetchParties();
-  }, [fetchEntries, fetchParties, editingEntryId]); 
+  }, [fetchEntries, fetchParties, editingEntryId, date, tableFilterDate]); // Added date and tableFilterDate dependencies
 
   const partiesForBulkSale = useMemo(() => {
     return availableParties.filter(p => p.type === "Customer"); 
@@ -203,19 +205,19 @@ export default function BulkSalesPage() {
   }, [toast, fetchParties]);
 
   const resetFormFields = useCallback(() => {
-    if (!editingEntryId) {
-      setDate(new Date());
-      // Shift persists by design for new entries
+    if (!editingEntryId && date) {
+      // Date persists
     }
+    // Shift persists if not editing
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
-    setRateFactor("6.7");
-    setPaymentType("Credit"); // Reset to Credit
+    setRateFactor("6.7"); // Rate factor persists if not editing
+    setPaymentType("Credit"); 
     setRemarks("");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
-  }, [editingEntryId]);
+  }, [editingEntryId, date]);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -311,6 +313,60 @@ export default function BulkSalesPage() {
     setEntryToDelete(null);
     setIsSubmitting(false);
   };
+
+  const escapeCSVField = (field: any): string => {
+    const str = String(field === undefined || field === null ? "" : field);
+    if (str.includes(",")) {
+      return `"${str.replace(/"/g, '""')}"`; 
+    }
+    return str;
+  };
+
+  const handleExportCSV = useCallback(() => {
+    if (filteredEntries.length === 0) {
+      toast({ title: "No Data", description: "No ledger entries to export for the current filter.", variant: "destructive" });
+      return;
+    }
+
+    const headers = [
+      "Date", "Shift", "Customer", "Qty (Ltr)", "FAT (%)", "Rate Factor (₹)", 
+      "Total (₹)", "Payment Type", "Remarks"
+    ];
+    
+    const rows = filteredEntries.map(entry => [
+      format(entry.date, 'yyyy-MM-dd'),
+      escapeCSVField(entry.shift),
+      escapeCSVField(entry.customerName),
+      escapeCSVField(entry.quantityLtr.toFixed(1)),
+      escapeCSVField(entry.fatPercentage.toFixed(1)),
+      escapeCSVField(entry.rateFactor ? entry.rateFactor.toFixed(2) : "0.00"),
+      escapeCSVField(entry.totalAmount.toFixed(2)),
+      escapeCSVField(entry.paymentType),
+      escapeCSVField(entry.remarks)
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      const filename = `bulk_sales_ledger_${format(tableFilterDate || new Date(), 'yyyyMMdd')}.csv`;
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({ title: "Success", description: "Ledger exported to CSV." });
+    } else {
+        toast({ title: "Error", description: "CSV export is not supported by your browser.", variant: "destructive" });
+    }
+  }, [filteredEntries, tableFilterDate, toast]);
 
   return (
     <div>
@@ -494,14 +550,14 @@ export default function BulkSalesPage() {
            <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div className="flex-1">
-                <CardTitle>Daily Bulk Sales Ledger</CardTitle>
+                <CardTitle>Sales Ledger</CardTitle>
                  <CardDescription className="mt-1">
                   {tableFilterDate ? `Ledger for ${format(tableFilterDate, 'PPP')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}` : "Select a date to view ledger."}
                   {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
                   {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date${shiftFilter !== 'All' ? ` and shift` : ''}. Checked ${allEntries.length} total entries)`}
                 </CardDescription>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-end">
                 <div className="w-full sm:min-w-[180px]">
                   <Label htmlFor="bsShiftFilterSelect" className="sr-only">Filter by shift</Label>
                   <Select value={shiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setShiftFilter(value)}>
@@ -520,6 +576,9 @@ export default function BulkSalesPage() {
                   <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
                   <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
                 </div>
+                <Button onClick={handleExportCSV} variant="outline" size="sm" className="ml-auto sm:ml-0 mt-2 sm:mt-0 sm:self-end" disabled={filteredEntries.length === 0 || isLoadingEntries}>
+                    <Download className="h-4 w-4 mr-2" /> Export CSV
+                </Button>
               </div>
             </div>
           </CardHeader>
@@ -624,3 +683,5 @@ export default function BulkSalesPage() {
     </div>
   );
 }
+
+    
