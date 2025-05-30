@@ -43,6 +43,7 @@ export default function RootLayout({
             <SidebarRail />
             <SidebarInset>
               <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b bg-background/80 backdrop-blur-sm px-4 sm:h-16 md:px-6">
+                {/* Mobile Trigger */}
                 <div className="md:hidden">
                   <SidebarTrigger asChild>
                     <Button variant="outline" size="icon" className="h-8 w-8">
@@ -51,6 +52,17 @@ export default function RootLayout({
                     </Button>
                   </SidebarTrigger>
                 </div>
+
+                {/* Desktop Trigger */}
+                <div className="hidden md:flex"> {/* Only show on md and up */}
+                  <SidebarTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <PanelLeft className="h-4 w-4" />
+                      <span className="sr-only">Toggle Sidebar</span>
+                    </Button>
+                  </SidebarTrigger>
+                </div>
+
                 <HeaderTitle />
               </header>
               <main className="flex-1 pt-2 md:pt-4 lg:pt-6 px-4 md:px-6 lg:px-8 pb-4 md:pb-6 lg:pb-8">
