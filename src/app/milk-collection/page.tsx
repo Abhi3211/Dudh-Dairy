@@ -85,12 +85,7 @@ export default function MilkCollectionPage() {
   const [entryToDelete, setEntryToDelete] = useState<MilkCollectionEntry | null>(null);
 
   useEffect(() => {
-    setDate(undefined); // Initialize date as undefined
-    setTableFilterDate(undefined); // Initialize tableFilterDate as undefined
-  }, []);
-
-  useEffect(() => {
-    if (date === undefined && !editingEntryId) { // Only set to new Date if not editing and not already set
+    if (date === undefined && !editingEntryId) { 
       setDate(new Date());
     }
     if (tableFilterDate === undefined) {
@@ -103,8 +98,7 @@ export default function MilkCollectionPage() {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
-      // In Milk Collection, "Customers" are those supplying milk, typically of type "Customer" in our unified Party model
-      setAvailableParties(parties.filter(p => p.type === "Customer")); 
+      setAvailableParties(parties); 
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties for milk collection:", error);
       toast({ title: "Error", description: "Could not fetch parties.", variant: "destructive" });
@@ -122,7 +116,7 @@ export default function MilkCollectionPage() {
       const processedEntries = fetchedEntries.map(entry => ({
         ...entry,
         date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
-      })).sort((a, b) => b.date.getTime() - a.date.getTime()); // Sort by date desc by default
+      })).sort((a, b) => b.date.getTime() - a.date.getTime()); 
       console.log('CLIENT: MilkCollection - Processed entries. Count:', processedEntries.length, 'Data (sample):', processedEntries.length > 0 ? JSON.parse(JSON.stringify(processedEntries[0])) : 'No data');
       setAllEntries(processedEntries);
     } catch (error) {
@@ -140,10 +134,11 @@ export default function MilkCollectionPage() {
     fetchParties();
   }, [fetchEntries, fetchParties]); 
 
-  const allKnownCustomerNames = useMemo(() => {
-    return availableParties.map(p => p.name).sort((a, b) => a.localeCompare(b));
+  const filteredPartiesForSuggestions = useMemo(() => {
+    return availableParties
+      .filter(p => p.type === "Customer")
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [availableParties]);
-
 
   const totalAmountDisplay = useMemo(() => {
     const quantityStr = quantityLtr.replace(',', '.');
@@ -155,12 +150,13 @@ export default function MilkCollectionPage() {
     const rate = parseFloat(rateStr);
 
     if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat >= 0 && !isNaN(rate) && rate > 0) {
-      return (quantity * fat * rate); // Corrected formula
+      return (quantity * fat * rate);
     }
     return 0;
   }, [quantityLtr, fatPercentage, rateInputValue]);
 
   const filteredEntries = useMemo(() => {
+    console.log("CLIENT: MilkCollection - Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Selected shiftFilter:", shiftFilter, "Total entries being filtered:", allEntries.length);
     let dateFiltered = allEntries;
     if (tableFilterDate) {
         const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
@@ -170,9 +166,7 @@ export default function MilkCollectionPage() {
                 return false;
             }
             const entryDateStr = format(entry.date, 'yyyy-MM-dd');
-            const match = entryDateStr === targetDateStr;
-            console.log(`CLIENT: MilkCollection - Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (raw: ${entry.date instanceof Date ? entry.date.toISOString() : String(entry.date)}), target date: ${targetDateStr}, match: ${match}`);
-            return match;
+            return entryDateStr === targetDateStr;
         });
     }
 
@@ -194,12 +188,12 @@ export default function MilkCollectionPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    if (value.trim()) {
+    if (value.trim() && filteredPartiesForSuggestions.length > 0) {
       setIsCustomerPopoverOpen(true);
     } else {
       setIsCustomerPopoverOpen(false);
     }
-  }, []);
+  }, [filteredPartiesForSuggestions]);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
@@ -209,8 +203,19 @@ export default function MilkCollectionPage() {
         setIsCustomerPopoverOpen(false);
         return;
       }
-      setIsSubmitting(true); // Use general isSubmitting
-      // When adding a new customer in milk collection, they are the milk supplier, so type is "Customer"
+
+      const existingParty = availableParties.find(
+        p => p.name.toLowerCase() === trimmedValue.toLowerCase() && p.type === "Customer"
+      );
+      if (existingParty) {
+        toast({ title: "Info", description: `Customer "${trimmedValue}" already exists. Selecting existing customer.`, variant: "default" });
+        setCustomerNameInput(trimmedValue);
+        setIsCustomerPopoverOpen(false);
+        customerNameInputRef.current?.focus();
+        return;
+      }
+
+      setIsSubmitting(true); 
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
       if (result.success && result.id) {
         setCustomerNameInput(trimmedValue);
@@ -225,14 +230,13 @@ export default function MilkCollectionPage() {
     }
     setIsCustomerPopoverOpen(false);
     customerNameInputRef.current?.focus();
-  }, [toast, fetchParties]);
+  }, [toast, fetchParties, availableParties]);
 
   const resetFormFields = useCallback(() => {
-    // Date and Shift persist by design for new entries if not in edit mode
-    if (!editingEntryId && date) { 
-        // setDate(new Date()); // Date is now handled by useEffect for initialization
+    if (!editingEntryId) {
+        // Date persists by design for new entries if not in edit mode
+        // Shift persists by design for new entries if not editing.
     }
-    // Shift persists by design for new entries if not editing.
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
@@ -241,7 +245,7 @@ export default function MilkCollectionPage() {
     setRemarks("");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
-  }, [editingEntryId, date]);
+  }, [editingEntryId]);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -275,7 +279,7 @@ export default function MilkCollectionPage() {
     }
 
 
-    const finalTotalAmount = qLtr * fatP * finalRateFactor; // Corrected formula
+    const finalTotalAmount = qLtr * fatP * finalRateFactor;
     const finalNetAmountPayable = finalTotalAmount - parsedAdvancePaid;
 
     const entryData: Omit<MilkCollectionEntry, 'id'> = {
@@ -318,12 +322,12 @@ export default function MilkCollectionPage() {
     setIsSubmitting(false); 
   };
 
-  const filteredCustomerSuggestions = useMemo(() => {
-    if (!customerNameInput.trim()) return allKnownCustomerNames;
-    return allKnownCustomerNames.filter((name) =>
-      name.toLowerCase().includes(customerNameInput.toLowerCase())
+  const filteredCustomerNameSuggestions = useMemo(() => {
+    if (!customerNameInput.trim()) return filteredPartiesForSuggestions;
+    return filteredPartiesForSuggestions.filter((party) =>
+      party.name.toLowerCase().includes(customerNameInput.toLowerCase())
     );
-  }, [customerNameInput, allKnownCustomerNames]);
+  }, [customerNameInput, filteredPartiesForSuggestions]);
 
   const handleEdit = (entry: MilkCollectionEntry) => {
     setEditingEntryId(entry.id);
@@ -460,10 +464,8 @@ export default function MilkCollectionPage() {
                       value={customerNameInput}
                       onChange={(e) => handleCustomerNameInputChange(e.target.value)}
                        onFocus={() => {
-                         if (customerNameInput.trim() && filteredCustomerSuggestions.length > 0 && !availableParties.find(p=>p.name === customerNameInput)) {
+                         if (customerNameInput.trim() || filteredPartiesForSuggestions.length > 0) {
                            setIsCustomerPopoverOpen(true);
-                         } else if (!customerNameInput.trim() && allKnownCustomerNames.length > 0){
-                            setIsCustomerPopoverOpen(true);
                          }
                        }}
                       placeholder="Start typing customer name"
@@ -476,7 +478,7 @@ export default function MilkCollectionPage() {
                     className="w-[--radix-popover-trigger-width] p-0" 
                     side="bottom" 
                     align="start" 
-                    sideOffset={0}
+                    sideOffset={4}
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
                     <Command>
@@ -490,7 +492,7 @@ export default function MilkCollectionPage() {
                            <CommandItem disabled>Loading milk suppliers...</CommandItem>
                         ) : (
                           <>
-                            {customerNameInput.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
+                            {customerNameInput.trim() && !filteredPartiesForSuggestions.some(p => p.name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
                                <CommandItem
                                 key={`__CREATE__${customerNameInput.trim()}`}
                                 value={`__CREATE__${customerNameInput.trim()}`}
@@ -500,21 +502,18 @@ export default function MilkCollectionPage() {
                                 Add new milk supplier: "{customerNameInput.trim()}"
                               </CommandItem>
                             )}
-                            {filteredCustomerSuggestions.map((name) => (
+                            {filteredCustomerNameSuggestions.map((party) => (
                               <CommandItem
-                                key={name}
-                                value={name}
-                                onSelect={() => handleCustomerSelect(name)}
+                                key={party.id}
+                                value={party.name}
+                                onSelect={() => handleCustomerSelect(party.name)}
                               >
-                                {name}
+                                {party.name}
                               </CommandItem>
                             ))}
-                             {filteredCustomerSuggestions.length === 0 && customerNameInput.trim() && allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
-                                <CommandEmpty>No existing milk suppliers match. Select "Add new..." above.</CommandEmpty>
-                             )}
-                             {allKnownCustomerNames.length === 0 && !customerNameInput.trim() && (
-                                <CommandEmpty>No milk suppliers found. Type to add a new one.</CommandEmpty>
-                             )}
+                            <CommandEmpty>
+                              {filteredPartiesForSuggestions.length === 0 && !customerNameInput.trim() ? "No customers found. Type to add." : "No customers match."}
+                            </CommandEmpty>
                           </>
                         )}
                       </CommandList>
@@ -539,7 +538,7 @@ export default function MilkCollectionPage() {
               </div>
               <div>
                 <Label htmlFor="ratePerLtr" className="flex items-center mb-1">
-                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate Factor (₹)
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹)
                 </Label>
                 <Input 
                   id="ratePerLtr" 
@@ -665,7 +664,7 @@ export default function MilkCollectionPage() {
                         <TableCell className="text-right">{entry.fatPercentage.toFixed(1)}</TableCell>
                         <TableCell className="text-right">{entry.ratePerLtr ? entry.ratePerLtr.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
-                        <TableCell className="text-right text-destructive">{entry.advancePaid ? entry.advancePaid.toFixed(2) : "-"}</TableCell>
+                        <TableCell className="text-right text-chart-4">{entry.advancePaid ? entry.advancePaid.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right font-semibold">{entry.netAmountPayable ? entry.netAmountPayable.toFixed(2) : "-"}</TableCell>
                         <TableCell className="max-w-[100px] truncate" title={entry.remarks}>{entry.remarks || "-"}</TableCell>
                         <TableCell className="text-right">
@@ -695,9 +694,9 @@ export default function MilkCollectionPage() {
                     <TableRow>
                         <TableCell colSpan={6} className="text-right font-semibold">Total Gross Amount:</TableCell>
                         <TableCell className="text-right font-bold">{totalFilteredGrossAmount.toFixed(2)}</TableCell>
-                        <TableCell />{/* For Advance Paid column */}
+                        <TableCell />
                         <TableCell className="text-right font-bold">{totalFilteredNetAmount.toFixed(2)}</TableCell>
-                        <TableCell colSpan={2} />{/* For Remarks and Actions columns */}
+                        <TableCell colSpan={2} />
                     </TableRow>
                   </TableFooter>
                 )}
@@ -728,3 +727,4 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+
