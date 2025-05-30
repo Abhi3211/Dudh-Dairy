@@ -22,7 +22,7 @@ import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, CreditCard
 import type { BulkSaleEntry, Party } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { addBulkSaleEntryToFirestore, getBulkSaleEntriesFromFirestore, updateBulkSaleEntryInFirestore, deleteBulkSaleEntryFromFirestore } from "./actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -62,7 +62,9 @@ export default function BulkSalesPage() {
 
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
-  const [tableFilterDate, setTableFilterDate] = useState<Date | undefined>(undefined);
+  
+  const [tableFilterStartDate, setTableFilterStartDate] = useState<Date | undefined>(undefined);
+  const [tableFilterEndDate, setTableFilterEndDate] = useState<Date | undefined>(undefined);
   const [shiftFilter, setShiftFilter] = useState<"All" | "Morning" | "Evening">("All");
   
   const [customerNameInput, setCustomerNameInput] = useState<string>("");
@@ -113,15 +115,18 @@ export default function BulkSalesPage() {
   }, [toast]);
 
   useEffect(() => {
-    if (!editingEntryId && date === undefined) { // Only set form date if not editing and not already set
+    if (!editingEntryId && date === undefined) { 
         setDate(new Date());
     }
-    if (tableFilterDate === undefined) { // Initialize table filter date if not already set
-        setTableFilterDate(new Date()); 
+    if (tableFilterStartDate === undefined) {
+        setTableFilterStartDate(startOfMonth(new Date()));
+    }
+    if (tableFilterEndDate === undefined) {
+        setTableFilterEndDate(new Date()); 
     }
     fetchEntries();
     fetchParties();
-  }, [fetchEntries, fetchParties, editingEntryId, date, tableFilterDate]); // Added date and tableFilterDate dependencies
+  }, [fetchEntries, fetchParties, editingEntryId, date, tableFilterStartDate, tableFilterEndDate]);
 
   const partiesForBulkSale = useMemo(() => {
     return availableParties.filter(p => p.type === "Customer"); 
@@ -149,14 +154,19 @@ export default function BulkSalesPage() {
 
   const filteredEntries = useMemo(() => {
     let dateFiltered = allEntries;
-    if (tableFilterDate !== undefined) {
-        const targetDateStr = format(tableFilterDate, 'yyyy-MM-dd');
+    if (tableFilterStartDate || tableFilterEndDate) {
         dateFiltered = allEntries.filter(entry => {
             if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) {
                 return false;
             }
-            const entryDateStr = format(entry.date, 'yyyy-MM-dd');
-            return entryDateStr === targetDateStr;
+            const entryDate = new Date(entry.date.getFullYear(), entry.date.getMonth(), entry.date.getDate()); // Normalize to start of day
+            
+            const start = tableFilterStartDate ? new Date(tableFilterStartDate.getFullYear(), tableFilterStartDate.getMonth(), tableFilterStartDate.getDate()) : null;
+            const end = tableFilterEndDate ? new Date(tableFilterEndDate.getFullYear(), tableFilterEndDate.getMonth(), tableFilterEndDate.getDate()) : null;
+
+            if (start && entryDate < start) return false;
+            if (end && entryDate > end) return false;
+            return true;
         });
     }
     let shiftAndDateFiltered = dateFiltered;
@@ -164,7 +174,7 @@ export default function BulkSalesPage() {
         shiftAndDateFiltered = dateFiltered.filter(entry => entry.shift === shiftFilter);
     }
     return shiftAndDateFiltered;
-  }, [allEntries, tableFilterDate, shiftFilter]);
+  }, [allEntries, tableFilterStartDate, tableFilterEndDate, shiftFilter]);
   
   const totalFilteredAmount = useMemo(() => {
     return filteredEntries.reduce((sum, entry) => sum + (entry.totalAmount || 0), 0);
@@ -205,19 +215,19 @@ export default function BulkSalesPage() {
   }, [toast, fetchParties]);
 
   const resetFormFields = useCallback(() => {
-    if (!editingEntryId && date) {
-      // Date persists
+    if (!editingEntryId) {
+        setDate(new Date()); // Reset date to today for new entries if not editing
+        // Shift persists
+        // Rate factor persists
+        setPaymentType("Credit"); 
     }
-    // Shift persists if not editing
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
-    setRateFactor("6.7"); // Rate factor persists if not editing
-    setPaymentType("Credit"); 
     setRemarks("");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
-  }, [editingEntryId, date]);
+  }, [editingEntryId]);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -354,7 +364,11 @@ export default function BulkSalesPage() {
     const link = document.createElement("a");
     if (link.download !== undefined) {
       const url = URL.createObjectURL(blob);
-      const filename = `bulk_sales_ledger_${format(tableFilterDate || new Date(), 'yyyyMMdd')}.csv`;
+      const baseFilename = "bulk_sales_ledger";
+      const startDateStr = tableFilterStartDate ? format(tableFilterStartDate, 'yyyyMMdd') : 'any_start';
+      const endDateStr = tableFilterEndDate ? format(tableFilterEndDate, 'yyyyMMdd') : 'any_end';
+      const filename = `${baseFilename}_${startDateStr}_to_${endDateStr}.csv`;
+
       link.setAttribute("href", url);
       link.setAttribute("download", filename);
       link.style.visibility = 'hidden';
@@ -366,7 +380,28 @@ export default function BulkSalesPage() {
     } else {
         toast({ title: "Error", description: "CSV export is not supported by your browser.", variant: "destructive" });
     }
-  }, [filteredEntries, tableFilterDate, toast]);
+  }, [filteredEntries, tableFilterStartDate, tableFilterEndDate, toast]);
+
+  const ledgerDescription = useMemo(() => {
+    let desc = "Ledger for ";
+    if (tableFilterStartDate && tableFilterEndDate) {
+      if (format(tableFilterStartDate, 'yyyy-MM-dd') === format(tableFilterEndDate, 'yyyy-MM-dd')) {
+        desc += format(tableFilterStartDate, 'PPP');
+      } else {
+        desc += `${format(tableFilterStartDate, 'PPP')} to ${format(tableFilterEndDate, 'PPP')}`;
+      }
+    } else if (tableFilterStartDate) {
+      desc += `from ${format(tableFilterStartDate, 'PPP')}`;
+    } else if (tableFilterEndDate) {
+      desc += `up to ${format(tableFilterEndDate, 'PPP')}`;
+    } else {
+      desc = "Complete ledger (no date filter)";
+    }
+    if (shiftFilter !== 'All') {
+      desc += ` (${shiftFilter} shift)`;
+    }
+    return desc;
+  }, [tableFilterStartDate, tableFilterEndDate, shiftFilter]);
 
   return (
     <div>
@@ -552,9 +587,9 @@ export default function BulkSalesPage() {
               <div className="flex-1">
                 <CardTitle>Sales Ledger</CardTitle>
                  <CardDescription className="mt-1">
-                  {tableFilterDate ? `Ledger for ${format(tableFilterDate, 'PPP')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}` : "Select a date to view ledger."}
+                  {ledgerDescription}
                   {isLoadingEntries && allEntries.length === 0 && " Loading entries..."}
-                  {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date${shiftFilter !== 'All' ? ` and shift` : ''}. Checked ${allEntries.length} total entries)`}
+                  {!isLoadingEntries && (tableFilterStartDate || tableFilterEndDate) && filteredEntries.length === 0 && ` (No entries for this filter. Checked ${allEntries.length} total entries)`}
                 </CardDescription>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-end">
@@ -573,8 +608,12 @@ export default function BulkSalesPage() {
                   </Select>
                 </div>
                 <div className="w-full sm:min-w-[200px]">
-                  <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
-                  <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
+                  <Label htmlFor="tableStartDateFilter" className="sr-only">Start Date</Label>
+                  <DatePicker date={tableFilterStartDate} setDate={setTableFilterStartDate} />
+                </div>
+                <div className="w-full sm:min-w-[200px]">
+                  <Label htmlFor="tableEndDateFilter" className="sr-only">End Date</Label>
+                  <DatePicker date={tableFilterEndDate} setDate={setTableFilterEndDate} />
                 </div>
                 <Button onClick={handleExportCSV} variant="outline" size="sm" className="ml-auto sm:ml-0 mt-2 sm:mt-0 sm:self-end" disabled={filteredEntries.length === 0 || isLoadingEntries}>
                     <Download className="h-4 w-4 mr-2" /> Export CSV
@@ -583,7 +622,7 @@ export default function BulkSalesPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {isLoadingEntries && allEntries.length === 0 && !tableFilterDate ? ( 
+            {isLoadingEntries && allEntries.length === 0 && (!tableFilterStartDate && !tableFilterEndDate) ? ( 
               <div className="space-y-2">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
@@ -609,8 +648,8 @@ export default function BulkSalesPage() {
                   {filteredEntries.length === 0 && !isLoadingEntries ? (
                     <TableRow>
                       <TableCell colSpan={10} className="text-center text-muted-foreground">
-                        {tableFilterDate ? `No entries for ${format(tableFilterDate, 'P')}${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}.` : "Select a date to view entries."}
-                        {tableFilterDate && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
+                        {(tableFilterStartDate || tableFilterEndDate) ? `No entries for the selected period${shiftFilter !== 'All' ? ` (${shiftFilter} shift)` : ''}.` : "Select a date range to view entries."}
+                        {(tableFilterStartDate || tableFilterEndDate) && allEntries.length > 0 && !filteredEntries.length && ` (Checked ${allEntries.length} total entries)`}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -683,5 +722,3 @@ export default function BulkSalesPage() {
     </div>
   );
 }
-
-    
