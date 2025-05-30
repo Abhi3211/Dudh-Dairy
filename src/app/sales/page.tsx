@@ -26,12 +26,12 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays, MoreHorizontal, Edit, Trash2 } from "lucide-react";
-import type { SaleEntry, Party } from "@/lib/types";
+import type { SaleEntry, Party, PashuAaharTransaction } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { addSaleEntryToFirestore, getSaleEntriesFromFirestore, updateSaleEntryInFirestore, deleteSaleEntryFromFirestore } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
-import { getUniquePashuAaharProductNamesFromFirestore } from "../pashu-aahar/actions";
+import { getUniquePashuAaharProductNamesFromFirestore, getPashuAaharTransactionsFromFirestore } from "../pashu-aahar/actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
@@ -82,12 +82,15 @@ export default function SalesPage() {
   const customerNameInputRef = useRef<HTMLInputElement>(null);
   
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
-  const [isLoadingParties, setIsLoadingParties] = useState(true);
+  const [isLoadingPrerequisites, setIsLoadingPrerequisites] = useState(true);
 
   const [isPashuAaharPopoverOpen, setIsPashuAaharPopoverOpen] = useState(false);
   const pashuAaharInputRef = useRef<HTMLInputElement>(null);
   const [availablePashuAaharProducts, setAvailablePashuAaharProducts] = useState<string[]>([]);
-  const [isLoadingPashuAaharProducts, setIsLoadingPashuAaharProducts] = useState(true);
+  
+  const [allPashuAaharPurchases, setAllPashuAaharPurchases] = useState<PashuAaharTransaction[]>([]);
+  const [allSalesEntriesForStockCalc, setAllSalesEntriesForStockCalc] = useState<SaleEntry[]>([]);
+  const [pashuAaharStock, setPashuAaharStock] = useState<Record<string, number>>({});
 
 
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -100,14 +103,14 @@ export default function SalesPage() {
     }
   }, [date, editingEntryId]);
 
-  const fetchSales = useCallback(async () => {
+  const fetchSalesHistory = useCallback(async () => {
     setIsLoadingSales(true);
     try {
       const fetchedSales = await getSaleEntriesFromFirestore();
       const processedSales = fetchedSales.map(s => ({
         ...s,
         date: s.date instanceof Date ? s.date : new Date(s.date)
-      }));
+      })).sort((a,b) => b.date.getTime() - a.date.getTime());
       setSales(processedSales);
     } catch (error) {
       console.error("CLIENT: Failed to fetch sales entries:", error);
@@ -117,27 +120,53 @@ export default function SalesPage() {
     }
   }, [toast]);
 
-  const fetchPartiesAndProducts = useCallback(async () => {
-    setIsLoadingParties(true);
-    setIsLoadingPashuAaharProducts(true);
+  const fetchPagePrerequisites = useCallback(async () => {
+    setIsLoadingPrerequisites(true);
     try {
-      const parties = await getPartiesFromFirestore();
+      const [parties, pashuAaharNames, pashuAaharPurchasesData, allSalesData] = await Promise.all([
+        getPartiesFromFirestore(),
+        getUniquePashuAaharProductNamesFromFirestore(),
+        getPashuAaharTransactionsFromFirestore(), // Fetch all pashu aahar purchases
+        getSaleEntriesFromFirestore() // Fetch all sales for stock calculation
+      ]);
       setAvailableParties(parties);
-      const pashuAaharNames = await getUniquePashuAaharProductNamesFromFirestore();
-      setAvailablePashuAaharProducts(pashuAaharNames);
+      setAvailablePashuAaharProducts(pashuAaharNames.sort((a, b) => a.localeCompare(b)));
+      setAllPashuAaharPurchases(pashuAaharPurchasesData);
+      setAllSalesEntriesForStockCalc(allSalesData);
+
     } catch (error) {
-      console.error("CLIENT: Failed to fetch parties or pashu aahar products:", error);
-      toast({ title: "Error", description: "Could not fetch supporting data.", variant: "destructive" });
+      console.error("CLIENT: Failed to fetch page prerequisites:", error);
+      toast({ title: "Error", description: "Could not fetch supporting data for sales form.", variant: "destructive" });
     } finally {
-      setIsLoadingParties(false);
-      setIsLoadingPashuAaharProducts(false);
+      setIsLoadingPrerequisites(false);
     }
   }, [toast]);
 
   useEffect(() => {
-    fetchSales();
-    fetchPartiesAndProducts();
-  }, [fetchSales, fetchPartiesAndProducts]);
+    fetchSalesHistory();
+    fetchPagePrerequisites();
+  }, [fetchSalesHistory, fetchPagePrerequisites]);
+
+  // Calculate Pashu Aahar Stock
+  useEffect(() => {
+    const stock: Record<string, number> = {};
+    
+    // Sum purchases
+    allPashuAaharPurchases.forEach(tx => {
+      if (tx.type === "Purchase") {
+        stock[tx.productName] = (stock[tx.productName] || 0) + tx.quantityBags;
+      }
+    });
+
+    // Subtract sales
+    allSalesEntriesForStockCalc.forEach(sale => {
+      if (sale.unit === "Bags" && availablePashuAaharProducts.includes(sale.productName)) { // Ensure it's a known Pashu Aahar product being sold
+        stock[sale.productName] = (stock[sale.productName] || 0) - sale.quantity;
+      }
+    });
+    setPashuAaharStock(stock);
+  }, [allPashuAaharPurchases, allSalesEntriesForStockCalc, availablePashuAaharProducts]);
+
 
   const partiesForSalesSuggestions = useMemo(() => {
     return availableParties.filter(p => p.type === "Customer" || p.type === "Dealer");
@@ -188,20 +217,25 @@ export default function SalesPage() {
     }
   }, [allKnownCustomerNamesForSales]);
   
-  const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
+  const handleCustomerSelect = useCallback(async (currentValue: string) => {
     const trimmedValue = currentValue.trim();
-    if (isCreateNew) {
-       if (!trimmedValue) {
+    const isCreatingNew = trimmedValue && 
+                         !allKnownCustomerNamesForSales.some(name => name.toLowerCase() === trimmedValue.toLowerCase()) &&
+                         currentValue.startsWith("__CREATE_CUSTOMER__");
+    
+    if (isCreatingNew) {
+      const actualNewName = customerName.trim(); // Use the typed name for creation
+      if (!actualNewName) {
         toast({ title: "Error", description: "Customer name cannot be empty.", variant: "destructive" });
         setIsCustomerPopoverOpen(false);
         return;
       }
-      setIsSubmitting(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
+      setIsSubmitting(true); // Use general isSubmitting
+      const result = await addPartyToFirestore({ name: actualNewName, type: "Customer" });
       if (result.success) {
-        setCustomerName(trimmedValue);
-        toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
-        await fetchPartiesAndProducts(); 
+        setCustomerName(actualNewName);
+        toast({ title: "Success", description: `Customer "${actualNewName}" added.` });
+        await fetchPagePrerequisites(); // Re-fetch parties to include the new one
       } else {
         toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
       }
@@ -211,7 +245,7 @@ export default function SalesPage() {
     }
     setIsCustomerPopoverOpen(false);
     customerNameInputRef.current?.focus();
-  }, [toast, fetchPartiesAndProducts]);
+  }, [toast, fetchPagePrerequisites, allKnownCustomerNamesForSales, customerName]);
 
   const filteredCustomerSuggestions = useMemo(() => {
     if (!customerName.trim()) return allKnownCustomerNamesForSales;
@@ -300,12 +334,8 @@ export default function SalesPage() {
     
     if (result.success) {
       resetFormFields();
-      await fetchSales(); 
-      // Optionally, re-fetch pashu aahar product names if a new one might have been implicitly added through a sale
-      if (currentCategoryDetails.categoryName === "Pashu Aahar") {
-        const pashuAaharNames = await getUniquePashuAaharProductNamesFromFirestore();
-        setAvailablePashuAaharProducts(pashuAaharNames);
-      }
+      await fetchSalesHistory(); 
+      await fetchPagePrerequisites(); // Re-fetch to update stock levels if needed
     }
     setIsSubmitting(false);
   };
@@ -327,9 +357,8 @@ export default function SalesPage() {
         setSpecificPashuAaharName("");
       }
     } else {
-      // Fallback if product name doesn't match a category (e.g. it's a specific Pashu Aahar name)
       const pashuAaharCatIndex = productCategories.findIndex(cat => cat.categoryName === "Pashu Aahar");
-      if (pashuAaharCatIndex !== -1 && entry.unit === "Bags") { // Assuming unit "Bags" implies Pashu Aahar
+      if (pashuAaharCatIndex !== -1 && entry.unit === "Bags") { 
           setSelectedCategoryIndex(String(pashuAaharCatIndex));
           setSpecificPashuAaharName(entry.productName);
       } else {
@@ -354,7 +383,8 @@ export default function SalesPage() {
     const result = await deleteSaleEntryFromFirestore(entryToDelete.id);
     if (result.success) {
       toast({ title: "Success", description: "Sale entry deleted." });
-      await fetchSales();
+      await fetchSalesHistory();
+      await fetchPagePrerequisites(); // Re-fetch to update stock levels
     } else {
       toast({ title: "Error", description: result.error || "Failed to delete entry.", variant: "destructive" });
     }
@@ -408,7 +438,7 @@ export default function SalesPage() {
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     side="bottom"
                     align="start"
-                    sideOffset={0}
+                    sideOffset={4}
                   >
                     <Command>
                       <CommandInput 
@@ -417,7 +447,7 @@ export default function SalesPage() {
                         onValueChange={handleCustomerNameInputChange}
                       />
                       <CommandList>
-                        {isLoadingParties ? (
+                        {isLoadingPrerequisites ? (
                            <CommandItem disabled>Loading customers...</CommandItem>
                         ): (
                           <>
@@ -427,7 +457,7 @@ export default function SalesPage() {
                                 <CommandItem
                                   key={`__CREATE_CUSTOMER__${customerName.trim()}`}
                                   value={`__CREATE_CUSTOMER__${customerName.trim()}`}
-                                  onSelect={() => handleCustomerSelect(customerName.trim(), true)}
+                                  onSelect={() => handleCustomerSelect(`__CREATE_CUSTOMER__${customerName.trim()}`)}
                                 >
                                   <PlusCircle className="mr-2 h-4 w-4" />
                                   Add new customer: "{customerName.trim()}"
@@ -437,7 +467,7 @@ export default function SalesPage() {
                                   <CommandItem
                                     key={name}
                                     value={name}
-                                    onSelect={() => handleCustomerSelect(name, false)}
+                                    onSelect={() => handleCustomerSelect(name)}
                                   >
                                     {name}
                                   </CommandItem>
@@ -491,7 +521,7 @@ export default function SalesPage() {
                       onOpenAutoFocus={(e) => e.preventDefault()}
                       side="bottom"
                       align="start"
-                      sideOffset={0}
+                      sideOffset={4}
                     >
                        <Command>
                         <CommandInput 
@@ -500,7 +530,7 @@ export default function SalesPage() {
                             onValueChange={handleSpecificPashuAaharNameChange}
                         />
                         <CommandList>
-                            {isLoadingPashuAaharProducts ? (
+                            {isLoadingPrerequisites ? (
                               <CommandItem disabled>Loading products...</CommandItem>
                             ) : (
                               <>
@@ -508,13 +538,18 @@ export default function SalesPage() {
                                 <CommandGroup>
                                 {availablePashuAaharProducts
                                   .filter(name => name.toLowerCase().includes(specificPashuAaharName.toLowerCase()))
-                                  .map(suggestion => ( 
+                                  .map(productName => ( 
                                   <CommandItem
-                                  key={suggestion}
-                                  value={suggestion}
-                                  onSelect={() => handlePashuAaharSelect(suggestion)}
+                                  key={productName}
+                                  value={productName}
+                                  onSelect={() => handlePashuAaharSelect(productName)}
                                   >
-                                  {suggestion}
+                                    {productName}
+                                    {pashuAaharStock[productName] !== undefined && (
+                                        <span className="ml-auto text-xs text-muted-foreground">
+                                        (Stock: {pashuAaharStock[productName] ?? 0} Bags)
+                                        </span>
+                                    )}
                                   </CommandItem>
                                 ))}
                                 </CommandGroup>
@@ -530,11 +565,11 @@ export default function SalesPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="quantity">Quantity</Label>
-                  <Input id="quantity" type="number" step={currentCategoryDetails?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
+                  <Input id="quantity" type="text" inputMode="decimal" step={currentCategoryDetails?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
                 </div>
                 <div>
                   <Label htmlFor="rate" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Rate</Label>
-                  <Input id="rate" type="number" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="e.g., 60" required />
+                  <Input id="rate" type="text" inputMode="decimal" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="e.g., 60" required />
                 </div>
               </div>
               <div>
@@ -553,7 +588,7 @@ export default function SalesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingParties || isLoadingPashuAaharProducts}>
+              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingPrerequisites}>
                 {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
                 {isSubmitting && !editingEntryId ? 'Adding...' : (isSubmitting && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Sale' : 'Add Sale'))}
               </Button>
@@ -655,3 +690,5 @@ export default function SalesPage() {
     </div>
   );
 }
+
+    
