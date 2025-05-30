@@ -44,6 +44,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { usePageTitle } from '@/context/PageTitleContext';
 
+// Predefined list of common Pashu Aahar products
+const INITIAL_KNOWN_PASHU_AAHAR_PRODUCTS: string[] = [
+  "Gold Coin Feed",
+  "Super Pallet",
+  "Nutri Plus Feed",
+  "Kisan Special Churi",
+  "Dairy Delight Mix",
+];
+
+
 export default function PashuAaharPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Pashu Aahar Stock";
@@ -58,9 +68,14 @@ export default function PashuAaharPage() {
   const [currentStockByProduct, setCurrentStockByProduct] = useState<Record<string, number>>({});
 
   const [date, setDate] = useState<Date | undefined>(undefined);
-  const [productName, setProductName] = useState("");
   
-  const [supplierNameInput, setSupplierNameInput] = useState<string>(""); 
+  const [productName, setProductName] = useState("");
+  const [isProductPopoverOpen, setIsProductPopoverOpen] = useState(false);
+  const productNameInputRef = useRef<HTMLInputElement>(null);
+  const [knownPashuAaharProductsList, setKnownPashuAaharProductsList] = useState<string[]>(INITIAL_KNOWN_PASHU_AAHAR_PRODUCTS);
+
+
+  const [supplierNameInput, setSupplierNameInput] = useState<string>("");
   const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
   const supplierNameInputRef = useRef<HTMLInputElement>(null);
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
@@ -106,7 +121,7 @@ export default function PashuAaharPage() {
   }, [toast]);
 
   useEffect(() => {
-    if (!editingTransactionId && !date) { 
+    if (!editingTransactionId && date === undefined) {
         setDate(new Date());
     }
     fetchTransactions();
@@ -125,9 +140,10 @@ export default function PashuAaharPage() {
       if (tx.type === "Purchase") {
         stockCalc[pName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
-         // If sales are tracked in this module, decrement stock here.
-         // For now, assuming sales transactions are not directly managed for stock decrement in this particular module's transaction list
+         // If sales are tracked from other modules for stock decrement:
          // stockCalc[pName] -= tx.quantityBags; 
+         // For now, assuming sales entries might have a quantityBags field if they are of pashu aahar.
+         // Or, if we had a direct "Pashu Aahar Sale" transaction type in this module.
       }
     });
     setCurrentStockByProduct(stockCalc);
@@ -138,7 +154,7 @@ export default function PashuAaharPage() {
   }, [transactions]);
 
   const resetFormFields = useCallback(() => {
-    if (!editingTransactionId) setDate(new Date()); // Only reset date if not editing
+    if (!editingTransactionId) setDate(new Date()); 
     setProductName("");
     setSupplierNameInput("");
     setQuantityBags("");
@@ -146,6 +162,7 @@ export default function PashuAaharPage() {
     setEditingTransactionId(null);
     setTransactionToEdit(null);
     setIsSupplierPopoverOpen(false);
+    setIsProductPopoverOpen(false);
   }, [editingTransactionId]);
 
   const availableSuppliers = useMemo(() => {
@@ -178,12 +195,12 @@ export default function PashuAaharPage() {
         setIsSupplierPopoverOpen(false);
         return;
       }
-      setIsSubmitting(true); 
+      setIsSubmitting(true);
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Supplier" });
       if (result.success && result.id) {
         setSupplierNameInput(trimmedValue);
         toast({ title: "Success", description: `Supplier "${trimmedValue}" added.` });
-        await fetchParties(); 
+        await fetchParties();
       } else {
         toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
       }
@@ -194,6 +211,42 @@ export default function PashuAaharPage() {
     setIsSupplierPopoverOpen(false);
     supplierNameInputRef.current?.focus();
   }, [toast, fetchParties]);
+
+  const handleProductNameInputChange = useCallback((value: string) => {
+    setProductName(value);
+    if (value.trim()) {
+      setIsProductPopoverOpen(true);
+    } else {
+      setIsProductPopoverOpen(false);
+    }
+  }, []);
+
+  const handleProductSelect = useCallback((currentValue: string, isCreateNew = false) => {
+    const trimmedValue = currentValue.trim();
+    if (isCreateNew) {
+      if (!trimmedValue) {
+        toast({ title: "Error", description: "Product name cannot be empty.", variant: "destructive" });
+        setIsProductPopoverOpen(false);
+        return;
+      }
+      if (!knownPashuAaharProductsList.some(p => p.toLowerCase() === trimmedValue.toLowerCase())) {
+        setKnownPashuAaharProductsList(prev => [...prev, trimmedValue].sort((a, b) => a.localeCompare(b)));
+        toast({ title: "Success", description: `Product "${trimmedValue}" added to suggestions for this session.` });
+      }
+      setProductName(trimmedValue);
+    } else {
+      setProductName(trimmedValue);
+    }
+    setIsProductPopoverOpen(false);
+    productNameInputRef.current?.focus();
+  }, [toast, knownPashuAaharProductsList]);
+
+  const filteredProductSuggestions = useMemo(() => {
+    if (!productName.trim()) return knownPashuAaharProductsList;
+    return knownPashuAaharProductsList.filter((name) =>
+      name.toLowerCase().includes(productName.toLowerCase())
+    );
+  }, [productName, knownPashuAaharProductsList]);
 
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
@@ -238,7 +291,7 @@ export default function PashuAaharPage() {
     
     if (result.success) {
       resetFormFields();
-      await fetchTransactions(); 
+      await fetchTransactions();
     }
     setIsSubmitting(false);
   };
@@ -248,7 +301,7 @@ export default function PashuAaharPage() {
     setTransactionToEdit(transaction);
     setDate(transaction.date);
     setProductName(transaction.productName);
-    setSupplierNameInput(transaction.supplierOrCustomerName || ""); 
+    setSupplierNameInput(transaction.supplierOrCustomerName || "");
     setQuantityBags(String(transaction.quantityBags));
     setPricePerBag(String(transaction.pricePerBag || ""));
   };
@@ -327,9 +380,70 @@ export default function PashuAaharPage() {
                 </Label>
                 <DatePicker date={date} setDate={setDate} />
               </div>
+              
               <div>
-                <Label htmlFor="productName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Product Name</Label>
-                <Input id="productName" value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="e.g., Gold Coin, Super Pallet" required />
+                <Label htmlFor="productNameInput" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Product Name</Label>
+                <Popover open={isProductPopoverOpen} onOpenChange={setIsProductPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Input
+                      id="productNameInput"
+                      ref={productNameInputRef}
+                      value={productName}
+                      onChange={(e) => handleProductNameInputChange(e.target.value)}
+                      onFocus={() => {
+                        if (productName.trim() || knownPashuAaharProductsList.length > 0) {
+                          setIsProductPopoverOpen(true);
+                        }
+                      }}
+                      placeholder="Start typing product name"
+                      autoComplete="off"
+                      required
+                      className="w-full"
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent 
+                    className="w-[--radix-popover-trigger-width] p-0" 
+                    side="bottom" 
+                    align="start" 
+                    sideOffset={0}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                  >
+                    <Command>
+                      <CommandInput 
+                        placeholder="Search or add new product..." 
+                        value={productName} 
+                        onValueChange={handleProductNameInputChange}
+                       />
+                      <CommandList>
+                        {productName.trim() && !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
+                           <CommandItem
+                            key={`__CREATE__${productName.trim()}`}
+                            value={`__CREATE__${productName.trim()}`}
+                            onSelect={() => handleProductSelect(productName.trim(), true)}
+                          >
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            Add new product: "{productName.trim()}"
+                          </CommandItem>
+                        )}
+                        {filteredProductSuggestions.map((name) => (
+                          <CommandItem
+                            key={name}
+                            value={name}
+                            onSelect={() => handleProductSelect(name, false)}
+                          >
+                            {name}
+                          </CommandItem>
+                        ))}
+                        {filteredProductSuggestions.length === 0 && productName.trim() && knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
+                            <CommandEmpty>No existing products match. Select "Add new..." above.</CommandEmpty>
+                        )}
+                        {knownPashuAaharProductsList.length === 0 && !productName.trim() && (
+                            <CommandEmpty>No products found. Type to add a new one.</CommandEmpty>
+                        )}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
               
               <div>
@@ -344,11 +458,9 @@ export default function PashuAaharPage() {
                       value={supplierNameInput}
                       onChange={(e) => handleSupplierNameInputChange(e.target.value)}
                       onFocus={() => {
-                        if (supplierNameInput.trim() && filteredSupplierSuggestions.length > 0) {
-                           setIsSupplierPopoverOpen(true);
-                        } else if (!supplierNameInput.trim() && availableSuppliers.length > 0){
-                           setIsSupplierPopoverOpen(true); // Open if input is empty but suggestions exist
-                        }
+                         if (supplierNameInput.trim() || availableSuppliers.length > 0) {
+                           setIsSupplierPopoverOpen(true); 
+                         }
                       }}
                       placeholder="Start typing supplier name"
                       autoComplete="off"
@@ -367,7 +479,7 @@ export default function PashuAaharPage() {
                       <CommandInput 
                         placeholder="Search or add new supplier..." 
                         value={supplierNameInput} 
-                        onValueChange={handleSupplierNameInputChange} // Ensures main input state syncs
+                        onValueChange={handleSupplierNameInputChange}
                        />
                       <CommandList>
                         {isLoadingParties ? (
@@ -393,7 +505,7 @@ export default function PashuAaharPage() {
                                 {name}
                               </CommandItem>
                             ))}
-                             {filteredSupplierSuggestions.length === 0 && supplierNameInput.trim() && !availableSuppliers.some(name => name.toLowerCase() === supplierNameInput.trim().toLowerCase()) && ( // Condition to only show "No existing..." if create new is not shown
+                             {filteredSupplierSuggestions.length === 0 && supplierNameInput.trim() && !availableSuppliers.some(name => name.toLowerCase() === supplierNameInput.trim().toLowerCase()) && (
                                 <CommandEmpty>No existing suppliers match. Select "Add new..." above if needed.</CommandEmpty>
                              )}
                              {availableSuppliers.length === 0 && !supplierNameInput.trim() && (
@@ -533,3 +645,6 @@ export default function PashuAaharPage() {
     </div>
   );
 }
+
+
+    
