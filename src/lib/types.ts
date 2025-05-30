@@ -6,8 +6,8 @@ export interface MilkCollectionEntry {
   customerName: string; // This is the person supplying milk
   quantityLtr: number;
   fatPercentage: number;
-  ratePerLtr: number; // This is the rate factor (or could be a direct rate)
-  totalAmount: number; // Gross amount: quantity * fat * rate (or quantity * direct_rate)
+  ratePerLtr: number; // This is the rate factor (Quantity * FAT * Rate = Total)
+  totalAmount: number; // Gross amount: quantity * fat * rate
   advancePaid?: number;
   remarks?: string;
   netAmountPayable: number; // totalAmount - (advancePaid || 0)
@@ -41,12 +41,13 @@ export interface BulkSaleEntry {
 export interface PashuAaharTransaction {
   id: string;
   date: Date;
-  type: "Purchase" | "Sale";
+  type: "Purchase" | "Sale"; // "Sale" type might not be used if sales are handled only in SalesEntry
   productName: string;
   supplierOrCustomerName?: string;
   quantityBags: number;
   pricePerBag?: number;
   totalAmount: number;
+  paymentType: "Cash" | "Credit"; // Added paymentType
 }
 
 export interface Party {
@@ -59,7 +60,7 @@ export interface PartyLedgerEntry {
   id: string;
   date: Date;
   description: string;
-  shift?: "Morning" | "Evening"; // Added optional shift
+  shift?: "Morning" | "Evening";
   milkQuantityLtr?: number;
   fatPercentage?: number;
   rate?: number;
@@ -134,4 +135,3 @@ export interface FullProfitLossData {
   summary: ProfitLossSummaryData;
   chartSeries: PlChartDataPoint[];
 }
-

@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -17,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag, CalendarIcon, MoreHorizontal, Edit, Trash2 } from "lucide-react";
+import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag, CalendarIcon, MoreHorizontal, Edit, Trash2, CreditCard } from "lucide-react";
 import type { PashuAaharTransaction, Party } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -77,11 +84,13 @@ export default function PashuAaharPage() {
   const [supplierNameInput, setSupplierNameInput] = useState<string>("");
   const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
   const supplierNameInputRef = useRef<HTMLInputElement>(null);
+  
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true);
 
   const [quantityBags, setQuantityBags] = useState("");
   const [pricePerBag, setPricePerBag] = useState("");
+  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit"); // Added paymentType state
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
@@ -129,7 +138,6 @@ export default function PashuAaharPage() {
 
   useEffect(() => {
     const stockCalc: Record<string, number> = {};
-    // Create a mutable copy and sort for accurate stock calculation over time
     const sortedTransactionsForStock = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     sortedTransactionsForStock.forEach(tx => {
@@ -140,9 +148,8 @@ export default function PashuAaharPage() {
       if (tx.type === "Purchase") {
         stockCalc[pName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
-         // If sales from other modules affect stock, this would be the place to decrement.
-         // For now, this page primarily tracks additions to stock via purchases.
-         // Example: stockCalc[pName] -= tx.quantityBags; (if 'tx' represented a sale of Pashu Aahar)
+         // Placeholder for future stock deduction if sales are tracked here too
+         // stockCalc[pName] -= tx.quantityBags;
       }
     });
     setCurrentStockByProduct(stockCalc);
@@ -159,6 +166,7 @@ export default function PashuAaharPage() {
     setSupplierNameInput("");
     setQuantityBags("");
     setPricePerBag("");
+    setPaymentType("Credit"); // Reset payment type to Credit
     setEditingTransactionId(null);
     setTransactionToEdit(null);
     setIsSupplierPopoverOpen(false);
@@ -208,14 +216,16 @@ export default function PashuAaharPage() {
     );
   }, [productName, knownPashuAaharProductsList]);
 
-  const handleSupplierNameInputChange = useCallback((value: string) => {
+ const handleSupplierNameInputChange = useCallback((value: string) => {
     setSupplierNameInput(value);
     if (value.trim() && availableSuppliers.length > 0) {
       setIsSupplierPopoverOpen(true);
-    } else {
+    } else if (!value.trim()) {
       setIsSupplierPopoverOpen(false);
+    } else if (value.trim() && availableSuppliers.length === 0 && !isLoadingParties) {
+      setIsSupplierPopoverOpen(true); // Keep open to show "Add new"
     }
-  }, [availableSuppliers]);
+  }, [availableSuppliers, isLoadingParties]);
   
   const handleSupplierSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
@@ -252,8 +262,8 @@ export default function PashuAaharPage() {
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !productName.trim() || !supplierNameInput.trim() || !quantityBags || !pricePerBag) {
-      toast({ title: "Error", description: "Please fill all purchase fields.", variant: "destructive" });
+    if (!date || !productName.trim() || !supplierNameInput.trim() || !quantityBags || !pricePerBag || !paymentType) {
+      toast({ title: "Error", description: "Please fill all purchase fields (Date, Product, Supplier, Quantity, Price, Payment Type).", variant: "destructive" });
       return;
     }
     const parsedQuantityBags = parseInt(quantityBags);
@@ -279,6 +289,7 @@ export default function PashuAaharPage() {
       quantityBags: parsedQuantityBags,
       pricePerBag: parsedPricePerBag,
       totalAmount: parsedQuantityBags * parsedPricePerBag,
+      paymentType, // Added paymentType
     };
 
     let result;
@@ -305,6 +316,7 @@ export default function PashuAaharPage() {
     setSupplierNameInput(transaction.supplierOrCustomerName || "");
     setQuantityBags(String(transaction.quantityBags));
     setPricePerBag(String(transaction.pricePerBag || ""));
+    setPaymentType(transaction.paymentType || "Credit"); // Set payment type for editing
   };
 
   const handleDeleteClick = (transaction: PashuAaharTransaction) => {
@@ -368,7 +380,7 @@ export default function PashuAaharPage() {
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card>
+        <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle>{editingTransactionId ? "Edit Purchase" : "Record Purchase"}</CardTitle>
             <CardDescription>{editingTransactionId ? "Modify the details of the existing purchase." : "Add new Pashu Aahar purchase to stock."}</CardDescription>
@@ -524,6 +536,20 @@ export default function PashuAaharPage() {
                   <Input id="purchasePrice" type="number" step="0.01" value={pricePerBag} onChange={(e) => setPricePerBag(e.target.value)} placeholder="e.g., 300" required />
                 </div>
               </div>
+
+              <div>
+                <Label htmlFor="paymentType" className="flex items-center mb-1"><CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />Payment Type</Label>
+                <Select value={paymentType} onValueChange={(value: "Cash" | "Credit") => setPaymentType(value)}>
+                  <SelectTrigger id="paymentType">
+                    <SelectValue placeholder="Select payment type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Cash">Cash</SelectItem>
+                    <SelectItem value="Credit">Credit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingTransactions || isLoadingParties}>
                 {editingTransactionId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
                 {isSubmitting && !editingTransactionId ? 'Recording Purchase...' : (isSubmitting && editingTransactionId ? 'Updating Purchase...' : (editingTransactionId ? 'Update Purchase' : 'Record Purchase'))}
@@ -560,13 +586,14 @@ export default function PashuAaharPage() {
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">Price/Bag (₹)</TableHead>
                   <TableHead className="text-right">Total (₹)</TableHead>
+                  <TableHead>Payment</TableHead> {/* Added Payment Type Column Header */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {transactions.length === 0 && !isLoadingTransactions ? (
                     <TableRow>
-                        <TableCell colSpan={8} className="text-center text-muted-foreground">No transactions recorded yet.</TableCell>
+                        <TableCell colSpan={9} className="text-center text-muted-foreground">No transactions recorded yet.</TableCell> {/* Updated colSpan */}
                     </TableRow>
                 ) : (
                     transactions.map((tx) => (
@@ -582,6 +609,7 @@ export default function PashuAaharPage() {
                         <TableCell className="text-right">{tx.quantityBags.toFixed(0)}</TableCell>
                         <TableCell className="text-right">{tx.pricePerBag ? tx.pricePerBag.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right">{tx.totalAmount.toFixed(2)}</TableCell>
+                        <TableCell>{tx.paymentType}</TableCell> {/* Added Payment Type Data Cell */}
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -607,9 +635,9 @@ export default function PashuAaharPage() {
               {transactions.length > 0 && (
                 <TableFooter>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-right font-semibold">Total Transaction Value:</TableCell>
+                    <TableCell colSpan={6} className="text-right font-semibold">Total Transaction Value:</TableCell> {/* Adjusted colSpan */}
                     <TableCell className="text-right font-bold">{totalTransactionAmount.toFixed(2)}</TableCell>
-                    <TableCell /> 
+                    <TableCell colSpan={2} /> {/* Adjusted colSpan for Payment Type and Actions */}
                   </TableRow>
                 </TableFooter>
               )}
@@ -640,5 +668,3 @@ export default function PashuAaharPage() {
     </div>
   );
 }
-
-    

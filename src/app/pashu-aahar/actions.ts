@@ -43,12 +43,13 @@ export async function getPashuAaharTransactionsFromFirestore(): Promise<PashuAah
       return {
         id: docSnapshot.id,
         date: entryDate,
-        type: data.type || "Purchase", // Default to Purchase if not specified
+        type: data.type || "Purchase",
         productName: data.productName || "Unknown Product",
-        supplierOrCustomerName: data.supplierOrCustomerName || "", // Ensure this is always a string
+        supplierOrCustomerName: data.supplierOrCustomerName || "", 
         quantityBags: typeof data.quantityBags === 'number' ? data.quantityBags : 0,
         pricePerBag: typeof data.pricePerBag === 'number' ? data.pricePerBag : 0,
         totalAmount: typeof data.totalAmount === 'number' ? data.totalAmount : 0,
+        paymentType: data.paymentType || "Credit", // Added paymentType
       } as PashuAaharTransaction;
     });
     console.log("SERVER ACTION: Successfully fetched Pashu Aahar transactions, count:", transactionList.length);
