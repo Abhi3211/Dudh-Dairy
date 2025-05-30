@@ -85,11 +85,11 @@ export default function PashuAaharPage() {
   const supplierNameInputRef = useRef<HTMLInputElement>(null);
 
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
-  const [isLoadingParties, setIsLoadingParties] = useState(true); // Kept separate for clarity, though often part of isLoadingData
+  const [isLoadingParties, setIsLoadingParties] = useState(true);
 
   const [quantityBags, setQuantityBags] = useState("");
   const [pricePerBag, setPricePerBag] = useState("");
-  const [salePricePerBagInput, setSalePricePerBagInput] = useState(""); // New state for optional sale price
+  const [salePricePerBagInput, setSalePricePerBagInput] = useState("");
   const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -184,7 +184,7 @@ export default function PashuAaharPage() {
     setSupplierNameInput("");
     setQuantityBags("");
     setPricePerBag("");
-    setSalePricePerBagInput(""); // Reset new field
+    setSalePricePerBagInput("");
     setPaymentType("Credit");
     setEditingTransactionId(null);
     setTransactionToEdit(null);
@@ -201,35 +201,33 @@ export default function PashuAaharPage() {
 
   const handleProductNameInputChange = useCallback((value: string) => {
     setProductName(value);
-    if (value.trim()) {
+    if (value.trim() && knownPashuAaharProductsList.length > 0) {
       setIsProductPopoverOpen(true);
     } else {
       setIsProductPopoverOpen(false);
     }
-  }, []);
+  }, [knownPashuAaharProductsList]);
 
   const handleProductSelect = useCallback((currentValue: string) => {
-    const trimmedValue = currentValue.trim();
     const isCreatingNew = currentValue.startsWith("__CREATE_PRODUCT__");
+    let actualValue = currentValue;
 
     if (isCreatingNew) {
-      const actualNewName = productName.trim(); // Use the name from the input for creation
-      if (!actualNewName) {
-        toast({ title: "Error", description: "Product name cannot be empty.", variant: "destructive" });
-        setIsProductPopoverOpen(false);
-        return;
-      }
-      if (!knownPashuAaharProductsList.some(p => p.toLowerCase() === actualNewName.toLowerCase())) {
-        setKnownPashuAaharProductsList(prev => [...prev, actualNewName].sort((a, b) => a.localeCompare(b)));
-        toast({ title: "Info", description: `Product "${actualNewName}" added to suggestions for this session.` });
-      }
-      setProductName(actualNewName);
-    } else {
-      setProductName(trimmedValue);
+        actualValue = productName.trim(); 
+        if (!actualValue) {
+            toast({ title: "Error", description: "Product name cannot be empty.", variant: "destructive" });
+            setIsProductPopoverOpen(false);
+            return;
+        }
+        if (!knownPashuAaharProductsList.some(p => p.toLowerCase() === actualValue.toLowerCase())) {
+            setKnownPashuAaharProductsList(prev => [...prev, actualValue].sort((a, b) => a.localeCompare(b)));
+            toast({ title: "Info", description: `Product "${actualValue}" added to suggestions for this session.` });
+        }
     }
+    setProductName(actualValue);
     setIsProductPopoverOpen(false);
     productNameInputRef.current?.focus();
-  }, [toast, knownPashuAaharProductsList, productName]);
+  }, [productName, knownPashuAaharProductsList, toast]);
 
 
   const handleSupplierNameInputChange = useCallback((value: string) => {
@@ -244,30 +242,29 @@ export default function PashuAaharPage() {
   const handleSupplierSelect = useCallback(async (currentValue: string) => {
     const trimmedValue = currentValue.trim();
     const isCreatingNew = currentValue.startsWith("__CREATE_SUPPLIER__");
+    let actualValue = currentValue;
 
     if (isCreatingNew) {
-      const actualNewName = supplierNameInput.trim();
-      if (!actualNewName) {
-        toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
-        setIsSupplierPopoverOpen(false);
-        return;
-      }
-      setIsSubmitting(true);
-      const result = await addPartyToFirestore({ name: actualNewName, type: "Supplier" });
-      if (result.success && result.id) {
-        setSupplierNameInput(actualNewName);
-        toast({ title: "Success", description: `Supplier "${actualNewName}" added.` });
-        await fetchPashuAaharPageData(); // Re-fetch to update supplier list
-      } else {
-        toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
-      }
-      setIsSubmitting(false);
-    } else {
-      setSupplierNameInput(trimmedValue);
+        actualValue = supplierNameInput.trim();
+        if (!actualValue) {
+            toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
+            setIsSupplierPopoverOpen(false);
+            return;
+        }
+        setIsSubmitting(true); // General submitting state for adding party
+        const result = await addPartyToFirestore({ name: actualValue, type: "Supplier" });
+        if (result.success && result.id) {
+            toast({ title: "Success", description: `Supplier "${actualValue}" added.` });
+            await fetchPashuAaharPageData(); // Re-fetch to update supplier list
+        } else {
+            toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
+        }
+        setIsSubmitting(false);
     }
+    setSupplierNameInput(actualValue);
     setIsSupplierPopoverOpen(false);
     supplierNameInputRef.current?.focus();
-  }, [toast, fetchPashuAaharPageData, supplierNameInput]);
+  }, [supplierNameInput, toast, fetchPashuAaharPageData]);
 
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
@@ -581,7 +578,7 @@ export default function PashuAaharPage() {
                     </Select>
                 </div>
                 <div>
-                    <Label htmlFor="salePricePerBag" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Sale Price/Bag (₹) <span className="text-xs text-muted-foreground ml-1">(Optional)</span></Label>
+                    <Label htmlFor="salePricePerBag" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Sale Price/Bag <span className="text-xs text-muted-foreground ml-1">(Optional)</span></Label>
                     <Input id="salePricePerBag" type="number" step="0.01" value={salePricePerBagInput} onChange={(e) => setSalePricePerBagInput(e.target.value)} placeholder="e.g., 350" />
                 </div>
               </div>
@@ -622,7 +619,7 @@ export default function PashuAaharPage() {
                     <TableHead>Party</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
                     <TableHead className="text-right">Price/Bag (₹)</TableHead>
-                    <TableHead className="text-right">Sale Price/Bag (₹)</TableHead>
+                    <TableHead className="text-right">Sale Price/Bag</TableHead>
                     <TableHead className="text-right">Total (₹)</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -707,3 +704,6 @@ export default function PashuAaharPage() {
     </div>
   );
 }
+
+
+    
