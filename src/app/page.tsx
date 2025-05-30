@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { IndianRupee, Milk, Package, TrendingUp, TrendingDown, AlertCircle } from "lucide-react";
+import { IndianRupee, Milk, Package, TrendingUp, TrendingDown, AlertCircle, Truck } from "lucide-react";
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import type { DailySummary, ChartDataPoint, DashboardData } from "@/lib/types";
@@ -17,8 +17,8 @@ import { getDashboardSummaryAndChartData } from "./dashboard/actions";
 import { usePageTitle } from '@/context/PageTitleContext';
 
 const chartConfig = {
-  purchasedValue: { label: "Purchase Value", color: "hsl(var(--chart-4))" }, // Reddish
-  soldValue: { label: "Sale Value", color: "hsl(var(--chart-3))" }, // Greenish
+  purchasedValue: { label: "Purchase Value", color: "hsl(var(--chart-4))" }, 
+  soldValue: { label: "Sale Value", color: "hsl(var(--chart-3))" }, 
 } satisfies ChartConfig;
 
 export default function DashboardPage() {
@@ -109,32 +109,37 @@ export default function DashboardPage() {
     );
 
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); // filterType is added as it directly influences fetchData logic, though also a dep of calculateDateRange
+  }, [calculateDateRange, filterType]); 
 
   useEffect(() => {
+    // Initialize custom dates only if they are undefined
     if (customStartDate === undefined) {
       setCustomStartDate(subDays(new Date(), 7));
     }
     if (customEndDate === undefined) {
       setCustomEndDate(new Date());
     }
-  }, []); 
+  }, []); // Runs once on mount to set initial custom dates
 
   useEffect(() => {
+    // This effect triggers data fetching when filters change.
+    // It waits for customStartDate and customEndDate to be initialized if filterType is 'custom'.
     if (filterType === 'custom' && (customStartDate === undefined || customEndDate === undefined)) {
       console.log("CLIENT: useEffect - Custom filter selected, but dates not yet initialized. Skipping fetch.");
       return;
     }
     fetchData();
-  }, [fetchData]); 
+  }, [fetchData, filterType, customStartDate, customEndDate]); // Re-fetch when these dependencies change
 
   const summaryItems = useMemo(() => {
     if (!summary) return [];
     return [
       { title: "Milk Purchased (Ltr)", value: summary.milkPurchasedLitres.toFixed(1), icon: Milk, unit: "Ltr" },
       { title: "Milk Purchased (Value)", value: summary.milkPurchasedAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
-      { title: "Milk Sold (Ltr)", value: summary.milkSoldLitres.toFixed(1), icon: Milk, unit: "Ltr" },
-      { title: "Milk Sold (Value)", value: summary.milkSoldAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
+      { title: "Retail Milk Sold (Ltr)", value: summary.milkSoldLitres.toFixed(1), icon: Milk, unit: "Ltr" },
+      { title: "Retail Milk Sold (Value)", value: summary.milkSoldAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
+      { title: "Bulk Milk Sold (Ltr)", value: summary.bulkMilkSoldLitres.toFixed(1), icon: Truck, unit: "Ltr" },
+      { title: "Bulk Milk Sold (Value)", value: summary.bulkMilkSoldAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
       { title: "Ghee Sales", value: summary.gheeSalesAmount.toFixed(2), icon: Package, unit: "₹" },
       { title: "Pashu Aahar Sales", value: summary.pashuAaharSalesAmount.toFixed(2), icon: Package, unit: "₹" },
       { title: "Total Cash In", value: summary.totalCashIn.toFixed(2), icon: TrendingUp, unit: "₹" },
@@ -145,7 +150,7 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <PageHeader title={pageSpecificTitle} description="Overview of dairy operations." />
+      <PageHeader description={displayedDateRangeString} />
       
       <Card className="mb-6">
         <CardHeader>
@@ -183,7 +188,7 @@ export default function DashboardPage() {
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-6">
-          {Array(9).fill(0).map((_, index) => (
+          {Array(11).fill(0).map((_, index) => ( // Increased to 11 for the new bulk sale tiles
             <Card key={index}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <Skeleton className="h-4 w-3/5" /> <Skeleton className="h-5 w-5 rounded-full" />

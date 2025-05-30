@@ -41,13 +41,13 @@ export interface BulkSaleEntry {
 export interface PashuAaharTransaction {
   id: string;
   date: Date;
-  type: "Purchase" | "Sale";
+  type: "Purchase" | "Sale"; // "Sale" might be implicit if sold via SalesEntry
   productName: string;
-  supplierOrCustomerName?: string;
+  supplierOrCustomerName?: string; // Supplier if type is "Purchase"
   quantityBags: number;
-  pricePerBag?: number;
+  pricePerBag?: number; // Cost price
   salePricePerBag?: number; // Optional sale price set at time of purchase
-  totalAmount: number;
+  totalAmount: number; // For purchases: quantityBags * pricePerBag
   paymentType: "Cash" | "Credit";
 }
 
@@ -94,8 +94,10 @@ export interface ExpenseEntry {
 export interface DailySummary {
   milkPurchasedLitres: number;
   milkPurchasedAmount: number;
-  milkSoldLitres: number;
-  milkSoldAmount: number;
+  milkSoldLitres: number; // Retail milk sold
+  milkSoldAmount: number; // Retail milk sold value
+  bulkMilkSoldLitres: number; // New
+  bulkMilkSoldAmount: number; // New
   gheeSalesAmount: number;
   pashuAaharSalesAmount: number;
   totalCashIn: number;

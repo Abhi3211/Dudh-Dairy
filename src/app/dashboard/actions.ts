@@ -2,9 +2,9 @@
 'use server';
 
 import { db } from '@/lib/firebase';
-import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry } from '@/lib/types';
+import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry } from '@/lib/types';
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { eachDayOfInterval, format, parseISO, startOfDay, endOfDay } from 'date-fns';
+import { eachDayOfInterval, format, startOfDay, endOfDay } from 'date-fns';
 
 // This list should ideally be shared or managed centrally if used in multiple places
 const knownPashuAaharProducts: string[] = [
@@ -29,16 +29,18 @@ export async function getDashboardSummaryAndChartData(
     milkPurchasedAmount: 0,
     milkSoldLitres: 0,
     milkSoldAmount: 0,
+    bulkMilkSoldLitres: 0,
+    bulkMilkSoldAmount: 0,
     gheeSalesAmount: 0,
     pashuAaharSalesAmount: 0,
     totalCashIn: 0,
     totalCreditOut: 0,
-    totalOutstandingAmount: 0, // Will be calculated
+    totalOutstandingAmount: 0,
   };
 
   const daysInRange = eachDayOfInterval({ start: clientStartDate, end: clientEndDate });
   const dailyAggregator: Record<string, { purchasedValue: number; soldValue: number }> = {};
-  const partyBalances = new Map<string, number>(); // To track outstanding balances by party
+  const partyBalances = new Map<string, number>();
 
   daysInRange.forEach(day => {
     const formattedDate = format(day, "MMM dd");
@@ -60,7 +62,6 @@ export async function getDashboardSummaryAndChartData(
       summary.milkPurchasedLitres += entry.quantityLtr || 0;
       summary.milkPurchasedAmount += entry.totalAmount || 0;
 
-      // Update party balance: Dairy owes this to the customer
       const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
       partyBalances.set(entry.customerName, currentPartyBalance - (entry.netAmountPayable || 0));
 
@@ -72,7 +73,7 @@ export async function getDashboardSummaryAndChartData(
       }
     });
 
-    // Fetch Sales Entries
+    // Fetch Sales Entries (Retail Sales)
     const salesEntriesQuery = query(
       collection(db, 'salesEntries'),
       where('date', '>=', startDate),
@@ -84,8 +85,7 @@ export async function getDashboardSummaryAndChartData(
     salesEntriesSnapshot.forEach(doc => {
       const entry = doc.data() as Omit<SaleEntry, 'id' | 'date'> & { date: Timestamp };
       const productNameLower = (entry.productName || "").toLowerCase();
-      
-      let currentSaleAmount = entry.totalAmount || 0;
+      const currentSaleAmount = entry.totalAmount || 0;
 
       if (productNameLower === "milk") {
         summary.milkSoldLitres += entry.quantity || 0;
@@ -100,7 +100,6 @@ export async function getDashboardSummaryAndChartData(
         summary.totalCashIn += currentSaleAmount;
       } else if (entry.paymentType === "Credit") {
         summary.totalCreditOut += currentSaleAmount;
-        // Update party balance: Customer owes this to the dairy
         const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
         partyBalances.set(entry.customerName, currentPartyBalance + currentSaleAmount);
       }
@@ -113,12 +112,59 @@ export async function getDashboardSummaryAndChartData(
       }
     });
 
+    // Fetch Bulk Sales Entries
+    const bulkSalesEntriesQuery = query(
+      collection(db, 'bulkSalesEntries'),
+      where('date', '>=', startDate),
+      where('date', '<=', endDate)
+    );
+    const bulkSalesEntriesSnapshot = await getDocs(bulkSalesEntriesQuery);
+    console.log(`SERVER ACTION: Fetched ${bulkSalesEntriesSnapshot.docs.length} bulk sales entry documents.`);
+
+    bulkSalesEntriesSnapshot.forEach(doc => {
+        const entry = doc.data() as Omit<BulkSaleEntry, 'id' | 'date'> & { date: Timestamp };
+        const currentSaleAmount = entry.totalAmount || 0;
+
+        summary.bulkMilkSoldLitres += entry.quantityLtr || 0;
+        summary.bulkMilkSoldAmount += currentSaleAmount;
+
+        if (entry.paymentType === "Cash") {
+            summary.totalCashIn += currentSaleAmount;
+        } else if (entry.paymentType === "Credit") {
+            summary.totalCreditOut += currentSaleAmount;
+            const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
+            partyBalances.set(entry.customerName, currentPartyBalance + currentSaleAmount);
+        }
+
+        if (entry.date) {
+            const saleDateStr = format(entry.date.toDate(), "MMM dd");
+            if (dailyAggregator[saleDateStr]) {
+              // Add bulk sales to the 'soldValue' for the chart
+              dailyAggregator[saleDateStr].soldValue += currentSaleAmount;
+            }
+        }
+    });
+
+
   } catch (error) {
     console.error("SERVER ACTION: Error fetching dashboard data from Firestore:", error);
-    return { summary, chartSeries: [] };
+    // Return a default summary in case of error to prevent app crash
+    const defaultSummary: DailySummary = {
+        milkPurchasedLitres: 0,
+        milkPurchasedAmount: 0,
+        milkSoldLitres: 0,
+        milkSoldAmount: 0,
+        bulkMilkSoldLitres: 0,
+        bulkMilkSoldAmount: 0,
+        gheeSalesAmount: 0,
+        pashuAaharSalesAmount: 0,
+        totalCashIn: 0,
+        totalCreditOut: 0,
+        totalOutstandingAmount: 0,
+    };
+    return { summary: defaultSummary, chartSeries: [] };
   }
   
-  // Calculate total outstanding amount (sum of positive balances)
   let calculatedOutstanding = 0;
   for (const balance of partyBalances.values()) {
     if (balance > 0) {
@@ -126,6 +172,7 @@ export async function getDashboardSummaryAndChartData(
     }
   }
   summary.totalOutstandingAmount = parseFloat(calculatedOutstanding.toFixed(2));
+  console.log("SERVER ACTION: Calculated outstanding (sum of positive party balances):", summary.totalOutstandingAmount);
   
   const chartSeries: ChartDataPoint[] = daysInRange.map(day => {
     const formattedDate = format(day, "MMM dd");
@@ -136,11 +183,12 @@ export async function getDashboardSummaryAndChartData(
     };
   });
   
-  // Round summary values
   summary.milkPurchasedLitres = parseFloat(summary.milkPurchasedLitres.toFixed(1));
   summary.milkPurchasedAmount = parseFloat(summary.milkPurchasedAmount.toFixed(2));
   summary.milkSoldLitres = parseFloat(summary.milkSoldLitres.toFixed(1));
   summary.milkSoldAmount = parseFloat(summary.milkSoldAmount.toFixed(2));
+  summary.bulkMilkSoldLitres = parseFloat(summary.bulkMilkSoldLitres.toFixed(1));
+  summary.bulkMilkSoldAmount = parseFloat(summary.bulkMilkSoldAmount.toFixed(2));
   summary.gheeSalesAmount = parseFloat(summary.gheeSalesAmount.toFixed(2));
   summary.pashuAaharSalesAmount = parseFloat(summary.pashuAaharSalesAmount.toFixed(2));
   summary.totalCashIn = parseFloat(summary.totalCashIn.toFixed(2));
@@ -149,4 +197,3 @@ export async function getDashboardSummaryAndChartData(
   console.log("SERVER ACTION: Dashboard data processed. Summary:", summary, "ChartSeries Length:", chartSeries.length);
   return { summary, chartSeries };
 }
-
