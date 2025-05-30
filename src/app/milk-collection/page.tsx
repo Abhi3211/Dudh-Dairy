@@ -18,7 +18,7 @@ import {
   TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter, MoreHorizontal, Edit, Trash2, StickyNote } from "lucide-react";
+import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter, MoreHorizontal, Edit, Trash2, StickyNote, Download } from "lucide-react";
 import type { MilkCollectionEntry, Party } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
@@ -59,6 +59,7 @@ export default function MilkCollectionPage() {
   const { toast } = useToast();
   const [allEntries, setAllEntries] = useState<MilkCollectionEntry[]>([]);
   const [isLoadingEntries, setIsLoadingEntries] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [shift, setShift] = useState<"Morning" | "Evening">("Morning");
@@ -87,7 +88,7 @@ export default function MilkCollectionPage() {
     setIsLoadingParties(true);
     try {
       const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties); 
+      setAvailableParties(parties.filter(p => p.type === "Customer")); 
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties:", error);
       toast({ title: "Error", description: "Could not fetch parties for suggestions.", variant: "destructive" });
@@ -119,19 +120,17 @@ export default function MilkCollectionPage() {
 
   useEffect(() => {
     console.log("CLIENT: Initial useEffect running to set dates and fetch entries/parties.");
-    setDate(new Date()); 
+    if (!editingEntryId) { // Only set date if not in edit mode
+        setDate(new Date());
+    }
     setTableFilterDate(new Date()); 
     fetchEntries();
     fetchParties();
-  }, [fetchEntries, fetchParties]); 
-
-  const partiesForMilkCollection = useMemo(() => {
-    return availableParties.filter(p => p.type === "Customer");
-  }, [availableParties]);
+  }, [fetchEntries, fetchParties, editingEntryId]); 
 
   const allKnownCustomerNames = useMemo(() => {
-    return partiesForMilkCollection.map(p => p.name).sort((a, b) => a.localeCompare(b));
-  }, [partiesForMilkCollection]);
+    return availableParties.map(p => p.name).sort((a, b) => a.localeCompare(b));
+  }, [availableParties]);
 
 
   const totalAmountDisplay = useMemo(() => {
@@ -149,6 +148,13 @@ export default function MilkCollectionPage() {
     return 0;
   }, [quantityLtr, fatPercentage, rateInputValue]);
 
+  const netAmountPayableDisplay = useMemo(() => {
+    const grossAmount = totalAmountDisplay;
+    const advance = parseFloat(advancePaid.replace(',', '.')) || 0;
+    return grossAmount - advance;
+  }, [totalAmountDisplay, advancePaid]);
+
+
   const filteredEntries = useMemo(() => {
     console.log("CLIENT: Recalculating filteredEntries. Selected tableFilterDate:", tableFilterDate ? format(tableFilterDate, 'yyyy-MM-dd') : 'undefined', "Selected shiftFilter:", shiftFilter, "Total entries being filtered:", allEntries.length);
     
@@ -162,7 +168,7 @@ export default function MilkCollectionPage() {
             }
             const entryDateStr = format(entry.date, 'yyyy-MM-dd');
             const match = entryDateStr === targetDateStr;
-            console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (raw: ${entry.date instanceof Date ? entry.date.toISOString() : String(entry.date)}), target date: ${targetDateStr}, match: ${match}`);
+            // console.log(`CLIENT: Comparing entry ID ${entry.id}, entry date: ${entryDateStr} (raw: ${entry.date instanceof Date ? entry.date.toISOString() : String(entry.date)}), target date: ${targetDateStr}, match: ${match}`);
             return match;
         });
     }
@@ -173,9 +179,9 @@ export default function MilkCollectionPage() {
     } 
     
     console.log("CLIENT: Resulting filteredEntries count:", shiftAndDateFiltered.length);
-    if (shiftAndDateFiltered.length > 0 && shiftAndDateFiltered.length < 5) { 
-        console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(shiftAndDateFiltered.map(e => ({...e, date: e.date instanceof Date ? e.date.toISOString() : String(e.date) })))));
-    }
+    // if (shiftAndDateFiltered.length > 0 && shiftAndDateFiltered.length < 5) { 
+    //     console.log("CLIENT: Filtered entries data (sample):", JSON.parse(JSON.stringify(shiftAndDateFiltered.map(e => ({...e, date: e.date instanceof Date ? e.date.toISOString() : String(e.date) })))));
+    // }
     return shiftAndDateFiltered;
   }, [allEntries, tableFilterDate, shiftFilter]);
   
@@ -204,7 +210,7 @@ export default function MilkCollectionPage() {
         setIsCustomerPopoverOpen(false);
         return;
       }
-      setIsLoadingParties(true);
+      setIsSubmitting(true);
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
       if (result.success && result.id) {
         setCustomerNameInput(trimmedValue);
@@ -213,7 +219,7 @@ export default function MilkCollectionPage() {
       } else {
         toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
       }
-      setIsLoadingParties(false);
+      setIsSubmitting(false);
     } else {
       setCustomerNameInput(trimmedValue);
     }
@@ -222,15 +228,19 @@ export default function MilkCollectionPage() {
   }, [toast, fetchParties]);
 
   const resetFormFields = useCallback(() => {
+    if (!editingEntryId) {
+        setDate(new Date());
+        // Shift persists by design for new entries
+    }
     setCustomerNameInput(""); 
     setQuantityLtr("");
     setFatPercentage("");
-    // Date and shift persist by design
+    // RateInputValue persists by design
     setAdvancePaid("");
     setRemarks("");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
-  }, []);
+  }, [editingEntryId]);
 
 
   const handleSubmit = async (e: FormEvent) => {
@@ -285,7 +295,7 @@ export default function MilkCollectionPage() {
     };
     
     console.log("CLIENT: Submitting entry data:", JSON.parse(JSON.stringify(entryData)));
-    setIsLoadingEntries(true); 
+    setIsSubmitting(true); 
     
     let result;
     if (editingEntryId) {
@@ -308,7 +318,7 @@ export default function MilkCollectionPage() {
       resetFormFields();
       await fetchEntries(); 
     }
-    setIsLoadingEntries(false); 
+    setIsSubmitting(false); 
   };
 
   const filteredCustomerSuggestions = useMemo(() => {
@@ -337,7 +347,7 @@ export default function MilkCollectionPage() {
 
   const confirmDelete = async () => {
     if (!entryToDelete) return;
-    setIsLoadingEntries(true);
+    setIsSubmitting(true);
     const result = await deleteMilkCollectionEntryFromFirestore(entryToDelete.id);
     if (result.success) {
       toast({ title: "Success", description: "Entry deleted." });
@@ -347,8 +357,64 @@ export default function MilkCollectionPage() {
     }
     setShowDeleteDialog(false);
     setEntryToDelete(null);
-    setIsLoadingEntries(false);
+    setIsSubmitting(false);
   };
+
+  const escapeCSVField = (field: any): string => {
+    const str = String(field === undefined || field === null ? "" : field);
+    if (str.includes(",")) {
+      return `"${str.replace(/"/g, '""')}"`; 
+    }
+    return str;
+  };
+
+  const handleExportCSV = useCallback(() => {
+    if (filteredEntries.length === 0) {
+      toast({ title: "No Data", description: "No ledger entries to export for the current filter.", variant: "destructive" });
+      return;
+    }
+
+    const headers = [
+      "Date", "Shift", "Customer", "Qty (Ltr)", "FAT (%)", "Rate (₹)", 
+      "Total (₹)", "Advance (₹)", "Net Payable (₹)", "Remarks"
+    ];
+    
+    const rows = filteredEntries.map(entry => [
+      format(entry.date, 'yyyy-MM-dd'),
+      escapeCSVField(entry.shift),
+      escapeCSVField(entry.customerName),
+      escapeCSVField(entry.quantityLtr.toFixed(1)),
+      escapeCSVField(entry.fatPercentage.toFixed(1)),
+      escapeCSVField(entry.ratePerLtr.toFixed(2)),
+      escapeCSVField(entry.totalAmount.toFixed(2)),
+      escapeCSVField(entry.advancePaid?.toFixed(2) || "0.00"),
+      escapeCSVField(entry.netAmountPayable.toFixed(2)),
+      escapeCSVField(entry.remarks)
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      const filename = `milk_collection_ledger_${format(tableFilterDate || new Date(), 'yyyyMMdd')}.csv`;
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({ title: "Success", description: "Ledger exported to CSV." });
+    } else {
+        toast({ title: "Error", description: "CSV export is not supported by your browser.", variant: "destructive" });
+    }
+  }, [filteredEntries, tableFilterDate, toast]);
+
 
   return (
     <div>
@@ -396,6 +462,11 @@ export default function MilkCollectionPage() {
                       ref={customerNameInputRef}
                       value={customerNameInput}
                       onChange={(e) => handleCustomerNameInputChange(e.target.value)}
+                      onFocus={() => {
+                        if (customerNameInput.trim() && filteredCustomerSuggestions.length > 0) {
+                            setIsCustomerPopoverOpen(true);
+                        }
+                      }}
                       placeholder="Start typing customer name"
                       autoComplete="off"
                       required
@@ -504,12 +575,12 @@ export default function MilkCollectionPage() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full" disabled={isLoadingEntries || isLoadingParties}>
+              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingEntries || isLoadingParties}>
                 {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
-                {isLoadingEntries && !editingEntryId ? 'Adding...' : (isLoadingEntries && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Entry' : 'Add Entry'))}
+                {isSubmitting && !editingEntryId ? 'Adding...' : (isSubmitting && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Entry' : 'Add Entry'))}
               </Button>
               {editingEntryId && (
-                <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields}>
+                <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting}>
                   Cancel Edit
                 </Button>
               )}
@@ -528,7 +599,7 @@ export default function MilkCollectionPage() {
                   {!isLoadingEntries && tableFilterDate && filteredEntries.length === 0 && ` (No entries for this date${shiftFilter !== 'All' ? ` and shift` : ''}. Checked ${allEntries.length} total entries)`}
                 </CardDescription>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-end">
                 <div className="w-full sm:min-w-[180px]">
                   <Label htmlFor="shiftFilterSelect" className="sr-only">Filter by shift</Label>
                   <Select value={shiftFilter} onValueChange={(value: "All" | "Morning" | "Evening") => setShiftFilter(value)}>
@@ -547,6 +618,9 @@ export default function MilkCollectionPage() {
                   <Label htmlFor="tableDateFilter" className="sr-only">Filter by date</Label>
                   <DatePicker date={tableFilterDate} setDate={setTableFilterDate} />
                 </div>
+                <Button onClick={handleExportCSV} variant="outline" size="sm" className="ml-auto sm:ml-0 mt-2 sm:mt-0 sm:self-end" disabled={filteredEntries.length === 0 || isLoadingEntries}>
+                    <Download className="h-4 w-4 mr-2" /> Export CSV
+                </Button>
               </div>
             </div>
           </CardHeader>
@@ -558,7 +632,7 @@ export default function MilkCollectionPage() {
                 <Skeleton className="h-10 w-full" />
               </div>
             ) : (
-              <Table>
+              <Table className="text-xs">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
@@ -594,7 +668,7 @@ export default function MilkCollectionPage() {
                         <TableCell className="text-right">{entry.totalAmount ? entry.totalAmount.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right text-destructive">{entry.advancePaid ? entry.advancePaid.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right font-semibold">{entry.netAmountPayable ? entry.netAmountPayable.toFixed(2) : "-"}</TableCell>
-                        <TableCell className="max-w-[150px] truncate" title={entry.remarks}>{entry.remarks || "-"}</TableCell>
+                        <TableCell className="max-w-[100px] truncate" title={entry.remarks}>{entry.remarks || "-"}</TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -640,7 +714,9 @@ export default function MilkCollectionPage() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={() => {setShowDeleteDialog(false); setEntryToDelete(null);}}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+              <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
+                {isSubmitting ? 'Deleting...' : 'Delete'}
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -648,3 +724,6 @@ export default function MilkCollectionPage() {
     </div>
   );
 }
+
+
+    
