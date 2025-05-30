@@ -31,12 +31,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
+import { addPaymentEntryToFirestore, getPaymentEntriesFromFirestore } from "./actions";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from '@/context/PageTitleContext';
-
-const rawInitialPayments: (Omit<PaymentEntry, 'id' | 'date'> & { tempId: string, dateOffset: number })[] = [
-  { tempId: "P1", dateOffset: 0, type: "Received", partyName: "Cash Sale", partyType: "Customer", amount: 500, mode: "Cash", notes: "Retail milk sale" },
-  { tempId: "P2", dateOffset: -1, type: "Paid", partyName: "Rajesh Kumar", partyType: "Customer", amount: 1200, mode: "Bank", notes: "Weekly settlement" },
-];
 
 const partyTypesForForm: Party['type'][] = ["Customer", "Supplier", "Employee"];
 const paymentModes: PaymentEntry['mode'][] = ["Cash", "Bank", "UPI"];
@@ -51,6 +48,8 @@ export default function PaymentsPage() {
 
   const { toast } = useToast();
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
+  const [isLoadingPayments, setIsLoadingPayments] = useState(true);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
 
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [type, setType] = useState<"Received" | "Paid">("Received");
@@ -66,8 +65,7 @@ export default function PaymentsPage() {
   const [isLoadingParties, setIsLoadingParties] = useState(true);
   const [isPartyPopoverOpen, setIsPartyPopoverOpen] = useState(false);
   const partyNameInputRef = useRef<HTMLInputElement>(null);
-  const [isSubmittingParty, setIsSubmittingParty] = useState(false);
-
+  const [isSubmittingParty, setIsSubmittingParty] = useState(false); // For adding new party
 
   const fetchParties = useCallback(async () => {
     setIsLoadingParties(true);
@@ -82,18 +80,30 @@ export default function PaymentsPage() {
     }
   }, [toast]);
 
+  const fetchPayments = useCallback(async () => {
+    setIsLoadingPayments(true);
+    try {
+      const fetchedPayments = await getPaymentEntriesFromFirestore();
+      const processedPayments = fetchedPayments.map(p => ({
+        ...p,
+        date: p.date instanceof Date ? p.date : new Date(p.date)
+      })).sort((a,b) => b.date.getTime() - a.date.getTime());
+      setPayments(processedPayments);
+    } catch (error) {
+      console.error("CLIENT: Failed to fetch payment entries:", error);
+      toast({ title: "Error", description: "Could not fetch payment entries.", variant: "destructive" });
+    } finally {
+      setIsLoadingPayments(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     if (date === undefined) {
       setDate(new Date());
     }
-    const processedPayments = rawInitialPayments.map(p => {
-      const entryDate = new Date();
-      entryDate.setDate(entryDate.getDate() + p.dateOffset);
-      return { ...p, id: p.tempId, date: entryDate };
-    }).sort((a,b) => b.date.getTime() - a.date.getTime());
-    setPayments(processedPayments);
     fetchParties();
-  }, [date, fetchParties]);
+    fetchPayments();
+  }, [date, fetchParties, fetchPayments]);
 
   const filteredPartySuggestions = useMemo(() => {
     if (!partyNameInput.trim()) return availableParties;
@@ -104,16 +114,17 @@ export default function PaymentsPage() {
 
   const handlePartyNameInputChange = useCallback((value: string) => {
     setPartyNameInput(value);
-    if (value.trim() && filteredPartySuggestions.length > 0) {
+    if (value.trim() && (availableParties.length > 0 || !isLoadingParties)) { // Ensure popover opens even if loading finishes with no parties
       setIsPartyPopoverOpen(true);
-    } else if (!value.trim()) {
+    } else {
       setIsPartyPopoverOpen(false);
     }
-  }, [filteredPartySuggestions]);
+  }, [availableParties, isLoadingParties]);
 
   const handlePartySelect = useCallback(async (currentValue: string) => {
     const isCreatingNew = currentValue.startsWith("__CREATE__");
     let partyNameToSet = currentValue;
+    let newPartyCreated = false;
 
     if (isCreatingNew) {
       const newPartyName = partyNameInput.trim();
@@ -134,6 +145,7 @@ export default function PaymentsPage() {
         const result = await addPartyToFirestore({ name: newPartyName, type: partyType });
         if (result.success && result.id) {
           partyNameToSet = newPartyName;
+          newPartyCreated = true;
           toast({ title: "Success", description: `Party "${newPartyName}" (${partyType}) added.` });
           await fetchParties(); // Re-fetch parties to include the new one
         } else {
@@ -147,16 +159,28 @@ export default function PaymentsPage() {
     }
     
     setPartyNameInput(partyNameToSet);
-    const selectedPartyDetails = availableParties.find(p => p.name.toLowerCase() === partyNameToSet.toLowerCase());
-    if (selectedPartyDetails) {
-      setPartyType(selectedPartyDetails.type); // Auto-select party type if existing party chosen
+    if (!newPartyCreated) { // Only auto-select type if an existing party was chosen
+        const selectedPartyDetails = availableParties.find(p => p.name.toLowerCase() === partyNameToSet.toLowerCase());
+        if (selectedPartyDetails) {
+        setPartyType(selectedPartyDetails.type); 
+        }
     }
     setIsPartyPopoverOpen(false);
     partyNameInputRef.current?.focus();
   }, [partyNameInput, partyType, availableParties, toast, fetchParties]);
 
+  const resetFormFields = useCallback(() => {
+    setDate(new Date());
+    setType("Received");
+    setPartyNameInput("");
+    setPartyType("Customer");
+    setAmount("");
+    setMode("Cash");
+    setNotes("");
+    setIsPartyPopoverOpen(false);
+  }, []);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!date || !partyNameInput.trim() || !amount) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Party Name, Amount).", variant: "destructive" });
@@ -168,8 +192,8 @@ export default function PaymentsPage() {
         return;
     }
 
-    const newPayment: PaymentEntry = {
-      id: String(Date.now()), // For mock data, this is fine. For DB, ID is auto-generated
+    setIsSubmittingPayment(true);
+    const paymentData: Omit<PaymentEntry, 'id'> = {
       date,
       type,
       partyName: partyNameInput.trim(),
@@ -178,19 +202,17 @@ export default function PaymentsPage() {
       mode,
       notes: notes.trim(),
     };
-    setPayments(prevPayments => [newPayment, ...prevPayments].sort((a,b) => b.date.getTime() - a.date.getTime()));
     
-    toast({ title: "Success", description: "Payment recorded." });
-
-    // Reset form fields
-    setPartyNameInput("");
-    setPartyType("Customer"); // Reset party type to default
-    setAmount("");
-    setNotes("");
-    setDate(new Date()); // Reset date or keep as is, depends on preference
-    setMode("Cash");
-    setType("Received");
-    setIsPartyPopoverOpen(false);
+    const result = await addPaymentEntryToFirestore(paymentData);
+    
+    if (result.success) {
+      toast({ title: "Success", description: "Payment recorded." });
+      resetFormFields();
+      await fetchPayments();
+    } else {
+      toast({ title: "Error", description: result.error || "Failed to record payment.", variant: "destructive" });
+    }
+    setIsSubmittingPayment(false);
   };
 
   return (
@@ -228,7 +250,7 @@ export default function PaymentsPage() {
                       value={partyNameInput}
                       onChange={(e) => handlePartyNameInputChange(e.target.value)}
                       onFocus={() => {
-                        if (partyNameInput.trim() || availableParties.length > 0) {
+                        if (partyNameInput.trim() || availableParties.length > 0 || isLoadingParties) {
                            setIsPartyPopoverOpen(true);
                         }
                       }}
@@ -242,14 +264,14 @@ export default function PaymentsPage() {
                     className="w-[--radix-popover-trigger-width] p-0" 
                     side="bottom" 
                     align="start" 
-                    sideOffset={0}
+                    sideOffset={4}
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
                     <Command>
                       <CommandInput 
                         placeholder="Search or add new party..." 
                         value={partyNameInput} 
-                        onValueChange={handlePartyNameInputChange} // Keep main input in sync
+                        onValueChange={handlePartyNameInputChange}
                       />
                       <CommandList>
                         {isLoadingParties ? (
@@ -257,7 +279,7 @@ export default function PaymentsPage() {
                         ) : (
                           <>
                             <CommandEmpty>
-                              {availableParties.length === 0 && !partyNameInput.trim() ? "No parties found. Type to add new." : "No parties match your search."}
+                              {availableParties.length === 0 && !partyNameInput.trim() ? "No parties recorded. Type to add new." : "No parties match your search."}
                             </CommandEmpty>
                             <CommandGroup>
                               {partyNameInput.trim() && !availableParties.some(p => p.name.toLowerCase() === partyNameInput.trim().toLowerCase()) && (
@@ -273,7 +295,7 @@ export default function PaymentsPage() {
                               {filteredPartySuggestions.map((party) => (
                                 <CommandItem
                                   key={party.id}
-                                  value={party.name} // Use party.name for selection value
+                                  value={party.name} 
                                   onSelect={() => handlePartySelect(party.name)}
                                 >
                                   {party.name} ({party.type})
@@ -314,8 +336,9 @@ export default function PaymentsPage() {
                 <Label htmlFor="notes" className="flex items-center mb-1"><StickyNote className="h-4 w-4 mr-2 text-muted-foreground" />Notes</Label>
                 <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
               </div>
-              <Button type="submit" className="w-full" disabled={isLoadingParties || isSubmittingParty}>
-                <PlusCircle className="h-4 w-4 mr-2" />Record Payment
+              <Button type="submit" className="w-full" disabled={isLoadingParties || isSubmittingParty || isSubmittingPayment}>
+                <PlusCircle className="h-4 w-4 mr-2" />
+                {isSubmittingPayment ? 'Recording...' : 'Record Payment'}
               </Button>
             </form>
           </CardContent>
@@ -324,45 +347,51 @@ export default function PaymentsPage() {
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle>Recent Payments</CardTitle><CardDescription>List of payments sorted by most recent.</CardDescription></CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Party</TableHead>
-                  <TableHead className="text-right">Amount (₹)</TableHead>
-                  <TableHead>Mode</TableHead>
-                  <TableHead>Notes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payments.length === 0 ? (
-                     <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground">No payments recorded yet.</TableCell>
-                    </TableRow>
-                ) : (
-                    payments.map((p) => (
-                    <TableRow key={p.id}>
-                        <TableCell>{p.date instanceof Date && !isNaN(p.date.getTime()) ? format(p.date, 'P') : 'Invalid Date'}</TableCell>
-                        <TableCell>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.type === "Received" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
-                            {p.type}
-                        </span>
-                        </TableCell>
-                        <TableCell>{p.partyName} <span className="text-xs text-muted-foreground">({p.partyType})</span></TableCell>
-                        <TableCell className="text-right">{p.amount.toFixed(2)}</TableCell>
-                        <TableCell>{p.mode}</TableCell>
-                        <TableCell className="max-w-[150px] truncate" title={p.notes}>{p.notes || "-"}</TableCell>
-                    </TableRow>
-                    ))
-                )}
-              </TableBody>
-            </Table>
+            {isLoadingPayments ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Party</TableHead>
+                    <TableHead className="text-right">Amount (₹)</TableHead>
+                    <TableHead>Mode</TableHead>
+                    <TableHead>Notes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {payments.length === 0 ? (
+                      <TableRow>
+                          <TableCell colSpan={6} className="text-center text-muted-foreground">No payments recorded yet.</TableCell>
+                      </TableRow>
+                  ) : (
+                      payments.map((p) => (
+                      <TableRow key={p.id}>
+                          <TableCell>{p.date instanceof Date && !isNaN(p.date.getTime()) ? format(p.date, 'P') : 'Invalid Date'}</TableCell>
+                          <TableCell>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.type === "Received" ? "bg-chart-3/20 text-chart-3" : "bg-chart-4/20 text-chart-4"}`}>
+                              {p.type}
+                          </span>
+                          </TableCell>
+                          <TableCell>{p.partyName} <span className="text-xs text-muted-foreground">({p.partyType})</span></TableCell>
+                          <TableCell className="text-right">{p.amount.toFixed(2)}</TableCell>
+                          <TableCell>{p.mode}</TableCell>
+                          <TableCell className="max-w-[150px] truncate" title={p.notes}>{p.notes || "-"}</TableCell>
+                      </TableRow>
+                      ))
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
   );
 }
-
-    
