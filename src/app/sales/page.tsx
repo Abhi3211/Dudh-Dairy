@@ -31,6 +31,7 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { addSaleEntryToFirestore, getSaleEntriesFromFirestore, updateSaleEntryInFirestore, deleteSaleEntryFromFirestore } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
+import { getUniquePashuAaharProductNamesFromFirestore } from "../pashu-aahar/actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
@@ -56,14 +57,6 @@ const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: 
   { categoryName: "Pashu Aahar", unit: "Bags" },
 ];
 
-const knownPashuAaharProducts: string[] = [
-  "Gold Coin Feed",
-  "Super Pallet",
-  "Nutri Plus Feed",
-  "Kisan Special Churi",
-  "Dairy Delight Mix",
-];
-
 export default function SalesPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Sales Entry";
@@ -83,7 +76,7 @@ export default function SalesPage() {
   const [specificPashuAaharName, setSpecificPashuAaharName] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
   const [rate, setRate] = useState<string>("");
-  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit"); // Default to Credit
+  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit");
 
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
   const customerNameInputRef = useRef<HTMLInputElement>(null);
@@ -93,6 +86,9 @@ export default function SalesPage() {
 
   const [isPashuAaharPopoverOpen, setIsPashuAaharPopoverOpen] = useState(false);
   const pashuAaharInputRef = useRef<HTMLInputElement>(null);
+  const [availablePashuAaharProducts, setAvailablePashuAaharProducts] = useState<string[]>([]);
+  const [isLoadingPashuAaharProducts, setIsLoadingPashuAaharProducts] = useState(true);
+
 
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -103,19 +99,6 @@ export default function SalesPage() {
       setDate(new Date());
     }
   }, [date, editingEntryId]);
-
-  const fetchParties = useCallback(async () => {
-    setIsLoadingParties(true);
-    try {
-      const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties);
-    } catch (error) {
-      console.error("CLIENT: Failed to fetch parties:", error);
-      toast({ title: "Error", description: "Could not fetch parties for customer suggestions.", variant: "destructive" });
-    } finally {
-      setIsLoadingParties(false);
-    }
-  }, [toast]);
 
   const fetchSales = useCallback(async () => {
     setIsLoadingSales(true);
@@ -134,13 +117,30 @@ export default function SalesPage() {
     }
   }, [toast]);
 
+  const fetchPartiesAndProducts = useCallback(async () => {
+    setIsLoadingParties(true);
+    setIsLoadingPashuAaharProducts(true);
+    try {
+      const parties = await getPartiesFromFirestore();
+      setAvailableParties(parties);
+      const pashuAaharNames = await getUniquePashuAaharProductNamesFromFirestore();
+      setAvailablePashuAaharProducts(pashuAaharNames);
+    } catch (error) {
+      console.error("CLIENT: Failed to fetch parties or pashu aahar products:", error);
+      toast({ title: "Error", description: "Could not fetch supporting data.", variant: "destructive" });
+    } finally {
+      setIsLoadingParties(false);
+      setIsLoadingPashuAaharProducts(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     fetchSales();
-    fetchParties();
-  }, [fetchSales, fetchParties]);
+    fetchPartiesAndProducts();
+  }, [fetchSales, fetchPartiesAndProducts]);
 
   const partiesForSalesSuggestions = useMemo(() => {
-    return availableParties.filter(p => p.type === "Customer" || p.type === "Supplier"); // Allow both for sales
+    return availableParties.filter(p => p.type === "Customer" || p.type === "Dealer");
   }, [availableParties]);
 
   const allKnownCustomerNamesForSales = useMemo(() => {
@@ -165,12 +165,12 @@ export default function SalesPage() {
 
   const handleSpecificPashuAaharNameChange = useCallback((value: string) => {
     setSpecificPashuAaharName(value);
-    if(value.trim()){
+    if(value.trim() && availablePashuAaharProducts.length > 0){
       setIsPashuAaharPopoverOpen(true);
     } else {
       setIsPashuAaharPopoverOpen(false);
     }
-  }, []);
+  }, [availablePashuAaharProducts]);
 
   const handlePashuAaharSelect = useCallback((currentValue: string) => {
     setSpecificPashuAaharName(currentValue);
@@ -181,12 +181,12 @@ export default function SalesPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerName(value);
-    if(value.trim()){
+    if(value.trim() && allKnownCustomerNamesForSales.length > 0){
       setIsCustomerPopoverOpen(true);
-    } else {
+    } else if (!value.trim()){
       setIsCustomerPopoverOpen(false);
     }
-  }, []);
+  }, [allKnownCustomerNamesForSales]);
   
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
@@ -201,7 +201,7 @@ export default function SalesPage() {
       if (result.success) {
         setCustomerName(trimmedValue);
         toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
-        await fetchParties(); 
+        await fetchPartiesAndProducts(); 
       } else {
         toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
       }
@@ -211,7 +211,7 @@ export default function SalesPage() {
     }
     setIsCustomerPopoverOpen(false);
     customerNameInputRef.current?.focus();
-  }, [toast, fetchParties]);
+  }, [toast, fetchPartiesAndProducts]);
 
   const filteredCustomerSuggestions = useMemo(() => {
     if (!customerName.trim()) return allKnownCustomerNamesForSales;
@@ -220,13 +220,6 @@ export default function SalesPage() {
     );
   }, [customerName, allKnownCustomerNamesForSales]);
   
-  const filteredPashuAaharSuggestions = useMemo(() => {
-    if (!specificPashuAaharName.trim()) return knownPashuAaharProducts;
-    return knownPashuAaharProducts.filter((name) =>
-      name.toLowerCase().includes(specificPashuAaharName.toLowerCase())
-    );
-  }, [specificPashuAaharName]);
-
 
   const resetFormFields = useCallback(() => {
     if (!editingEntryId) setDate(new Date());
@@ -235,7 +228,7 @@ export default function SalesPage() {
     setSpecificPashuAaharName("");
     setQuantity("");
     setRate("");
-    setPaymentType("Credit"); // Reset to Credit
+    setPaymentType("Credit");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
     setIsPashuAaharPopoverOpen(false);
@@ -308,6 +301,11 @@ export default function SalesPage() {
     if (result.success) {
       resetFormFields();
       await fetchSales(); 
+      // Optionally, re-fetch pashu aahar product names if a new one might have been implicitly added through a sale
+      if (currentCategoryDetails.categoryName === "Pashu Aahar") {
+        const pashuAaharNames = await getUniquePashuAaharProductNamesFromFirestore();
+        setAvailablePashuAaharProducts(pashuAaharNames);
+      }
     }
     setIsSubmitting(false);
   };
@@ -318,24 +316,26 @@ export default function SalesPage() {
     setCustomerName(entry.customerName);
     
     const categoryIndex = productCategories.findIndex(
-      (cat) => cat.categoryName === entry.productName || (cat.categoryName === "Pashu Aahar" && cat.unit === entry.unit && knownPashuAaharProducts.includes(entry.productName))
+      (cat) => cat.categoryName === entry.productName || (cat.categoryName === "Pashu Aahar" && cat.unit === entry.unit)
     );
-
-    if (categoryIndex !== -1 && productCategories[categoryIndex].categoryName === "Pashu Aahar") {
-        setSelectedCategoryIndex(String(categoryIndex));
-        setSpecificPashuAaharName(entry.productName); // If it's Pashu Aahar, product name IS the specific name
-    } else if (categoryIndex !== -1) {
-        setSelectedCategoryIndex(String(categoryIndex));
+  
+    if (categoryIndex !== -1) {
+      setSelectedCategoryIndex(String(categoryIndex));
+      if (productCategories[categoryIndex].categoryName === "Pashu Aahar") {
+        setSpecificPashuAaharName(entry.productName);
+      } else {
         setSpecificPashuAaharName("");
+      }
     } else {
-        const pashuAaharCatIndex = productCategories.findIndex(cat => cat.categoryName === "Pashu Aahar");
-        if (knownPashuAaharProducts.includes(entry.productName) && pashuAaharCatIndex !== -1) {
-            setSelectedCategoryIndex(String(pashuAaharCatIndex));
-            setSpecificPashuAaharName(entry.productName);
-        } else {
-            setSelectedCategoryIndex("0"); 
-            setSpecificPashuAaharName("");
-        }
+      // Fallback if product name doesn't match a category (e.g. it's a specific Pashu Aahar name)
+      const pashuAaharCatIndex = productCategories.findIndex(cat => cat.categoryName === "Pashu Aahar");
+      if (pashuAaharCatIndex !== -1 && entry.unit === "Bags") { // Assuming unit "Bags" implies Pashu Aahar
+          setSelectedCategoryIndex(String(pashuAaharCatIndex));
+          setSpecificPashuAaharName(entry.productName);
+      } else {
+          setSelectedCategoryIndex("0"); 
+          setSpecificPashuAaharName("");
+      }
     }
 
     setQuantity(String(entry.quantity));
@@ -393,9 +393,7 @@ export default function SalesPage() {
                       value={customerName}
                       onChange={(e) => handleCustomerNameInputChange(e.target.value)}
                       onFocus={() => {
-                        if (customerName.trim() && filteredCustomerSuggestions.length > 0 && !allKnownCustomerNamesForSales.find(name => name === customerName)) {
-                           setIsCustomerPopoverOpen(true);
-                        } else if (!customerName.trim() && allKnownCustomerNamesForSales.length > 0){
+                        if (customerName.trim() || allKnownCustomerNamesForSales.length > 0) {
                            setIsCustomerPopoverOpen(true);
                         }
                       }}
@@ -423,31 +421,28 @@ export default function SalesPage() {
                            <CommandItem disabled>Loading customers...</CommandItem>
                         ): (
                           <>
-                            {customerName.trim() && !allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
-                               <CommandItem
-                                key={`__CREATE__${customerName.trim()}`}
-                                value={`__CREATE__${customerName.trim()}`}
-                                onSelect={() => handleCustomerSelect(customerName.trim(), true)}
-                              >
-                                <PlusCircle className="mr-2 h-4 w-4" />
-                                Add new customer: "{customerName.trim()}"
-                              </CommandItem>
-                            )}
-                            {filteredCustomerSuggestions.map((name) => (
+                            <CommandEmpty>No customer found.</CommandEmpty>
+                            <CommandGroup>
+                              {customerName.trim() && !allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
                                 <CommandItem
-                                  key={name}
-                                  value={name}
-                                  onSelect={() => handleCustomerSelect(name, false)}
+                                  key={`__CREATE_CUSTOMER__${customerName.trim()}`}
+                                  value={`__CREATE_CUSTOMER__${customerName.trim()}`}
+                                  onSelect={() => handleCustomerSelect(customerName.trim(), true)}
                                 >
-                                  {name}
+                                  <PlusCircle className="mr-2 h-4 w-4" />
+                                  Add new customer: "{customerName.trim()}"
                                 </CommandItem>
-                              ))}
-                             {filteredCustomerSuggestions.length === 0 && customerName.trim() && !allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
-                                <CommandEmpty>No customers match. Add new above.</CommandEmpty>
-                             )}
-                             {allKnownCustomerNamesForSales.length === 0 && !customerName.trim() && (
-                                <CommandEmpty>No customers found. Type to add new.</CommandEmpty>
-                             )}
+                              )}
+                              {filteredCustomerSuggestions.map((name) => (
+                                  <CommandItem
+                                    key={name}
+                                    value={name}
+                                    onSelect={() => handleCustomerSelect(name, false)}
+                                  >
+                                    {name}
+                                  </CommandItem>
+                                ))}
+                            </CommandGroup>
                           </>
                         )}
                       </CommandList>
@@ -481,9 +476,7 @@ export default function SalesPage() {
                         value={specificPashuAaharName}
                         onChange={(e) => handleSpecificPashuAaharNameChange(e.target.value)}
                         onFocus={() => {
-                            if (specificPashuAaharName.trim() && filteredPashuAaharSuggestions.length > 0 && !knownPashuAaharProducts.find(pname => pname === specificPashuAaharName) ) {
-                                setIsPashuAaharPopoverOpen(true);
-                            } else if (!specificPashuAaharName.trim() && knownPashuAaharProducts.length > 0){
+                            if (specificPashuAaharName.trim() || availablePashuAaharProducts.length > 0) {
                                 setIsPashuAaharPopoverOpen(true);
                             }
                         }}
@@ -507,19 +500,26 @@ export default function SalesPage() {
                             onValueChange={handleSpecificPashuAaharNameChange}
                         />
                         <CommandList>
-                            <CommandEmpty>No Pashu Aahar product found.</CommandEmpty>
-                            <CommandGroup>
-                            {filteredPashuAaharSuggestions
-                                .map(suggestion => ( 
-                                <CommandItem
-                                key={suggestion}
-                                value={suggestion}
-                                onSelect={() => handlePashuAaharSelect(suggestion)}
-                                >
-                                {suggestion}
-                                </CommandItem>
-                            ))}
-                            </CommandGroup>
+                            {isLoadingPashuAaharProducts ? (
+                              <CommandItem disabled>Loading products...</CommandItem>
+                            ) : (
+                              <>
+                                <CommandEmpty>No Pashu Aahar product found.</CommandEmpty>
+                                <CommandGroup>
+                                {availablePashuAaharProducts
+                                  .filter(name => name.toLowerCase().includes(specificPashuAaharName.toLowerCase()))
+                                  .map(suggestion => ( 
+                                  <CommandItem
+                                  key={suggestion}
+                                  value={suggestion}
+                                  onSelect={() => handlePashuAaharSelect(suggestion)}
+                                  >
+                                  {suggestion}
+                                  </CommandItem>
+                                ))}
+                                </CommandGroup>
+                              </>
+                            )}
                         </CommandList>
                         </Command>
                     </PopoverContent>
@@ -553,7 +553,7 @@ export default function SalesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingParties}>
+              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingParties || isLoadingPashuAaharProducts}>
                 {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
                 {isSubmitting && !editingEntryId ? 'Adding...' : (isSubmitting && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Sale' : 'Add Sale'))}
               </Button>

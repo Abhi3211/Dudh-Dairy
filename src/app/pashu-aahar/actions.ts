@@ -45,11 +45,11 @@ export async function getPashuAaharTransactionsFromFirestore(): Promise<PashuAah
         date: entryDate,
         type: data.type || "Purchase",
         productName: data.productName || "Unknown Product",
-        supplierOrCustomerName: data.supplierOrCustomerName || "", 
+        supplierOrCustomerName: data.supplierOrCustomerName || "",
         quantityBags: typeof data.quantityBags === 'number' ? data.quantityBags : 0,
         pricePerBag: typeof data.pricePerBag === 'number' ? data.pricePerBag : 0,
         totalAmount: typeof data.totalAmount === 'number' ? data.totalAmount : 0,
-        paymentType: data.paymentType || "Credit", // Added paymentType
+        paymentType: data.paymentType || "Credit",
       } as PashuAaharTransaction;
     });
     console.log("SERVER ACTION: Successfully fetched Pashu Aahar transactions, count:", transactionList.length);
@@ -94,5 +94,33 @@ export async function deletePashuAaharTransactionFromFirestore(
       return { success: false, error: error.message };
     }
     return { success: false, error: "An unknown error occurred" };
+  }
+}
+
+export async function getUniquePashuAaharProductNamesFromFirestore(): Promise<string[]> {
+  console.log("SERVER ACTION: getUniquePashuAaharProductNamesFromFirestore called.");
+  try {
+    const transactionsCollection = collection(db, 'pashuAaharTransactions');
+    const transactionSnapshot = await getDocs(transactionsCollection);
+
+    if (transactionSnapshot.empty) {
+      console.log("SERVER ACTION: No Pashu Aahar transactions found. Returning empty array for product names.");
+      return [];
+    }
+
+    const productNames = new Set<string>();
+    transactionSnapshot.docs.forEach(docSnapshot => {
+      const data = docSnapshot.data();
+      if (data.productName && typeof data.productName === 'string') {
+        productNames.add(data.productName.trim());
+      }
+    });
+
+    const uniqueNamesArray = Array.from(productNames).sort((a, b) => a.localeCompare(b));
+    console.log("SERVER ACTION: Successfully fetched unique Pashu Aahar product names. Count:", uniqueNamesArray.length);
+    return uniqueNamesArray;
+  } catch (error) {
+    console.error("SERVER ACTION: Error fetching unique Pashu Aahar product names from Firestore:", error);
+    return [];
   }
 }
