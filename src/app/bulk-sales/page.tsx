@@ -314,7 +314,7 @@ export default function BulkSalesPage() {
 
   return (
     <div>
-      <PageHeader title={pageSpecificTitle} description="Record bulk milk sales based on Liter x FAT x Rate Factor." />
+      <PageHeader title={pageSpecificTitle} description="Record Bulk milk sale" />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">
           <CardHeader>
