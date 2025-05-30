@@ -2,7 +2,7 @@
 'use server';
 
 import { db } from '@/lib/firebase';
-import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry } from '@/lib/types';
+import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry } from '@/lib/types';
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { eachDayOfInterval, format, startOfDay, endOfDay } from 'date-fns';
 
@@ -63,6 +63,7 @@ export async function getDashboardSummaryAndChartData(
       summary.milkPurchasedAmount += entry.totalAmount || 0;
 
       const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
+      // Dairy owes the customer for milk, so this reduces what customer owes dairy, or increases dairy's liability
       partyBalances.set(entry.customerName, currentPartyBalance - (entry.netAmountPayable || 0));
 
       if (entry.date) {
@@ -101,6 +102,7 @@ export async function getDashboardSummaryAndChartData(
       } else if (entry.paymentType === "Credit") {
         summary.totalCreditOut += currentSaleAmount;
         const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
+        // Customer owes dairy for credit sale
         partyBalances.set(entry.customerName, currentPartyBalance + currentSaleAmount);
       }
       
@@ -133,22 +135,51 @@ export async function getDashboardSummaryAndChartData(
         } else if (entry.paymentType === "Credit") {
             summary.totalCreditOut += currentSaleAmount;
             const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
+            // Customer owes dairy for credit bulk sale
             partyBalances.set(entry.customerName, currentPartyBalance + currentSaleAmount);
         }
 
         if (entry.date) {
             const saleDateStr = format(entry.date.toDate(), "MMM dd");
             if (dailyAggregator[saleDateStr]) {
-              // Add bulk sales to the 'soldValue' for the chart
               dailyAggregator[saleDateStr].soldValue += currentSaleAmount;
             }
         }
     });
 
+    // Fetch Payment Entries
+    const paymentEntriesQuery = query(
+      collection(db, 'paymentEntries'),
+      where('date', '>=', startDate),
+      where('date', '<=', endDate)
+    );
+    const paymentEntriesSnapshot = await getDocs(paymentEntriesQuery);
+    console.log(`SERVER ACTION: Fetched ${paymentEntriesSnapshot.docs.length} payment entry documents.`);
+
+    paymentEntriesSnapshot.forEach(doc => {
+      const entry = doc.data() as Omit<PaymentEntry, 'id' | 'date'> & { date: Timestamp };
+      // We only care about payments involving "Customer" type parties for "Total Outstanding" (receivables)
+      if (entry.partyType === "Customer") {
+        const currentPartyBalance = partyBalances.get(entry.partyName) || 0;
+        if (entry.type === "Received") { // Customer paid the dairy
+          partyBalances.set(entry.partyName, currentPartyBalance - entry.amount);
+          summary.totalCashIn += entry.amount; // Assuming all received payments are cash in for this summary
+        } else if (entry.type === "Paid") { // Dairy paid the customer (e.g. refund, advance settlement)
+          partyBalances.set(entry.partyName, currentPartyBalance + entry.amount);
+          // This payment 'paid' by dairy would also be an expense or reduction of liability,
+          // but totalCashIn and totalCreditOut are more about sales transactions directly.
+          // For simplicity, we are not directly adjusting totalCreditOut for "Paid" payments here,
+          // as it might overcomplicate the summary without full ledger context.
+        }
+      }
+      // Note: totalCashIn for payments is only if type is "Received". If it's cash paid out by dairy,
+      // it would be an expense or cash outflow, not directly affecting totalCashIn from sales.
+      // The current logic updates totalCashIn for "Received" payments if party is Customer.
+    });
+
 
   } catch (error) {
     console.error("SERVER ACTION: Error fetching dashboard data from Firestore:", error);
-    // Return a default summary in case of error to prevent app crash
     const defaultSummary: DailySummary = {
         milkPurchasedLitres: 0,
         milkPurchasedAmount: 0,
@@ -167,7 +198,7 @@ export async function getDashboardSummaryAndChartData(
   
   let calculatedOutstanding = 0;
   for (const balance of partyBalances.values()) {
-    if (balance > 0) {
+    if (balance > 0) { // Only sum positive balances (what customers owe the dairy)
       calculatedOutstanding += balance;
     }
   }
@@ -194,6 +225,8 @@ export async function getDashboardSummaryAndChartData(
   summary.totalCashIn = parseFloat(summary.totalCashIn.toFixed(2));
   summary.totalCreditOut = parseFloat(summary.totalCreditOut.toFixed(2));
 
-  console.log("SERVER ACTION: Dashboard data processed. Summary:", summary, "ChartSeries Length:", chartSeries.length);
+  console.log("SERVER ACTION: Dashboard data processed. Summary:", JSON.parse(JSON.stringify(summary)), "ChartSeries Length:", chartSeries.length);
   return { summary, chartSeries };
 }
+
+    
