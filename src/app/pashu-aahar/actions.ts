@@ -10,7 +10,10 @@ export async function addPashuAaharTransactionToFirestore(
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addPashuAaharTransactionToFirestore called with data:", JSON.parse(JSON.stringify(transactionData)));
   try {
-    const docRef = await addDoc(collection(db, 'pashuAaharTransactions'), transactionData);
+    const docRef = await addDoc(collection(db, 'pashuAaharTransactions'), {
+      ...transactionData,
+      date: Timestamp.fromDate(transactionData.date), // Ensure date is a Timestamp
+    });
     console.log("SERVER ACTION: Pashu Aahar transaction successfully added to Firestore with ID:", docRef.id);
     return { success: true, id: docRef.id };
   } catch (error) {
@@ -48,6 +51,7 @@ export async function getPashuAaharTransactionsFromFirestore(): Promise<PashuAah
         supplierOrCustomerName: data.supplierOrCustomerName || "",
         quantityBags: typeof data.quantityBags === 'number' ? data.quantityBags : 0,
         pricePerBag: typeof data.pricePerBag === 'number' ? data.pricePerBag : 0,
+        salePricePerBag: typeof data.salePricePerBag === 'number' ? data.salePricePerBag : undefined,
         totalAmount: typeof data.totalAmount === 'number' ? data.totalAmount : 0,
         paymentType: data.paymentType || "Credit",
       } as PashuAaharTransaction;
@@ -67,7 +71,10 @@ export async function updatePashuAaharTransactionInFirestore(
   console.log(`SERVER ACTION: updatePashuAaharTransactionInFirestore called for ID: ${transactionId} with data:`, JSON.parse(JSON.stringify(transactionData)));
   try {
     const transactionRef = doc(db, 'pashuAaharTransactions', transactionId);
-    await updateDoc(transactionRef, transactionData);
+    await updateDoc(transactionRef, {
+      ...transactionData,
+      date: Timestamp.fromDate(transactionData.date), // Ensure date is a Timestamp
+    });
     console.log(`SERVER ACTION: Pashu Aahar transaction with ID: ${transactionId} successfully updated.`);
     return { success: true };
   } catch (error) {

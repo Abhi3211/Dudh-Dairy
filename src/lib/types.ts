@@ -41,13 +41,14 @@ export interface BulkSaleEntry {
 export interface PashuAaharTransaction {
   id: string;
   date: Date;
-  type: "Purchase" | "Sale"; // "Sale" type might not be used if sales are handled only in SalesEntry
+  type: "Purchase" | "Sale";
   productName: string;
   supplierOrCustomerName?: string;
   quantityBags: number;
   pricePerBag?: number;
+  salePricePerBag?: number; // Optional sale price set at time of purchase
   totalAmount: number;
-  paymentType: "Cash" | "Credit"; // Added paymentType
+  paymentType: "Cash" | "Credit";
 }
 
 export interface Party {
