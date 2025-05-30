@@ -1,8 +1,9 @@
+
 "use client"
 
 import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
-import { Check, ChevronDown, ChevronUp } from "lucide-react"
+import { Check, ChevronDown } from "lucide-react" // Removed ChevronUp
 
 import { cn } from "@/lib/utils"
 
@@ -32,7 +33,7 @@ const SelectTrigger = React.forwardRef<
 ))
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
 
-const SelectScrollUpButton = React.forwardRef<
+const SelectScrollUpButton = React.forwardRef< // This component will remain defined but not used in SelectContent
   React.ElementRef<typeof SelectPrimitive.ScrollUpButton>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollUpButton>
 >(({ className, ...props }, ref) => (
@@ -44,12 +45,12 @@ const SelectScrollUpButton = React.forwardRef<
     )}
     {...props}
   >
-    <ChevronUp className="h-4 w-4" />
+    <ChevronDown className="h-4 w-4 rotate-180" /> {/* Replaced ChevronUp for consistency if ever used */}
   </SelectPrimitive.ScrollUpButton>
 ))
 SelectScrollUpButton.displayName = SelectPrimitive.ScrollUpButton.displayName
 
-const SelectScrollDownButton = React.forwardRef<
+const SelectScrollDownButton = React.forwardRef< // This component will remain defined but not used in SelectContent
   React.ElementRef<typeof SelectPrimitive.ScrollDownButton>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollDownButton>
 >(({ className, ...props }, ref) => (
@@ -83,7 +84,7 @@ const SelectContent = React.forwardRef<
       position={position}
       {...props}
     >
-      <SelectScrollUpButton />
+      {/* Removed SelectScrollUpButton */}
       <SelectPrimitive.Viewport
         className={cn(
           "p-1",
@@ -93,7 +94,7 @@ const SelectContent = React.forwardRef<
       >
         {children}
       </SelectPrimitive.Viewport>
-      <SelectScrollDownButton />
+      {/* Removed SelectScrollDownButton */}
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
 ))
@@ -155,6 +156,6 @@ export {
   SelectLabel,
   SelectItem,
   SelectSeparator,
-  SelectScrollUpButton,
-  SelectScrollDownButton,
+  SelectScrollUpButton, // Still exported in case someone wants to use them manually
+  SelectScrollDownButton, // Still exported
 }
