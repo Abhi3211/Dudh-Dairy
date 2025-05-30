@@ -78,23 +78,31 @@ export default function SalesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [date, setDate] = useState<Date | undefined>(undefined);
-  const [customerNameInput, setCustomerNameInput] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
   const [specificPashuAaharName, setSpecificPashuAaharName] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
   const [rate, setRate] = useState<string>("");
-  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Cash");
+  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit"); // Default to Credit
 
-  const [popoverOpenForPashuAahar, setPopoverOpenForPashuAahar] = useState(false);
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
   const customerNameInputRef = useRef<HTMLInputElement>(null);
   
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true);
 
+  const [isPashuAaharPopoverOpen, setIsPashuAaharPopoverOpen] = useState(false);
+  const pashuAaharInputRef = useRef<HTMLInputElement>(null);
+
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [entryToDelete, setEntryToDelete] = useState<SaleEntry | null>(null);
+
+  useEffect(() => {
+    if (date === undefined && !editingEntryId) {
+      setDate(new Date());
+    }
+  }, [date, editingEntryId]);
 
   const fetchParties = useCallback(async () => {
     setIsLoadingParties(true);
@@ -127,19 +135,17 @@ export default function SalesPage() {
   }, [toast]);
 
   useEffect(() => {
-    if (!editingEntryId) {
-      setDate(new Date());
-    }
     fetchSales();
     fetchParties();
-  }, [fetchSales, fetchParties, editingEntryId]);
+  }, [fetchSales, fetchParties]);
 
-  const allKnownCustomerNames = useMemo(() => {
-    return availableParties
-      .filter(p => p.type === "Customer" || p.type === "Dealer") // Keep Dealer for now as per previous setup
-      .map(p => p.name)
-      .sort((a, b) => a.localeCompare(b));
+  const partiesForSalesSuggestions = useMemo(() => {
+    return availableParties.filter(p => p.type === "Customer" || p.type === "Supplier"); // Allow both for sales
   }, [availableParties]);
+
+  const allKnownCustomerNamesForSales = useMemo(() => {
+    return partiesForSalesSuggestions.map(p => p.name).sort((a, b) => a.localeCompare(b));
+  }, [partiesForSalesSuggestions]);
 
   const totalAmount = useMemo(() => {
     const q = parseFloat(quantity);
@@ -153,18 +159,33 @@ export default function SalesPage() {
   useEffect(() => {
     if (currentCategoryName !== "Pashu Aahar") {
       setSpecificPashuAaharName("");
-      setPopoverOpenForPashuAahar(false);
+      setIsPashuAaharPopoverOpen(false);
     }
   }, [currentCategoryName]);
 
-  const handlePashuAaharNameChange = useCallback((value: string) => {
+  const handleSpecificPashuAaharNameChange = useCallback((value: string) => {
     setSpecificPashuAaharName(value);
-    setPopoverOpenForPashuAahar(!!value.trim());
+    if(value.trim()){
+      setIsPashuAaharPopoverOpen(true);
+    } else {
+      setIsPashuAaharPopoverOpen(false);
+    }
   }, []);
 
+  const handlePashuAaharSelect = useCallback((currentValue: string) => {
+    setSpecificPashuAaharName(currentValue);
+    setIsPashuAaharPopoverOpen(false);
+    pashuAaharInputRef.current?.focus();
+  }, []);
+
+
   const handleCustomerNameInputChange = useCallback((value: string) => {
-    setCustomerNameInput(value);
-    setIsCustomerPopoverOpen(!!value.trim());
+    setCustomerName(value);
+    if(value.trim()){
+      setIsCustomerPopoverOpen(true);
+    } else {
+      setIsCustomerPopoverOpen(false);
+    }
   }, []);
   
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
@@ -175,47 +196,54 @@ export default function SalesPage() {
         setIsCustomerPopoverOpen(false);
         return;
       }
-      setIsSubmitting(true); // or setIsLoadingParties(true)
+      setIsSubmitting(true);
       const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
       if (result.success) {
-        setCustomerNameInput(trimmedValue);
+        setCustomerName(trimmedValue);
         toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
         await fetchParties(); 
       } else {
         toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
       }
-      setIsSubmitting(false); // or setIsLoadingParties(false)
+      setIsSubmitting(false);
     } else {
-      setCustomerNameInput(trimmedValue);
+      setCustomerName(trimmedValue);
     }
     setIsCustomerPopoverOpen(false);
     customerNameInputRef.current?.focus();
   }, [toast, fetchParties]);
 
   const filteredCustomerSuggestions = useMemo(() => {
-    if (!customerNameInput.trim()) return allKnownCustomerNames;
-    return allKnownCustomerNames.filter((name) =>
-      name.toLowerCase().includes(customerNameInput.toLowerCase())
+    if (!customerName.trim()) return allKnownCustomerNamesForSales;
+    return allKnownCustomerNamesForSales.filter((name) =>
+      name.toLowerCase().includes(customerName.toLowerCase())
     );
-  }, [customerNameInput, allKnownCustomerNames]);
+  }, [customerName, allKnownCustomerNamesForSales]);
+  
+  const filteredPashuAaharSuggestions = useMemo(() => {
+    if (!specificPashuAaharName.trim()) return knownPashuAaharProducts;
+    return knownPashuAaharProducts.filter((name) =>
+      name.toLowerCase().includes(specificPashuAaharName.toLowerCase())
+    );
+  }, [specificPashuAaharName]);
+
 
   const resetFormFields = useCallback(() => {
-    if (!editingEntryId) setDate(new Date()); // Only reset date if not editing
-    // Date persists during edits, shift persists by design (though no shift here)
-    setCustomerNameInput("");
+    if (!editingEntryId) setDate(new Date());
+    setCustomerName("");
     setSelectedCategoryIndex("0");
     setSpecificPashuAaharName("");
     setQuantity("");
     setRate("");
-    setPaymentType("Cash");
+    setPaymentType("Credit"); // Reset to Credit
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
-    setPopoverOpenForPashuAahar(false);
+    setIsPashuAaharPopoverOpen(false);
   }, [editingEntryId]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !customerNameInput.trim() || !quantity || !rate) {
+    if (!date || !customerName.trim() || !quantity || !rate) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Customer, Quantity, Rate).", variant: "destructive" });
       return;
     }
@@ -251,7 +279,7 @@ export default function SalesPage() {
     setIsSubmitting(true);
     const saleData: Omit<SaleEntry, 'id'> = {
       date,
-      customerName: customerNameInput.trim(),
+      customerName: customerName.trim(),
       productName: finalProductName,
       quantity: parsedQuantity,
       unit: currentCategoryDetails.unit,
@@ -287,27 +315,25 @@ export default function SalesPage() {
   const handleEdit = (entry: SaleEntry) => {
     setEditingEntryId(entry.id);
     setDate(entry.date);
-    setCustomerNameInput(entry.customerName);
+    setCustomerName(entry.customerName);
     
     const categoryIndex = productCategories.findIndex(
-      (cat) => cat.categoryName === entry.productName || (cat.categoryName === "Pashu Aahar" && cat.unit === entry.unit)
+      (cat) => cat.categoryName === entry.productName || (cat.categoryName === "Pashu Aahar" && cat.unit === entry.unit && knownPashuAaharProducts.includes(entry.productName))
     );
 
-    if (productCategories[categoryIndex]?.categoryName === "Pashu Aahar") {
-        setSelectedCategoryIndex(String(categoryIndex !== -1 ? categoryIndex : 0));
-        setSpecificPashuAaharName(entry.productName);
+    if (categoryIndex !== -1 && productCategories[categoryIndex].categoryName === "Pashu Aahar") {
+        setSelectedCategoryIndex(String(categoryIndex));
+        setSpecificPashuAaharName(entry.productName); // If it's Pashu Aahar, product name IS the specific name
     } else if (categoryIndex !== -1) {
         setSelectedCategoryIndex(String(categoryIndex));
         setSpecificPashuAaharName("");
     } else {
-        // Fallback if product name doesn't match main categories (e.g. older data)
-        // Try to find if it's one of the known Pashu Aahar products
         const pashuAaharCatIndex = productCategories.findIndex(cat => cat.categoryName === "Pashu Aahar");
         if (knownPashuAaharProducts.includes(entry.productName) && pashuAaharCatIndex !== -1) {
             setSelectedCategoryIndex(String(pashuAaharCatIndex));
             setSpecificPashuAaharName(entry.productName);
         } else {
-            setSelectedCategoryIndex("0"); // Default to Milk
+            setSelectedCategoryIndex("0"); 
             setSpecificPashuAaharName("");
         }
     }
@@ -364,8 +390,15 @@ export default function SalesPage() {
                     <Input
                       id="customerNameInput"
                       ref={customerNameInputRef}
-                      value={customerNameInput}
+                      value={customerName}
                       onChange={(e) => handleCustomerNameInputChange(e.target.value)}
+                      onFocus={() => {
+                        if (customerName.trim() && filteredCustomerSuggestions.length > 0 && !allKnownCustomerNamesForSales.find(name => name === customerName)) {
+                           setIsCustomerPopoverOpen(true);
+                        } else if (!customerName.trim() && allKnownCustomerNamesForSales.length > 0){
+                           setIsCustomerPopoverOpen(true);
+                        }
+                      }}
                       placeholder="Start typing customer name"
                       autoComplete="off"
                       required
@@ -382,7 +415,7 @@ export default function SalesPage() {
                     <Command>
                       <CommandInput 
                         placeholder="Search or add new customer..." 
-                        value={customerNameInput}
+                        value={customerName}
                         onValueChange={handleCustomerNameInputChange}
                       />
                       <CommandList>
@@ -390,30 +423,30 @@ export default function SalesPage() {
                            <CommandItem disabled>Loading customers...</CommandItem>
                         ): (
                           <>
-                            {customerNameInput.trim() && !allKnownCustomerNames.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
+                            {customerName.trim() && !allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
                                <CommandItem
-                                key={`__CREATE__${customerNameInput.trim()}`}
-                                value={`__CREATE__${customerNameInput.trim()}`}
-                                onSelect={() => handleCustomerSelect(customerNameInput.trim(), true)}
+                                key={`__CREATE__${customerName.trim()}`}
+                                value={`__CREATE__${customerName.trim()}`}
+                                onSelect={() => handleCustomerSelect(customerName.trim(), true)}
                               >
                                 <PlusCircle className="mr-2 h-4 w-4" />
-                                Add new customer: "{customerNameInput.trim()}"
+                                Add new customer: "{customerName.trim()}"
                               </CommandItem>
                             )}
                             {filteredCustomerSuggestions.map((name) => (
                                 <CommandItem
                                   key={name}
                                   value={name}
-                                  onSelect={() => handleCustomerSelect(name)}
+                                  onSelect={() => handleCustomerSelect(name, false)}
                                 >
                                   {name}
                                 </CommandItem>
                               ))}
-                             {filteredCustomerSuggestions.length === 0 && customerNameInput.trim() && (
-                                <CommandEmpty>No existing customers match. Select "Add new..." above.</CommandEmpty>
+                             {filteredCustomerSuggestions.length === 0 && customerName.trim() && !allKnownCustomerNamesForSales.some(name => name.toLowerCase() === customerName.trim().toLowerCase()) && (
+                                <CommandEmpty>No customers match. Add new above.</CommandEmpty>
                              )}
-                             {allKnownCustomerNames.length === 0 && !customerNameInput.trim() && (
-                                <CommandEmpty>No customers found. Type to add a new one.</CommandEmpty>
+                             {allKnownCustomerNamesForSales.length === 0 && !customerName.trim() && (
+                                <CommandEmpty>No customers found. Type to add new.</CommandEmpty>
                              )}
                           </>
                         )}
@@ -440,12 +473,20 @@ export default function SalesPage() {
               {currentCategoryName === "Pashu Aahar" && (
                  <div key="pashu-aahar-specific-name-section">
                   <Label htmlFor="specificPashuAaharName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Specific Pashu Aahar Name</Label>
-                  <Popover open={popoverOpenForPashuAahar} onOpenChange={setPopoverOpenForPashuAahar}>
+                  <Popover open={isPashuAaharPopoverOpen} onOpenChange={setIsPashuAaharPopoverOpen}>
                     <PopoverTrigger asChild>
                       <Input
                         id="specificPashuAaharName"
+                        ref={pashuAaharInputRef}
                         value={specificPashuAaharName}
-                        onChange={(e) => handlePashuAaharNameChange(e.target.value)}
+                        onChange={(e) => handleSpecificPashuAaharNameChange(e.target.value)}
+                        onFocus={() => {
+                            if (specificPashuAaharName.trim() && filteredPashuAaharSuggestions.length > 0 && !knownPashuAaharProducts.find(pname => pname === specificPashuAaharName) ) {
+                                setIsPashuAaharPopoverOpen(true);
+                            } else if (!specificPashuAaharName.trim() && knownPashuAaharProducts.length > 0){
+                                setIsPashuAaharPopoverOpen(true);
+                            }
+                        }}
                         placeholder="Type or select Pashu Aahar"
                         required
                         autoComplete="off"
@@ -463,21 +504,17 @@ export default function SalesPage() {
                         <CommandInput 
                             placeholder="Search Pashu Aahar..." 
                             value={specificPashuAaharName}
-                            onValueChange={handlePashuAaharNameChange}
+                            onValueChange={handleSpecificPashuAaharNameChange}
                         />
                         <CommandList>
                             <CommandEmpty>No Pashu Aahar product found.</CommandEmpty>
                             <CommandGroup>
-                            {knownPashuAaharProducts
-                                .filter(name => name.toLowerCase().includes(specificPashuAaharName.toLowerCase()))
+                            {filteredPashuAaharSuggestions
                                 .map(suggestion => ( 
                                 <CommandItem
                                 key={suggestion}
                                 value={suggestion}
-                                onSelect={(currentValue) => { 
-                                    setSpecificPashuAaharName(currentValue); // Use the passed currentValue
-                                    setPopoverOpenForPashuAahar(false);
-                                }}
+                                onSelect={() => handlePashuAaharSelect(suggestion)}
                                 >
                                 {suggestion}
                                 </CommandItem>
