@@ -74,7 +74,7 @@ export default function BulkSalesPage() {
 
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
-  const [rateFactor, setRateFactor] = useState<string>("6.7"); 
+  const [rate, setRate] = useState<string>("6.7"); 
   const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit");
   const [remarks, setRemarks] = useState<string>("");
 
@@ -141,17 +141,17 @@ export default function BulkSalesPage() {
   const totalAmountDisplay = useMemo(() => {
     const quantityStr = quantityLtr.replace(',', '.');
     const fatStr = fatPercentage.replace(',', '.');
-    const rateStr = rateFactor.replace(',', '.');
+    const rateStr = rate.replace(',', '.');
     
     const quantity = parseFloat(quantityStr);
     const fat = parseFloat(fatStr);
-    const rate = parseFloat(rateStr);
+    const rateValue = parseFloat(rateStr);
 
-    if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat >= 0 && !isNaN(rate) && rate > 0) {
-      return (quantity * fat * rate);
+    if (!isNaN(quantity) && quantity > 0 && !isNaN(fat) && fat >= 0 && !isNaN(rateValue) && rateValue > 0) {
+      return (quantity * fat * rateValue);
     }
     return 0;
-  }, [quantityLtr, fatPercentage, rateFactor]);
+  }, [quantityLtr, fatPercentage, rate]);
 
   const filteredEntries = useMemo(() => {
     let dateFiltered = allEntries;
@@ -233,18 +233,18 @@ export default function BulkSalesPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !shift || !customerNameInput.trim() || !quantityLtr || !fatPercentage || !rateFactor) {
-      toast({ title: "Error", description: "Please fill all required fields (Date, Shift, Customer, Quantity, FAT, Rate Factor).", variant: "destructive" });
+    if (!date || !shift || !customerNameInput.trim() || !quantityLtr || !fatPercentage || !rate) {
+      toast({ title: "Error", description: "Please fill all required fields (Date, Shift, Customer, Quantity, FAT, Rate).", variant: "destructive" });
       return;
     }
 
     const qLtrStr = quantityLtr.replace(',', '.');
     const fatPStr = fatPercentage.replace(',', '.');
-    const finalRateStr = rateFactor.replace(',', '.');
+    const finalRateStr = rate.replace(',', '.');
 
     const qLtr = parseFloat(qLtrStr);
     const fatP = parseFloat(fatPStr);
-    const finalRate = parseFloat(finalRateStr); 
+    const finalRateValue = parseFloat(finalRateStr); 
 
     if (isNaN(qLtr) || qLtr <= 0) {
       toast({ title: "Error", description: "Please enter a valid quantity.", variant: "destructive" }); return;
@@ -252,11 +252,11 @@ export default function BulkSalesPage() {
     if (isNaN(fatP) || fatP < 0) { 
       toast({ title: "Error", description: "Please enter a valid FAT percentage (must be >= 0).", variant: "destructive" }); return;
     }
-    if (isNaN(finalRate) || finalRate <= 0) {
-      toast({ title: "Error", description: "Please enter a valid rate factor (must be > 0).", variant: "destructive" }); return;
+    if (isNaN(finalRateValue) || finalRateValue <= 0) {
+      toast({ title: "Error", description: "Please enter a valid rate (must be > 0).", variant: "destructive" }); return;
     }
 
-    const finalTotalAmount = qLtr * fatP * finalRate; 
+    const finalTotalAmount = qLtr * fatP * finalRateValue; 
 
     const entryData: Omit<BulkSaleEntry, 'id'> = {
       date, 
@@ -264,7 +264,7 @@ export default function BulkSalesPage() {
       customerName: customerNameInput.trim(), 
       quantityLtr: qLtr,
       fatPercentage: fatP,
-      rateFactor: finalRate,
+      rateFactor: finalRateValue,
       totalAmount: finalTotalAmount,
       paymentType,
       remarks: remarks.trim(),
@@ -302,7 +302,7 @@ export default function BulkSalesPage() {
     setCustomerNameInput(entry.customerName);
     setQuantityLtr(String(entry.quantityLtr));
     setFatPercentage(String(entry.fatPercentage));
-    setRateFactor(String(entry.rateFactor));
+    setRate(String(entry.rateFactor));
     setPaymentType(entry.paymentType);
     setRemarks(entry.remarks || "");
   };
@@ -340,7 +340,7 @@ export default function BulkSalesPage() {
     }
 
     const headers = [
-      "Date", "Shift", "Customer", "Qty (Ltr)", "FAT (%)", "Rate Factor (₹)", 
+      "Date", "Shift", "Customer", "Qty (Ltr)", "FAT (%)", "Rate (₹)", 
       "Total (₹)", "Payment Type", "Remarks"
     ];
     
@@ -528,15 +528,15 @@ export default function BulkSalesPage() {
                     <Input id="fatPercentage" type="text" inputMode="decimal" value={fatPercentage} onChange={(e) => setFatPercentage(e.target.value)} placeholder="e.g., 3.8" required />
                   </div>
                   <div>
-                    <Label htmlFor="rateFactor" className="flex items-center mb-1">
-                      <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate Factor (₹)
+                    <Label htmlFor="rate" className="flex items-center mb-1">
+                      <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Rate (₹)
                     </Label>
                     <Input 
-                      id="rateFactor" 
+                      id="rate" 
                       type="text" 
                       inputMode="decimal"
-                      value={rateFactor} 
-                      onChange={(e) => setRateFactor(e.target.value)} 
+                      value={rate} 
+                      onChange={(e) => setRate(e.target.value)} 
                       placeholder="e.g., 6.7" 
                       required 
                     />
@@ -647,7 +647,7 @@ export default function BulkSalesPage() {
                       <TableHead>Customer</TableHead> 
                       <TableHead className="text-right">Qty (Ltr)</TableHead>
                       <TableHead className="text-right">FAT (%)</TableHead>
-                      <TableHead className="text-right">Rate Factor (₹)</TableHead>
+                      <TableHead className="text-right">Rate (₹)</TableHead>
                       <TableHead className="text-right">Total (₹)</TableHead>
                       <TableHead>Payment</TableHead>
                       <TableHead>Remarks</TableHead>
