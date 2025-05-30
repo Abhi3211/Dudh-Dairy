@@ -68,7 +68,7 @@ export default function DashboardPage() {
   }, [filterType, customStartDate, customEndDate]);
 
   const fetchData = useCallback(async () => {
-    console.log("CLIENT: fetchData called. filterType:", filterType, "customStartDate:", customStartDate, "customEndDate:", customEndDate);
+    console.log("CLIENT: fetchData called. filterType:", filterType);
     setIsLoading(true);
     
     const { startDate, endDate } = calculateDateRange();
@@ -109,7 +109,7 @@ export default function DashboardPage() {
     );
 
     setIsLoading(false);
-  }, [calculateDateRange, filterType, customStartDate, customEndDate]); // Added customStartDate and customEndDate to dependencies
+  }, [calculateDateRange, filterType]); // filterType is added as it directly influences fetchData logic, though also a dep of calculateDateRange
 
   useEffect(() => {
     if (customStartDate === undefined) {
@@ -126,7 +126,7 @@ export default function DashboardPage() {
       return;
     }
     fetchData();
-  }, [fetchData, filterType, customStartDate, customEndDate]); 
+  }, [fetchData]); 
 
   const summaryItems = useMemo(() => {
     if (!summary) return [];
