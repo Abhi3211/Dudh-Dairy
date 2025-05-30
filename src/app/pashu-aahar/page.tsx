@@ -25,12 +25,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Package, Warehouse, IndianRupee, User, PlusCircle, Tag, CalendarIcon, MoreHorizontal, Edit, Trash2, CreditCard } from "lucide-react";
-import type { PashuAaharTransaction, Party } from "@/lib/types";
+import type { PashuAaharTransaction, Party, SaleEntry } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { addPashuAaharTransactionToFirestore, getPashuAaharTransactionsFromFirestore, updatePashuAaharTransactionInFirestore, deletePashuAaharTransactionFromFirestore } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
+import { getSaleEntriesFromFirestore } from "../sales/actions"; // Import sales action
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import {
@@ -51,7 +52,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-// Predefined list of common Pashu Aahar products
 const INITIAL_KNOWN_PASHU_AAHAR_PRODUCTS: string[] = [
   "Gold Coin Feed",
   "Super Pallet",
@@ -70,8 +70,9 @@ export default function PashuAaharPage() {
   }, [setPageTitle, pageSpecificTitle]);
 
   const { toast } = useToast();
-  const [transactions, setTransactions] = useState<PashuAaharTransaction[]>([]);
-  const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
+  const [transactions, setTransactions] = useState<PashuAaharTransaction[]>([]); // These are essentially purchases
+  const [relevantSales, setRelevantSales] = useState<SaleEntry[]>([]); // For sales of Pashu Aahar
+  const [isLoadingData, setIsLoadingData] = useState(true); // Combined loading state
   const [currentStockByProduct, setCurrentStockByProduct] = useState<Record<string, number>>({});
 
   const [date, setDate] = useState<Date | undefined>(undefined);
@@ -90,7 +91,7 @@ export default function PashuAaharPage() {
 
   const [quantityBags, setQuantityBags] = useState("");
   const [pricePerBag, setPricePerBag] = useState("");
-  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit"); // Added paymentType state
+  const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
@@ -111,20 +112,34 @@ export default function PashuAaharPage() {
     }
   }, [toast]);
 
-  const fetchTransactions = useCallback(async () => {
-    setIsLoadingTransactions(true);
+  const fetchPashuAaharPageData = useCallback(async () => {
+    setIsLoadingData(true);
     try {
-      const fetchedTransactions = await getPashuAaharTransactionsFromFirestore();
-      const processedTransactions = fetchedTransactions.map(tx => ({
+      const [purchaseTxs, salesTxs] = await Promise.all([
+        getPashuAaharTransactionsFromFirestore(),
+        getSaleEntriesFromFirestore(),
+      ]);
+
+      const processedPurchaseTxs = purchaseTxs.map(tx => ({
         ...tx,
         date: tx.date instanceof Date ? tx.date : new Date(tx.date)
       })).sort((a, b) => b.date.getTime() - a.date.getTime());
-      setTransactions(processedTransactions);
+      setTransactions(processedPurchaseTxs);
+
+      const filteredSales = salesTxs
+        .filter(sale => sale.unit === "Bags") // Assuming unit "Bags" identifies Pashu Aahar sales
+        .map(s => ({
+          ...s,
+          date: s.date instanceof Date ? s.date : new Date(s.date)
+        }));
+      setRelevantSales(filteredSales);
+      console.log("CLIENT (Pashu Aahar): Fetched Purchases:", processedPurchaseTxs.length, "Relevant Sales:", filteredSales.length);
+
     } catch (error) {
-      console.error("CLIENT: Failed to fetch Pashu Aahar transactions:", error);
-      toast({ title: "Error", description: "Could not fetch transactions.", variant: "destructive" });
+      console.error("CLIENT: Failed to fetch Pashu Aahar page data:", error);
+      toast({ title: "Error", description: "Could not fetch all necessary data.", variant: "destructive" });
     } finally {
-      setIsLoadingTransactions(false);
+      setIsLoadingData(false);
     }
   }, [toast]);
 
@@ -132,32 +147,58 @@ export default function PashuAaharPage() {
     if (!editingTransactionId && date === undefined) {
         setDate(new Date());
     }
-    fetchTransactions();
+    fetchPashuAaharPageData();
     fetchParties();
-  }, [fetchTransactions, fetchParties, editingTransactionId, date]);
+  }, [fetchPashuAaharPageData, fetchParties, editingTransactionId, date]);
 
   useEffect(() => {
+    console.log("CLIENT (Pashu Aahar): Recalculating stock. Purchases:", transactions.length, "Relevant Sales:", relevantSales.length);
     const stockCalc: Record<string, number> = {};
-    const sortedTransactionsForStock = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    sortedTransactionsForStock.forEach(tx => {
-      const pName = tx.productName.trim();
+    // Create a unified list of stock-affecting events
+    const stockEvents: {
+      productName: string;
+      date: Date;
+      quantityChange: number;
+    }[] = [];
+
+    // Add purchases
+    transactions.forEach(tx => {
+      // Only consider "Purchase" type from pashuAaharTransactions for adding to stock
+      if (tx.type === "Purchase") { 
+        stockEvents.push({
+          productName: tx.productName.trim(),
+          date: tx.date,
+          quantityChange: tx.quantityBags,
+        });
+      }
+    });
+
+    // Add sales of Pashu Aahar
+    relevantSales.forEach(sale => {
+      stockEvents.push({
+        productName: sale.productName.trim(),
+        date: sale.date,
+        quantityChange: -sale.quantity, // Negative because it's a sale
+      });
+    });
+    
+    stockEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    stockEvents.forEach(event => {
+      const pName = event.productName;
       if (!stockCalc[pName]) {
         stockCalc[pName] = 0;
       }
-      if (tx.type === "Purchase") {
-        stockCalc[pName] += tx.quantityBags;
-      } else if (tx.type === "Sale") {
-         // Placeholder for future stock deduction if sales are tracked here too
-         // stockCalc[pName] -= tx.quantityBags;
-      }
+      stockCalc[pName] += event.quantityChange;
     });
+    console.log("CLIENT (Pashu Aahar): Calculated stock:", stockCalc);
     setCurrentStockByProduct(stockCalc);
-  }, [transactions]);
+  }, [transactions, relevantSales]);
 
 
   const totalTransactionAmount = useMemo(() => {
-    return transactions.reduce((sum, tx) => sum + tx.totalAmount, 0);
+    return transactions.reduce((sum, tx) => tx.type === "Purchase" ? sum + tx.totalAmount : sum, 0);
   }, [transactions]);
 
   const resetFormFields = useCallback(() => {
@@ -166,7 +207,7 @@ export default function PashuAaharPage() {
     setSupplierNameInput("");
     setQuantityBags("");
     setPricePerBag("");
-    setPaymentType("Credit"); // Reset payment type to Credit
+    setPaymentType("Credit");
     setEditingTransactionId(null);
     setTransactionToEdit(null);
     setIsSupplierPopoverOpen(false);
@@ -189,25 +230,32 @@ export default function PashuAaharPage() {
     }
   }, []);
 
-  const handleProductSelect = useCallback((currentValue: string, isCreateNew = false) => {
+  const handleProductSelect = useCallback((currentValue: string) => {
     const trimmedValue = currentValue.trim();
-    if (isCreateNew) {
-      if (!trimmedValue) {
-        toast({ title: "Error", description: "Product name cannot be empty.", variant: "destructive" });
-        setIsProductPopoverOpen(false);
-        return;
-      }
-      if (!knownPashuAaharProductsList.some(p => p.toLowerCase() === trimmedValue.toLowerCase())) {
-        setKnownPashuAaharProductsList(prev => [...prev, trimmedValue].sort((a, b) => a.localeCompare(b)));
-        toast({ title: "Info", description: `Product "${trimmedValue}" added to suggestions for this session.` });
-      }
-      setProductName(trimmedValue);
+    
+    const isCreatingNew = productName.trim() && 
+                         !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) &&
+                         currentValue.startsWith("__CREATE_PRODUCT__");
+
+    if (isCreatingNew) {
+        const actualNewName = productName.trim(); // Use the typed name for creation
+         if (!actualNewName) {
+            toast({ title: "Error", description: "Product name cannot be empty.", variant: "destructive" });
+            setIsProductPopoverOpen(false);
+            return;
+        }
+        if (!knownPashuAaharProductsList.some(p => p.toLowerCase() === actualNewName.toLowerCase())) {
+            setKnownPashuAaharProductsList(prev => [...prev, actualNewName].sort((a, b) => a.localeCompare(b)));
+            toast({ title: "Info", description: `Product "${actualNewName}" added to suggestions for this session.` });
+        }
+        setProductName(actualNewName);
     } else {
       setProductName(trimmedValue);
     }
     setIsProductPopoverOpen(false);
     productNameInputRef.current?.focus();
-  }, [toast, knownPashuAaharProductsList]);
+  }, [toast, knownPashuAaharProductsList, productName]);
+
 
   const filteredProductSuggestions = useMemo(() => {
     if (!productName.trim()) return knownPashuAaharProductsList;
@@ -218,39 +266,41 @@ export default function PashuAaharPage() {
 
  const handleSupplierNameInputChange = useCallback((value: string) => {
     setSupplierNameInput(value);
-    if (value.trim() && availableSuppliers.length > 0) {
+    if (value.trim() && (availableSuppliers.length > 0 || !isLoadingParties) ) {
       setIsSupplierPopoverOpen(true);
-    } else if (!value.trim()) {
+    } else {
       setIsSupplierPopoverOpen(false);
-    } else if (value.trim() && availableSuppliers.length === 0 && !isLoadingParties) {
-      setIsSupplierPopoverOpen(true); // Keep open to show "Add new"
     }
   }, [availableSuppliers, isLoadingParties]);
   
-  const handleSupplierSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
-    const trimmedValue = currentValue.trim();
-    if (isCreateNew) {
-      if (!trimmedValue) {
+  const handleSupplierSelect = useCallback(async (currentValue: string) => {
+    const isCreatingNew = supplierNameInput.trim() &&
+                          !availableSuppliers.some(s => s.toLowerCase() === supplierNameInput.trim().toLowerCase()) &&
+                          currentValue.startsWith("__CREATE_SUPPLIER__");
+
+    if (isCreatingNew) {
+      const actualNewName = supplierNameInput.trim();
+      if (!actualNewName) {
         toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
         setIsSupplierPopoverOpen(false);
         return;
       }
       setIsSubmitting(true); 
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Supplier" }); 
+      const result = await addPartyToFirestore({ name: actualNewName, type: "Supplier" }); 
       if (result.success && result.id) {
-        setSupplierNameInput(trimmedValue);
-        toast({ title: "Success", description: `Supplier "${trimmedValue}" added.` });
+        setSupplierNameInput(actualNewName);
+        toast({ title: "Success", description: `Supplier "${actualNewName}" added.` });
         await fetchParties(); 
       } else {
         toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
       }
       setIsSubmitting(false);
     } else {
-      setSupplierNameInput(trimmedValue);
+      setSupplierNameInput(currentValue);
     }
     setIsSupplierPopoverOpen(false);
     supplierNameInputRef.current?.focus();
-  }, [toast, fetchParties]);
+  }, [toast, fetchParties, availableSuppliers, supplierNameInput]);
 
   const filteredSupplierSuggestions = useMemo(() => {
     if (!supplierNameInput.trim()) return availableSuppliers;
@@ -279,17 +329,17 @@ export default function PashuAaharPage() {
     }
 
     setIsSubmitting(true);
-    const transactionType = editingTransactionId && transactionToEdit ? transactionToEdit.type : "Purchase";
+    const transactionTypeToSave = editingTransactionId && transactionToEdit ? transactionToEdit.type : "Purchase";
 
     const transactionData: Omit<PashuAaharTransaction, 'id'> = {
       date,
-      type: transactionType,
+      type: transactionTypeToSave, // Ensure type is "Purchase" for new entries from this form
       productName: productName.trim(),
       supplierOrCustomerName: supplierNameInput.trim(),
       quantityBags: parsedQuantityBags,
       pricePerBag: parsedPricePerBag,
       totalAmount: parsedQuantityBags * parsedPricePerBag,
-      paymentType, // Added paymentType
+      paymentType,
     };
 
     let result;
@@ -303,7 +353,7 @@ export default function PashuAaharPage() {
     
     if (result.success) {
       resetFormFields();
-      await fetchTransactions();
+      await fetchPashuAaharPageData(); // Re-fetch all data
     }
     setIsSubmitting(false);
   };
@@ -316,7 +366,7 @@ export default function PashuAaharPage() {
     setSupplierNameInput(transaction.supplierOrCustomerName || "");
     setQuantityBags(String(transaction.quantityBags));
     setPricePerBag(String(transaction.pricePerBag || ""));
-    setPaymentType(transaction.paymentType || "Credit"); // Set payment type for editing
+    setPaymentType(transaction.paymentType || "Credit");
   };
 
   const handleDeleteClick = (transaction: PashuAaharTransaction) => {
@@ -330,7 +380,7 @@ export default function PashuAaharPage() {
     const result = await deletePashuAaharTransactionFromFirestore(transactionToDelete.id);
     toast({ title: result.success ? "Success" : "Error", description: result.success ? "Transaction deleted." : (result.error || "Failed to delete transaction."), variant: result.success ? "default" : "destructive"});
     if (result.success) {
-      await fetchTransactions();
+      await fetchPashuAaharPageData(); // Re-fetch all data
     }
     setShowDeleteDialog(false);
     setTransactionToDelete(null);
@@ -348,13 +398,13 @@ export default function PashuAaharPage() {
             <Warehouse className="h-6 w-6 text-primary" />
           </div>
           <CardDescription className="text-sm text-muted-foreground">
-            Breakdown of available Pashu Aahar stock (based on purchases).
+            Breakdown of available Pashu Aahar stock (purchases minus sales).
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
-          {isLoadingTransactions && Object.keys(currentStockByProduct).length === 0 ? (
+          {isLoadingData && Object.keys(currentStockByProduct).length === 0 ? (
              <Skeleton className="h-20 w-full" />
-          ) : Object.keys(currentStockByProduct).length === 0 && !isLoadingTransactions ? (
+          ) : Object.keys(currentStockByProduct).length === 0 && !isLoadingData ? (
             <p className="text-sm text-muted-foreground">No stock data available. Record a purchase to begin.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -367,7 +417,7 @@ export default function PashuAaharPage() {
                     <Package className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent className="px-3 pt-1 pb-3">
-                    <div className="text-2xl font-bold text-foreground">
+                    <div className="text-xl font-bold text-foreground">
                       {stock.toFixed(0)}
                       <span className="text-base font-normal text-muted-foreground ml-1">Bags</span>
                     </div>
@@ -428,13 +478,13 @@ export default function PashuAaharPage() {
                         onValueChange={handleProductNameInputChange}
                        />
                       <CommandList>
-                          <CommandEmpty>No product found.</CommandEmpty>
+                          <CommandEmpty>No product found. Type to add new.</CommandEmpty>
                           <CommandGroup>
                             {productName.trim() && !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
                               <CommandItem
                                 key={`__CREATE_PRODUCT__${productName.trim()}`}
-                                value={`__CREATE_PRODUCT__${productName.trim()}`} 
-                                onSelect={() => handleProductSelect(productName.trim(), true)}
+                                value={`__CREATE_PRODUCT__${productName.trim()}`}
+                                onSelect={() => handleProductSelect(`__CREATE_PRODUCT__${productName.trim()}`)}
                               >
                                 <PlusCircle className="mr-2 h-4 w-4" />
                                 Add new product: "{productName.trim()}"
@@ -444,7 +494,7 @@ export default function PashuAaharPage() {
                               <CommandItem
                                 key={name}
                                 value={name}
-                                onSelect={() => handleProductSelect(name, false)}
+                                onSelect={() => handleProductSelect(name)}
                               >
                                 {name}
                               </CommandItem>
@@ -468,7 +518,7 @@ export default function PashuAaharPage() {
                       value={supplierNameInput}
                       onChange={(e) => handleSupplierNameInputChange(e.target.value)}
                        onFocus={() => {
-                         if (supplierNameInput.trim() || availableSuppliers.length > 0) {
+                         if (supplierNameInput.trim() || availableSuppliers.length > 0 || isLoadingParties) {
                            setIsSupplierPopoverOpen(true); 
                          }
                        }}
@@ -492,17 +542,17 @@ export default function PashuAaharPage() {
                         onValueChange={handleSupplierNameInputChange}
                        />
                       <CommandList>
-                        {isLoadingParties ? (
+                        {isLoadingParties && availableSuppliers.length === 0 ? (
                            <CommandItem disabled>Loading suppliers...</CommandItem>
                         ) : (
                           <>
-                            <CommandEmpty>No supplier found.</CommandEmpty>
+                            <CommandEmpty>No supplier found. Type to add new.</CommandEmpty>
                             <CommandGroup>
                                 {supplierNameInput.trim() && !availableSuppliers.some(s => s.toLowerCase() === supplierNameInput.trim().toLowerCase()) && (
                                   <CommandItem
                                     key={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`}
                                     value={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`} 
-                                    onSelect={() => handleSupplierSelect(supplierNameInput.trim(), true)}
+                                    onSelect={() => handleSupplierSelect(`__CREATE_SUPPLIER__${supplierNameInput.trim()}`)}
                                   >
                                     <PlusCircle className="mr-2 h-4 w-4" />
                                     Add new supplier: "{supplierNameInput.trim()}"
@@ -512,7 +562,7 @@ export default function PashuAaharPage() {
                                   <CommandItem
                                     key={name}
                                     value={name}
-                                    onSelect={() => handleSupplierSelect(name, false)}
+                                    onSelect={() => handleSupplierSelect(name)}
                                   >
                                     {name}
                                   </CommandItem>
@@ -550,7 +600,7 @@ export default function PashuAaharPage() {
                 </Select>
               </div>
 
-              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingTransactions || isLoadingParties}>
+              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingData || isLoadingParties}>
                 {editingTransactionId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
                 {isSubmitting && !editingTransactionId ? 'Recording Purchase...' : (isSubmitting && editingTransactionId ? 'Updating Purchase...' : (editingTransactionId ? 'Update Purchase' : 'Record Purchase'))}
               </Button>
@@ -569,7 +619,7 @@ export default function PashuAaharPage() {
             <CardDescription>Pashu Aahar purchases.</CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoadingTransactions && transactions.length === 0 ? (
+            {isLoadingData && transactions.length === 0 ? (
               <div className="space-y-2">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
@@ -586,14 +636,14 @@ export default function PashuAaharPage() {
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">Price/Bag (₹)</TableHead>
                   <TableHead className="text-right">Total (₹)</TableHead>
-                  <TableHead>Payment</TableHead> {/* Added Payment Type Column Header */}
+                  <TableHead>Payment</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transactions.length === 0 && !isLoadingTransactions ? (
+                {transactions.length === 0 && !isLoadingData ? (
                     <TableRow>
-                        <TableCell colSpan={9} className="text-center text-muted-foreground">No transactions recorded yet.</TableCell> {/* Updated colSpan */}
+                        <TableCell colSpan={9} className="text-center text-muted-foreground">No transactions recorded yet.</TableCell>
                     </TableRow>
                 ) : (
                     transactions.map((tx) => (
@@ -609,7 +659,7 @@ export default function PashuAaharPage() {
                         <TableCell className="text-right">{tx.quantityBags.toFixed(0)}</TableCell>
                         <TableCell className="text-right">{tx.pricePerBag ? tx.pricePerBag.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right">{tx.totalAmount.toFixed(2)}</TableCell>
-                        <TableCell>{tx.paymentType}</TableCell> {/* Added Payment Type Data Cell */}
+                        <TableCell>{tx.paymentType}</TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -632,12 +682,12 @@ export default function PashuAaharPage() {
                     ))
                 )}
               </TableBody>
-              {transactions.length > 0 && (
+              {transactions.filter(tx => tx.type === "Purchase").length > 0 && (
                 <TableFooter>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-right font-semibold">Total Transaction Value:</TableCell> {/* Adjusted colSpan */}
+                    <TableCell colSpan={6} className="text-right font-semibold">Total Purchase Value:</TableCell>
                     <TableCell className="text-right font-bold">{totalTransactionAmount.toFixed(2)}</TableCell>
-                    <TableCell colSpan={2} /> {/* Adjusted colSpan for Payment Type and Actions */}
+                    <TableCell colSpan={2} /> 
                   </TableRow>
                 </TableFooter>
               )}
@@ -668,3 +718,4 @@ export default function PashuAaharPage() {
     </div>
   );
 }
+
