@@ -29,9 +29,15 @@ import type { PashuAaharTransaction, Party, SaleEntry } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { addPashuAaharTransactionToFirestore, getPashuAaharTransactionsFromFirestore, updatePashuAaharTransactionInFirestore, deletePashuAaharTransactionFromFirestore } from "./actions";
+import { 
+  addPashuAaharTransactionToFirestore, 
+  getPashuAaharTransactionsFromFirestore, 
+  updatePashuAaharTransactionInFirestore, 
+  deletePashuAaharTransactionFromFirestore,
+  getUniquePashuAaharProductNamesFromFirestore
+} from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
-import { getSaleEntriesFromFirestore } from "../sales/actions"; // Import sales action
+import { getSaleEntriesFromFirestore } from "../sales/actions"; 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import {
@@ -52,14 +58,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-const INITIAL_KNOWN_PASHU_AAHAR_PRODUCTS: string[] = [
-  "Gold Coin Feed",
-  "Super Pallet",
-  "Nutri Plus Feed",
-  "Kisan Special Churi",
-  "Dairy Delight Mix",
-].sort((a, b) => a.localeCompare(b));
-
 
 export default function PashuAaharPage() {
   const { setPageTitle } = usePageTitle();
@@ -70,9 +68,9 @@ export default function PashuAaharPage() {
   }, [setPageTitle, pageSpecificTitle]);
 
   const { toast } = useToast();
-  const [transactions, setTransactions] = useState<PashuAaharTransaction[]>([]); // These are essentially purchases
-  const [relevantSales, setRelevantSales] = useState<SaleEntry[]>([]); // For sales of Pashu Aahar
-  const [isLoadingData, setIsLoadingData] = useState(true); // Combined loading state
+  const [transactions, setTransactions] = useState<PashuAaharTransaction[]>([]);
+  const [relevantSales, setRelevantSales] = useState<SaleEntry[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const [currentStockByProduct, setCurrentStockByProduct] = useState<Record<string, number>>({});
 
   const [date, setDate] = useState<Date | undefined>(undefined);
@@ -80,7 +78,7 @@ export default function PashuAaharPage() {
   const [productName, setProductName] = useState("");
   const [isProductPopoverOpen, setIsProductPopoverOpen] = useState(false);
   const productNameInputRef = useRef<HTMLInputElement>(null);
-  const [knownPashuAaharProductsList, setKnownPashuAaharProductsList] = useState<string[]>(INITIAL_KNOWN_PASHU_AAHAR_PRODUCTS);
+  const [knownPashuAaharProductsList, setKnownPashuAaharProductsList] = useState<string[]>([]);
 
   const [supplierNameInput, setSupplierNameInput] = useState<string>("");
   const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
@@ -99,25 +97,15 @@ export default function PashuAaharPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState<PashuAaharTransaction | null>(null);
 
-  const fetchParties = useCallback(async () => {
-    setIsLoadingParties(true);
-    try {
-      const parties = await getPartiesFromFirestore();
-      setAvailableParties(parties);
-    } catch (error) {
-      console.error("CLIENT: Failed to fetch parties for Pashu Aahar:", error);
-      toast({ title: "Error", description: "Could not fetch parties for supplier suggestions.", variant: "destructive" });
-    } finally {
-      setIsLoadingParties(false);
-    }
-  }, [toast]);
-
   const fetchPashuAaharPageData = useCallback(async () => {
     setIsLoadingData(true);
+    setIsLoadingParties(true); // Assume parties are also part of this initial load
     try {
-      const [purchaseTxs, salesTxs] = await Promise.all([
+      const [purchaseTxs, salesTxs, parties, uniqueProductNames] = await Promise.all([
         getPashuAaharTransactionsFromFirestore(),
         getSaleEntriesFromFirestore(),
+        getPartiesFromFirestore(),
+        getUniquePashuAaharProductNamesFromFirestore(),
       ]);
 
       const processedPurchaseTxs = purchaseTxs.map(tx => ({
@@ -127,19 +115,24 @@ export default function PashuAaharPage() {
       setTransactions(processedPurchaseTxs);
 
       const filteredSales = salesTxs
-        .filter(sale => sale.unit === "Bags") // Assuming unit "Bags" identifies Pashu Aahar sales
+        .filter(sale => sale.unit === "Bags") 
         .map(s => ({
           ...s,
           date: s.date instanceof Date ? s.date : new Date(s.date)
         }));
       setRelevantSales(filteredSales);
-      console.log("CLIENT (Pashu Aahar): Fetched Purchases:", processedPurchaseTxs.length, "Relevant Sales:", filteredSales.length);
+      
+      setAvailableParties(parties);
+      setKnownPashuAaharProductsList(uniqueProductNames);
+
+      console.log("CLIENT (Pashu Aahar): Fetched Purchases:", processedPurchaseTxs.length, "Relevant Sales:", filteredSales.length, "Parties:", parties.length, "Unique Products:", uniqueProductNames.length);
 
     } catch (error) {
       console.error("CLIENT: Failed to fetch Pashu Aahar page data:", error);
       toast({ title: "Error", description: "Could not fetch all necessary data.", variant: "destructive" });
     } finally {
       setIsLoadingData(false);
+      setIsLoadingParties(false);
     }
   }, [toast]);
 
@@ -148,23 +141,19 @@ export default function PashuAaharPage() {
         setDate(new Date());
     }
     fetchPashuAaharPageData();
-    fetchParties();
-  }, [fetchPashuAaharPageData, fetchParties, editingTransactionId, date]);
+  }, [fetchPashuAaharPageData, editingTransactionId, date]);
 
   useEffect(() => {
     console.log("CLIENT (Pashu Aahar): Recalculating stock. Purchases:", transactions.length, "Relevant Sales:", relevantSales.length);
     const stockCalc: Record<string, number> = {};
 
-    // Create a unified list of stock-affecting events
     const stockEvents: {
       productName: string;
       date: Date;
       quantityChange: number;
     }[] = [];
 
-    // Add purchases
     transactions.forEach(tx => {
-      // Only consider "Purchase" type from pashuAaharTransactions for adding to stock
       if (tx.type === "Purchase") { 
         stockEvents.push({
           productName: tx.productName.trim(),
@@ -174,12 +163,11 @@ export default function PashuAaharPage() {
       }
     });
 
-    // Add sales of Pashu Aahar
     relevantSales.forEach(sale => {
       stockEvents.push({
         productName: sale.productName.trim(),
         date: sale.date,
-        quantityChange: -sale.quantity, // Negative because it's a sale
+        quantityChange: -sale.quantity,
       });
     });
     
@@ -223,38 +211,33 @@ export default function PashuAaharPage() {
 
   const handleProductNameInputChange = useCallback((value: string) => {
     setProductName(value);
-    if (value.trim()){
+    if (value.trim() && knownPashuAaharProductsList.length > 0){
         setIsProductPopoverOpen(true);
-    } else {
+    } else if (!value.trim()) {
         setIsProductPopoverOpen(false);
     }
-  }, []);
+  }, [knownPashuAaharProductsList]);
 
-  const handleProductSelect = useCallback((currentValue: string) => {
+  const handleProductSelect = useCallback((currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
     
-    const isCreatingNew = productName.trim() && 
-                         !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) &&
-                         currentValue.startsWith("__CREATE_PRODUCT__");
-
-    if (isCreatingNew) {
-        const actualNewName = productName.trim(); // Use the typed name for creation
-         if (!actualNewName) {
+    if (isCreateNew) {
+        if (!trimmedValue) {
             toast({ title: "Error", description: "Product name cannot be empty.", variant: "destructive" });
             setIsProductPopoverOpen(false);
             return;
         }
-        if (!knownPashuAaharProductsList.some(p => p.toLowerCase() === actualNewName.toLowerCase())) {
-            setKnownPashuAaharProductsList(prev => [...prev, actualNewName].sort((a, b) => a.localeCompare(b)));
-            toast({ title: "Info", description: `Product "${actualNewName}" added to suggestions for this session.` });
+        if (!knownPashuAaharProductsList.some(p => p.toLowerCase() === trimmedValue.toLowerCase())) {
+            setKnownPashuAaharProductsList(prev => [...prev, trimmedValue].sort((a, b) => a.localeCompare(b)));
+            toast({ title: "Info", description: `Product "${trimmedValue}" added to suggestions for this session.` });
         }
-        setProductName(actualNewName);
+        setProductName(trimmedValue);
     } else {
       setProductName(trimmedValue);
     }
     setIsProductPopoverOpen(false);
     productNameInputRef.current?.focus();
-  }, [toast, knownPashuAaharProductsList, productName]);
+  }, [toast, knownPashuAaharProductsList]);
 
 
   const filteredProductSuggestions = useMemo(() => {
@@ -268,39 +251,37 @@ export default function PashuAaharPage() {
     setSupplierNameInput(value);
     if (value.trim() && (availableSuppliers.length > 0 || !isLoadingParties) ) {
       setIsSupplierPopoverOpen(true);
-    } else {
+    } else if (!value.trim()){
       setIsSupplierPopoverOpen(false);
     }
   }, [availableSuppliers, isLoadingParties]);
   
-  const handleSupplierSelect = useCallback(async (currentValue: string) => {
-    const isCreatingNew = supplierNameInput.trim() &&
-                          !availableSuppliers.some(s => s.toLowerCase() === supplierNameInput.trim().toLowerCase()) &&
-                          currentValue.startsWith("__CREATE_SUPPLIER__");
-
-    if (isCreatingNew) {
-      const actualNewName = supplierNameInput.trim();
-      if (!actualNewName) {
+  const handleSupplierSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
+    const trimmedValue = currentValue.trim();
+    if (isCreateNew) {
+      if (!trimmedValue) {
         toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
         setIsSupplierPopoverOpen(false);
         return;
       }
       setIsSubmitting(true); 
-      const result = await addPartyToFirestore({ name: actualNewName, type: "Supplier" }); 
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Supplier" }); 
       if (result.success && result.id) {
-        setSupplierNameInput(actualNewName);
-        toast({ title: "Success", description: `Supplier "${actualNewName}" added.` });
-        await fetchParties(); 
+        setSupplierNameInput(trimmedValue);
+        toast({ title: "Success", description: `Supplier "${trimmedValue}" added.` });
+        // Re-fetch parties to update the list
+        const parties = await getPartiesFromFirestore();
+        setAvailableParties(parties);
       } else {
         toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
       }
       setIsSubmitting(false);
     } else {
-      setSupplierNameInput(currentValue);
+      setSupplierNameInput(trimmedValue);
     }
     setIsSupplierPopoverOpen(false);
     supplierNameInputRef.current?.focus();
-  }, [toast, fetchParties, availableSuppliers, supplierNameInput]);
+  }, [toast, availableParties]); // Removed fetchParties from here, directly fetching
 
   const filteredSupplierSuggestions = useMemo(() => {
     if (!supplierNameInput.trim()) return availableSuppliers;
@@ -333,7 +314,7 @@ export default function PashuAaharPage() {
 
     const transactionData: Omit<PashuAaharTransaction, 'id'> = {
       date,
-      type: transactionTypeToSave, // Ensure type is "Purchase" for new entries from this form
+      type: transactionTypeToSave,
       productName: productName.trim(),
       supplierOrCustomerName: supplierNameInput.trim(),
       quantityBags: parsedQuantityBags,
@@ -353,7 +334,7 @@ export default function PashuAaharPage() {
     
     if (result.success) {
       resetFormFields();
-      await fetchPashuAaharPageData(); // Re-fetch all data
+      await fetchPashuAaharPageData(); 
     }
     setIsSubmitting(false);
   };
@@ -380,7 +361,7 @@ export default function PashuAaharPage() {
     const result = await deletePashuAaharTransactionFromFirestore(transactionToDelete.id);
     toast({ title: result.success ? "Success" : "Error", description: result.success ? "Transaction deleted." : (result.error || "Failed to delete transaction."), variant: result.success ? "default" : "destructive"});
     if (result.success) {
-      await fetchPashuAaharPageData(); // Re-fetch all data
+      await fetchPashuAaharPageData(); 
     }
     setShowDeleteDialog(false);
     setTransactionToDelete(null);
@@ -478,28 +459,34 @@ export default function PashuAaharPage() {
                         onValueChange={handleProductNameInputChange}
                        />
                       <CommandList>
-                          <CommandEmpty>No product found. Type to add new.</CommandEmpty>
-                          <CommandGroup>
-                            {productName.trim() && !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
-                              <CommandItem
-                                key={`__CREATE_PRODUCT__${productName.trim()}`}
-                                value={`__CREATE_PRODUCT__${productName.trim()}`}
-                                onSelect={() => handleProductSelect(`__CREATE_PRODUCT__${productName.trim()}`)}
-                              >
-                                <PlusCircle className="mr-2 h-4 w-4" />
-                                Add new product: "{productName.trim()}"
-                              </CommandItem>
-                            )}
-                            {filteredProductSuggestions.map((name) => (
-                              <CommandItem
-                                key={name}
-                                value={name}
-                                onSelect={() => handleProductSelect(name)}
-                              >
-                                {name}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
+                        {isLoadingData ? (
+                            <CommandItem disabled>Loading products...</CommandItem>
+                        ): (
+                            <>
+                                <CommandEmpty>No product found. Type to add new.</CommandEmpty>
+                                <CommandGroup>
+                                {productName.trim() && !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
+                                    <CommandItem
+                                    key={`__CREATE_PRODUCT__${productName.trim()}`}
+                                    value={`__CREATE_PRODUCT__${productName.trim()}`}
+                                    onSelect={() => handleProductSelect(productName.trim(), true)}
+                                    >
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Add new product: "{productName.trim()}"
+                                    </CommandItem>
+                                )}
+                                {filteredProductSuggestions.map((name) => (
+                                    <CommandItem
+                                    key={name}
+                                    value={name}
+                                    onSelect={() => handleProductSelect(name)}
+                                    >
+                                    {name}
+                                    </CommandItem>
+                                ))}
+                                </CommandGroup>
+                            </>
+                        )}
                       </CommandList>
                     </Command>
                   </PopoverContent>
@@ -542,17 +529,17 @@ export default function PashuAaharPage() {
                         onValueChange={handleSupplierNameInputChange}
                        />
                       <CommandList>
-                        {isLoadingParties && availableSuppliers.length === 0 ? (
+                        {isLoadingParties ? (
                            <CommandItem disabled>Loading suppliers...</CommandItem>
                         ) : (
                           <>
-                            <CommandEmpty>No supplier found. Type to add new.</CommandEmpty>
+                            
                             <CommandGroup>
                                 {supplierNameInput.trim() && !availableSuppliers.some(s => s.toLowerCase() === supplierNameInput.trim().toLowerCase()) && (
                                   <CommandItem
                                     key={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`}
                                     value={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`} 
-                                    onSelect={() => handleSupplierSelect(`__CREATE_SUPPLIER__${supplierNameInput.trim()}`)}
+                                    onSelect={() => handleSupplierSelect(supplierNameInput.trim(), true)}
                                   >
                                     <PlusCircle className="mr-2 h-4 w-4" />
                                     Add new supplier: "{supplierNameInput.trim()}"
@@ -567,6 +554,9 @@ export default function PashuAaharPage() {
                                     {name}
                                   </CommandItem>
                                 ))}
+                                 <CommandEmpty>
+                                  {availableSuppliers.length === 0 && !supplierNameInput.trim() ? "No suppliers found. Type to add." : "No suppliers match your search."}
+                                </CommandEmpty>
                             </CommandGroup>
                           </>
                         )}
