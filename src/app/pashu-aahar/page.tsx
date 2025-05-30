@@ -51,7 +51,7 @@ const INITIAL_KNOWN_PASHU_AAHAR_PRODUCTS: string[] = [
   "Nutri Plus Feed",
   "Kisan Special Churi",
   "Dairy Delight Mix",
-];
+].sort((a, b) => a.localeCompare(b));
 
 
 export default function PashuAaharPage() {
@@ -73,7 +73,6 @@ export default function PashuAaharPage() {
   const [isProductPopoverOpen, setIsProductPopoverOpen] = useState(false);
   const productNameInputRef = useRef<HTMLInputElement>(null);
   const [knownPashuAaharProductsList, setKnownPashuAaharProductsList] = useState<string[]>(INITIAL_KNOWN_PASHU_AAHAR_PRODUCTS);
-
 
   const [supplierNameInput, setSupplierNameInput] = useState<string>("");
   const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
@@ -140,10 +139,9 @@ export default function PashuAaharPage() {
       if (tx.type === "Purchase") {
         stockCalc[pName] += tx.quantityBags;
       } else if (tx.type === "Sale") {
-         // If sales are tracked from other modules for stock decrement:
-         // stockCalc[pName] -= tx.quantityBags; 
-         // For now, assuming sales entries might have a quantityBags field if they are of pashu aahar.
-         // Or, if we had a direct "Pashu Aahar Sale" transaction type in this module.
+         // This assumes sales affecting pashu aahar stock are recorded via the Sales module
+         // and would ideally decrement stock here if fully integrated.
+         // For now, this page mainly handles purchases affecting stock.
       }
     });
     setCurrentStockByProduct(stockCalc);
@@ -166,58 +164,18 @@ export default function PashuAaharPage() {
   }, [editingTransactionId]);
 
   const availableSuppliers = useMemo(() => {
-    return availableParties.filter(p => p.type === "Supplier");
+    return availableParties
+      .filter(p => p.type === "Supplier")
+      .map(s => s.name)
+      .sort((a, b) => a.localeCompare(b));
   }, [availableParties]);
-
-  const filteredSupplierSuggestions = useMemo(() => {
-    if (!supplierNameInput.trim()) return availableSuppliers.map(s => s.name);
-    return availableSuppliers
-      .filter((supplier) =>
-        supplier.name.toLowerCase().includes(supplierNameInput.toLowerCase())
-      )
-      .map(s => s.name);
-  }, [supplierNameInput, availableSuppliers]);
-
-  const handleSupplierNameInputChange = useCallback((value: string) => {
-    setSupplierNameInput(value);
-    if (value.trim() && availableSuppliers.length > 0) {
-      setIsSupplierPopoverOpen(true);
-    } else {
-      setIsSupplierPopoverOpen(false);
-    }
-  }, [availableSuppliers]);
-
-  const handleSupplierSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
-    const trimmedValue = currentValue.trim();
-    if (isCreateNew) {
-      if (!trimmedValue) {
-        toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
-        setIsSupplierPopoverOpen(false);
-        return;
-      }
-      setIsSubmitting(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Supplier" });
-      if (result.success && result.id) {
-        setSupplierNameInput(trimmedValue);
-        toast({ title: "Success", description: `Supplier "${trimmedValue}" added.` });
-        await fetchParties();
-      } else {
-        toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
-      }
-      setIsSubmitting(false);
-    } else {
-      setSupplierNameInput(trimmedValue);
-    }
-    setIsSupplierPopoverOpen(false);
-    supplierNameInputRef.current?.focus();
-  }, [toast, fetchParties]);
 
   const handleProductNameInputChange = useCallback((value: string) => {
     setProductName(value);
-    if (value.trim()) {
-      setIsProductPopoverOpen(true);
+    if (value.trim()){
+        setIsProductPopoverOpen(true);
     } else {
-      setIsProductPopoverOpen(false);
+        setIsProductPopoverOpen(false);
     }
   }, []);
 
@@ -231,7 +189,7 @@ export default function PashuAaharPage() {
       }
       if (!knownPashuAaharProductsList.some(p => p.toLowerCase() === trimmedValue.toLowerCase())) {
         setKnownPashuAaharProductsList(prev => [...prev, trimmedValue].sort((a, b) => a.localeCompare(b)));
-        toast({ title: "Success", description: `Product "${trimmedValue}" added to suggestions for this session.` });
+        toast({ title: "Info", description: `Product "${trimmedValue}" added to suggestions for this session.` });
       }
       setProductName(trimmedValue);
     } else {
@@ -247,6 +205,47 @@ export default function PashuAaharPage() {
       name.toLowerCase().includes(productName.toLowerCase())
     );
   }, [productName, knownPashuAaharProductsList]);
+
+  const handleSupplierNameInputChange = useCallback((value: string) => {
+    setSupplierNameInput(value);
+    if (value.trim()){
+        setIsSupplierPopoverOpen(true);
+    } else {
+        setIsSupplierPopoverOpen(false);
+    }
+  }, []);
+
+  const handleSupplierSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
+    const trimmedValue = currentValue.trim();
+    if (isCreateNew) {
+      if (!trimmedValue) {
+        toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
+        setIsSupplierPopoverOpen(false);
+        return;
+      }
+      setIsSubmitting(true); // Use general isSubmitting
+      const result = await addPartyToFirestore({ name: trimmedValue, type: "Supplier" }); 
+      if (result.success && result.id) {
+        setSupplierNameInput(trimmedValue);
+        toast({ title: "Success", description: `Supplier "${trimmedValue}" added.` });
+        await fetchParties(); 
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
+      }
+      setIsSubmitting(false);
+    } else {
+      setSupplierNameInput(trimmedValue);
+    }
+    setIsSupplierPopoverOpen(false);
+    supplierNameInputRef.current?.focus();
+  }, [toast, fetchParties]);
+
+  const filteredSupplierSuggestions = useMemo(() => {
+    if (!supplierNameInput.trim()) return availableSuppliers;
+    return availableSuppliers.filter((name) =>
+      name.toLowerCase().includes(supplierNameInput.toLowerCase())
+    );
+  }, [supplierNameInput, availableSuppliers]);
 
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
@@ -405,41 +404,38 @@ export default function PashuAaharPage() {
                     className="w-[--radix-popover-trigger-width] p-0" 
                     side="bottom" 
                     align="start" 
-                    sideOffset={0}
+                    sideOffset={4} // Small offset to avoid overlap
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
                     <Command>
                       <CommandInput 
                         placeholder="Search or add new product..." 
                         value={productName} 
-                        onValueChange={handleProductNameInputChange}
+                        onValueChange={handleProductNameInputChange} // Keep main input synced
                        />
                       <CommandList>
-                        {productName.trim() && !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
-                           <CommandItem
-                            key={`__CREATE__${productName.trim()}`}
-                            value={`__CREATE__${productName.trim()}`}
-                            onSelect={() => handleProductSelect(productName.trim(), true)}
-                          >
-                            <PlusCircle className="mr-2 h-4 w-4" />
-                            Add new product: "{productName.trim()}"
-                          </CommandItem>
-                        )}
-                        {filteredProductSuggestions.map((name) => (
-                          <CommandItem
-                            key={name}
-                            value={name}
-                            onSelect={() => handleProductSelect(name, false)}
-                          >
-                            {name}
-                          </CommandItem>
-                        ))}
-                        {filteredProductSuggestions.length === 0 && productName.trim() && knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
-                            <CommandEmpty>No existing products match. Select "Add new..." above.</CommandEmpty>
-                        )}
-                        {knownPashuAaharProductsList.length === 0 && !productName.trim() && (
-                            <CommandEmpty>No products found. Type to add a new one.</CommandEmpty>
-                        )}
+                          <CommandEmpty>No product found.</CommandEmpty>
+                          <CommandGroup>
+                            {productName.trim() && !knownPashuAaharProductsList.some(p => p.toLowerCase() === productName.trim().toLowerCase()) && (
+                              <CommandItem
+                                key={`__CREATE_PRODUCT__${productName.trim()}`}
+                                value={`__CREATE_PRODUCT__${productName.trim()}`} // Ensure unique value for create
+                                onSelect={() => handleProductSelect(productName.trim(), true)}
+                              >
+                                <PlusCircle className="mr-2 h-4 w-4" />
+                                Add new product: "{productName.trim()}"
+                              </CommandItem>
+                            )}
+                            {filteredProductSuggestions.map((name) => (
+                              <CommandItem
+                                key={name}
+                                value={name}
+                                onSelect={() => handleProductSelect(name, false)}
+                              >
+                                {name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
                       </CommandList>
                     </Command>
                   </PopoverContent>
@@ -457,11 +453,11 @@ export default function PashuAaharPage() {
                       ref={supplierNameInputRef}
                       value={supplierNameInput}
                       onChange={(e) => handleSupplierNameInputChange(e.target.value)}
-                      onFocus={() => {
+                       onFocus={() => {
                          if (supplierNameInput.trim() || availableSuppliers.length > 0) {
                            setIsSupplierPopoverOpen(true); 
                          }
-                      }}
+                       }}
                       placeholder="Start typing supplier name"
                       autoComplete="off"
                       required
@@ -472,45 +468,42 @@ export default function PashuAaharPage() {
                     className="w-[--radix-popover-trigger-width] p-0" 
                     side="bottom" 
                     align="start" 
-                    sideOffset={0}
+                    sideOffset={4} // Small offset
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
                     <Command>
                       <CommandInput 
                         placeholder="Search or add new supplier..." 
-                        value={supplierNameInput} 
-                        onValueChange={handleSupplierNameInputChange}
+                        value={supplierNameInput}  // Bind to supplierNameInput
+                        onValueChange={handleSupplierNameInputChange} // Keep main input synced
                        />
                       <CommandList>
                         {isLoadingParties ? (
                            <CommandItem disabled>Loading suppliers...</CommandItem>
                         ) : (
                           <>
-                            {supplierNameInput.trim() && !availableSuppliers.some(s => s.name.toLowerCase() === supplierNameInput.trim().toLowerCase()) && (
-                               <CommandItem
-                                key={`__CREATE__${supplierNameInput.trim()}`}
-                                value={`__CREATE__${supplierNameInput.trim()}`}
-                                onSelect={() => handleSupplierSelect(supplierNameInput.trim(), true)}
-                              >
-                                <PlusCircle className="mr-2 h-4 w-4" />
-                                Add new supplier: "{supplierNameInput.trim()}"
-                              </CommandItem>
-                            )}
-                            {filteredSupplierSuggestions.map((name) => (
-                              <CommandItem
-                                key={name}
-                                value={name}
-                                onSelect={() => handleSupplierSelect(name, false)}
-                              >
-                                {name}
-                              </CommandItem>
-                            ))}
-                             {filteredSupplierSuggestions.length === 0 && supplierNameInput.trim() && !availableSuppliers.some(name => name.toLowerCase() === supplierNameInput.trim().toLowerCase()) && (
-                                <CommandEmpty>No existing suppliers match. Select "Add new..." above if needed.</CommandEmpty>
-                             )}
-                             {availableSuppliers.length === 0 && !supplierNameInput.trim() && (
-                                <CommandEmpty>No suppliers found. Type to add a new one.</CommandEmpty>
-                             )}
+                            <CommandEmpty>No supplier found.</CommandEmpty>
+                            <CommandGroup>
+                                {supplierNameInput.trim() && !availableSuppliers.some(s => s.toLowerCase() === supplierNameInput.trim().toLowerCase()) && (
+                                  <CommandItem
+                                    key={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`}
+                                    value={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`} // Ensure unique value
+                                    onSelect={() => handleSupplierSelect(supplierNameInput.trim(), true)}
+                                  >
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Add new supplier: "{supplierNameInput.trim()}"
+                                  </CommandItem>
+                                )}
+                                {filteredSupplierSuggestions.map((name) => (
+                                  <CommandItem
+                                    key={name}
+                                    value={name}
+                                    onSelect={() => handleSupplierSelect(name, false)}
+                                  >
+                                    {name}
+                                  </CommandItem>
+                                ))}
+                            </CommandGroup>
                           </>
                         )}
                       </CommandList>
@@ -645,6 +638,3 @@ export default function PashuAaharPage() {
     </div>
   );
 }
-
-
-    
