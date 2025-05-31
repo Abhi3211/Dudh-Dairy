@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter }  from "next/navigation";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -15,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { getDashboardSummaryAndChartData } from "./dashboard/actions";
 import { usePageTitle } from '@/context/PageTitleContext';
-// Removed useLanguage and translations imports
+import { useUserSession } from "@/context/UserSessionContext";
 
 const chartConfig = {
   purchasedValue: { label: "Purchase Value", color: "hsl(var(--chart-4))" }, 
@@ -24,14 +25,14 @@ const chartConfig = {
 
 export default function DashboardPage() {
   const { setPageTitle } = usePageTitle();
-  const pageSpecificTitle = "Summary Dashboard"; // Reverted to English, or use context if main title needs translation
+  const pageSpecificTitle = "Summary Dashboard";
+  
+  const router = useRouter();
+  const { firebaseUser, authLoading, userProfile } = useUserSession(); // Get userProfile too
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
   }, [setPageTitle, pageSpecificTitle]);
-
-  // const { language, translations } = useLanguage(); // Removed
-  // const welcomeMessage = translations[language].welcome_dashboard; // Removed
 
   const [filterType, setFilterType] = useState<string>("daily");
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
@@ -41,6 +42,12 @@ export default function DashboardPage() {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [displayedDateRangeString, setDisplayedDateRangeString] = useState<string>("Loading date range...");
+
+  useEffect(() => {
+    if (!authLoading && !firebaseUser) {
+      router.replace("/login");
+    }
+  }, [firebaseUser, authLoading, router]);
 
   const calculateDateRange = useCallback(() => {
     const today = new Date();
@@ -72,6 +79,12 @@ export default function DashboardPage() {
   }, [filterType, customStartDate, customEndDate]);
 
   const fetchData = useCallback(async () => {
+    // Ensure user is authenticated before fetching data
+    if (authLoading || !firebaseUser) {
+      setIsLoading(false); // Stop loading if user is not authenticated
+      return;
+    }
+
     console.log("CLIENT: fetchData called. filterType:", filterType);
     setIsLoading(true);
     
@@ -88,6 +101,8 @@ export default function DashboardPage() {
 
     console.log(`CLIENT: Fetching data for range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
     try {
+      // TODO: Pass companyId to getDashboardSummaryAndChartData when multi-tenancy is fully implemented
+      // For now, it will fetch global data.
       const data: DashboardData = await getDashboardSummaryAndChartData(startDate, endDate);
       console.log("CLIENT: Data received from server action:", data);
       setSummary(data.summary);
@@ -113,7 +128,7 @@ export default function DashboardPage() {
     );
 
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); 
+  }, [calculateDateRange, filterType, authLoading, firebaseUser]); 
 
   useEffect(() => {
     if (customStartDate === undefined) {
@@ -126,11 +141,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (filterType === 'custom' && (customStartDate === undefined || customEndDate === undefined)) {
-      console.log("CLIENT: useEffect - Custom filter selected, but dates not yet initialized. Skipping fetch.");
       return;
     }
-    fetchData();
-  }, [fetchData, filterType, customStartDate, customEndDate]); 
+    if (!authLoading && firebaseUser) { // Only fetch if authenticated
+        fetchData();
+    } else if (!authLoading && !firebaseUser) { // If not authenticated and not loading, clear data
+        setSummary(null);
+        setChartData([]);
+        setIsLoading(false);
+        setDisplayedDateRangeString("Please log in to view data.");
+    }
+  }, [fetchData, filterType, customStartDate, customEndDate, firebaseUser, authLoading]); 
 
   const summaryItems = useMemo(() => {
     if (!summary) return [];
@@ -149,10 +170,19 @@ export default function DashboardPage() {
     ];
   }, [summary]);
 
+  if (authLoading) {
+    return <div className="flex justify-center items-center min-h-screen"><p>Loading user session...</p></div>;
+  }
+
+  // If not authenticated (and not loading), this page content won't be rendered due to redirect.
+  // But as a fallback or if redirect fails, ensure nothing sensitive is shown.
+  if (!firebaseUser) {
+     return <div className="flex justify-center items-center min-h-screen"><p>Redirecting to login...</p></div>;
+  }
+
   return (
     <div>
-      {/* <h1 className="text-2xl font-semibold mb-2">{welcomeMessage}</h1> Removed translated welcome */}
-      <PageHeader description={displayedDateRangeString} />
+      <PageHeader description={`${userProfile?.displayName ? `Welcome, ${userProfile.displayName}! ` : ''}${displayedDateRangeString}`} />
       
       <Card className="mb-6">
         <CardHeader>

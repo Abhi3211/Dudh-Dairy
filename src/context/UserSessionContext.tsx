@@ -1,52 +1,56 @@
 
 "use client";
 import type { UserProfile, Company } from '@/lib/types';
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { auth } from '@/lib/firebase';
+import type { User as FirebaseUser } from 'firebase/auth'; // Renamed to avoid conflict
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface UserSessionContextType {
-  currentUser: UserProfile | null;
-  currentCompany: Company | null;
-  // In a real app, you'd have functions to login/logout, set user, etc.
-  // For now, we'll use mock data.
+  firebaseUser: FirebaseUser | null; // User from Firebase Auth
+  userProfile: UserProfile | null;    // Your Firestore user profile
+  companyProfile: Company | null;   // Your Firestore company profile
+  authLoading: boolean;
+  setUserProfile: (profile: UserProfile | null) => void;
+  setCompanyProfile: (company: Company | null) => void;
+  // Logout function can be added here later or handled directly via auth.signOut()
 }
-
-// Mock data - in a real app, this would come from auth and Firestore after login
-const MOCK_DEFAULT_COMPANY_ID = "default_company_DudhDairy_XYZ123"; // Make it a bit more unique
-const MOCK_DEFAULT_USER_ID = "default_user_admin_ABC789";
-
-const mockUser: UserProfile = {
-  uid: MOCK_DEFAULT_USER_ID,
-  email: "admin@example.com",
-  displayName: "Default Admin User",
-  companyId: MOCK_DEFAULT_COMPANY_ID,
-  role: 'admin', // Default role for the mock user
-};
-
-const mockCompany: Company = {
-  id: MOCK_DEFAULT_COMPANY_ID,
-  name: "Default Dudh Dairy Inc.",
-};
 
 export const UserSessionContext = createContext<UserSessionContextType | undefined>(undefined);
 
 export const UserSessionProvider = ({ children }: { children: ReactNode }) => {
-  // In a real app, currentUser and currentCompany would be managed by auth state
-  // and fetched/set after successful login.
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(mockUser);
-  const [currentCompany, setCurrentCompany] = useState<Company | null>(mockCompany);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [userProfile, setUserProfileState] = useState<UserProfile | null>(null);
+  const [companyProfile, setCompanyProfileState] = useState<Company | null>(null);
 
-  // Later, we might add functions here to simulate login/logout for testing:
-  // const login = (user: UserProfile, company: Company) => {
-  //   setCurrentUser(user);
-  //   setCurrentCompany(company);
-  // };
-  // const logout = () => {
-  //   setCurrentUser(null);
-  //   setCurrentCompany(null);
-  // };
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      console.log("Auth state changed, user:", user);
+      setFirebaseUser(user);
+      setAuthLoading(false);
+      if (!user) {
+        // If Firebase user is logged out, clear our app-specific profiles
+        setUserProfileState(null);
+        setCompanyProfileState(null);
+      }
+      // If user is logged in, userProfile and companyProfile will be fetched
+      // in a subsequent step based on firebaseUser.uid
+      // For now, they remain null until explicitly set.
+    });
+    return () => unsubscribe(); // Cleanup subscription on unmount
+  }, []);
+
+  const setUserProfile = (profile: UserProfile | null) => {
+    setUserProfileState(profile);
+  };
+
+  const setCompanyProfile = (company: Company | null) => {
+    setCompanyProfileState(company);
+  };
 
   return (
-    <UserSessionContext.Provider value={{ currentUser, currentCompany }}>
+    <UserSessionContext.Provider value={{ firebaseUser, userProfile, companyProfile, authLoading, setUserProfile, setCompanyProfile }}>
       {children}
     </UserSessionContext.Provider>
   );
