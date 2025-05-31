@@ -10,9 +10,9 @@ import {
   Package,
   Users,
   IndianRupee,
-  BarChart3, 
-  Receipt,   
-  Truck, 
+  BarChart3,
+  Receipt,
+  Truck,
   Building, // Using Building for general purchases
   type LucideIcon,
 } from "lucide-react";
@@ -31,20 +31,20 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
-  adminOnly?: boolean; 
+  adminOnly?: boolean;
 }
 
-const userRole: "admin" | "accountant" = "admin"; 
+const userRole: "admin" | "accountant" = "admin";
 
+// Updated order and removed "Expenses"
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/milk-collection", label: "Milk Collection", icon: Milk },
   { href: "/sales", label: "Sales Entry", icon: ShoppingCart },
-  { href: "/bulk-sales", label: "Bulk Sales", icon: Truck },
-  { href: "/purchases", label: "Purchases", icon: Building }, // Changed from Pashu Aahar
-  { href: "/parties", label: "Parties", icon: Users },
+  { href: "/purchases", label: "Purchases", icon: Building },
   { href: "/payments", label: "Payments", icon: IndianRupee },
-  { href: "/expenses", label: "Expenses", icon: Receipt },
+  { href: "/parties", label: "Parties", icon: Users },
+  { href: "/bulk-sales", label: "Bulk Sales", icon: Truck },
   { href: "/profit-loss", label: "Profit/Loss", icon: BarChart3, adminOnly: true },
 ];
 
@@ -57,15 +57,21 @@ export function SidebarNav() {
       return userRole === 'admin';
     }
     return true;
-  }).sort((a, b) => { // Keep Dashboard first, then Profit/Loss last if admin
+  }).sort((a, b) => {
+    // Dashboard always first
     if (a.href === "/") return -1;
     if (b.href === "/") return 1;
+
+    // Profit/Loss always last for admin
     if (userRole === 'admin') {
       if (a.href === "/profit-loss") return 1;
       if (b.href === "/profit-loss") return -1;
     }
-    // Basic alphabetical sort for other items
-    return a.label.localeCompare(b.label);
+    // For other items, maintain their defined order from the navItems array
+    // by returning 0 if neither is Dashboard or Profit/Loss.
+    // The initial filter and the fixed positions of Dashboard/ProfitLoss
+    // will ensure the remaining items are in the sequence they were defined.
+    return 0;
   });
 
   return (
@@ -101,4 +107,3 @@ export function SidebarNav() {
     </nav>
   );
 }
-
