@@ -130,6 +130,30 @@ export async function getUniquePurchasedProductNames(category?: string): Promise
   }
 }
 
+export async function getUniqueCategoriesFromFirestore(): Promise<string[]> {
+  console.log(`SERVER ACTION: getUniqueCategoriesFromFirestore called.`);
+  const categoryNames = new Set<string>();
+  try {
+    const entriesCollection = collection(db, 'purchaseEntries');
+    const q = query(entriesCollection); // No specific where clause, get all
+    const entrySnapshot = await getDocs(q);
+    if (!entrySnapshot.empty) {
+      entrySnapshot.docs.forEach(docSnapshot => {
+        const data = docSnapshot.data();
+        if (data.category && typeof data.category === 'string') {
+          categoryNames.add(data.category.trim());
+        }
+      });
+    }
+    const uniqueNamesArray = Array.from(categoryNames).sort((a, b) => a.localeCompare(b));
+    console.log(`SERVER ACTION: Found ${uniqueNamesArray.length} unique category names.`);
+    return uniqueNamesArray;
+  } catch (error) {
+    console.error("SERVER ACTION: Error fetching unique category names:", error);
+    return [];
+  }
+}
+
 // If you had data in 'pashuAaharTransactions' and want to migrate it to 'purchaseEntries'
 // This is a one-time utility function. Do not call it repeatedly.
 // Ensure 'category' and 'unit' are set appropriately for Pashu Aahar.
