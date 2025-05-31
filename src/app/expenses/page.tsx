@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useCallback, useMemo } from "react";
+import { useState, type FormEvent, useEffect, useCallback, useMemo, useRef } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,8 +30,10 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { usePageTitle } from '@/context/PageTitleContext';
 import { addExpenseEntryToFirestore, getExpenseEntriesFromFirestore } from "./actions";
-import { getPartiesFromFirestore } from "../parties/actions";
+import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
 const expenseCategories: ExpenseEntry['category'][] = ["Salary", "Miscellaneous"];
 
@@ -53,7 +55,12 @@ export default function ExpensesPage() {
 
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [category, setCategory] = useState<ExpenseEntry['category']>("Miscellaneous");
-  const [selectedPartyId, setSelectedPartyId] = useState<string | undefined>(undefined);
+  
+  const [partyNameInputForSalary, setPartyNameInputForSalary] = useState<string>("");
+  const [selectedPartyForSalary, setSelectedPartyForSalary] = useState<Party | null>(null);
+  const [isPartyPopoverOpenForSalary, setIsPartyPopoverOpenForSalary] = useState(false);
+  const partyNameInputRefForSalary = useRef<HTMLInputElement>(null);
+  
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
 
@@ -94,17 +101,93 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     if (category !== "Salary") {
-      setSelectedPartyId(undefined);
+      setPartyNameInputForSalary("");
+      setSelectedPartyForSalary(null);
     }
   }, [category]);
 
   const resetFormFields = () => {
     setDate(new Date());
     setCategory("Miscellaneous");
-    setSelectedPartyId(undefined);
+    setPartyNameInputForSalary("");
+    setSelectedPartyForSalary(null);
     setDescription("");
     setAmount("");
   };
+
+  const partiesForSalarySuggestions = useMemo(() => {
+    return availableParties
+      .filter(p => p.type === "Employee" || p.type === "Supplier")
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [availableParties]);
+
+  const handlePartyNameInputChangeForSalary = useCallback((value: string) => {
+    setPartyNameInputForSalary(value);
+    setSelectedPartyForSalary(null); // Clear selected party if typing
+    if (value.trim()) {
+      setIsPartyPopoverOpenForSalary(true);
+    } else {
+      setIsPartyPopoverOpenForSalary(false);
+    }
+  }, []);
+
+  const handlePartySelectForSalary = useCallback(async (partyValue: string, isCreateNew = false) => {
+    let partyNameToSet = partyValue;
+    let partyIdToSet: string | undefined = undefined;
+    let partyTypeToSet: Party['type'] = "Employee"; // Default to Employee for salary
+
+    if (isCreateNew) {
+      const newPartyName = partyNameInputForSalary.trim();
+      if (!newPartyName) {
+        toast({ title: "Error", description: "Party name cannot be empty.", variant: "destructive" });
+        setIsPartyPopoverOpenForSalary(false);
+        return;
+      }
+      partyNameToSet = newPartyName;
+      
+      // For salary, default to creating as Employee. User can change type in Parties page if needed.
+      // Or, we could add a type selector if "Supplier" is a common salary recipient.
+      // For now, let's keep it simpler and default to "Employee".
+      // A more advanced solution might offer a choice here.
+      const existingParty = availableParties.find(
+        p => p.name.toLowerCase() === newPartyName.toLowerCase() && (p.type === "Employee" || p.type === "Supplier")
+      );
+      if (existingParty) {
+        toast({ title: "Info", description: `Party "${newPartyName}" (${existingParty.type}) already exists. Selecting existing.`, variant: "default" });
+        setSelectedPartyForSalary(existingParty);
+        setPartyNameInputForSalary(existingParty.name);
+        setIsPartyPopoverOpenForSalary(false);
+        partyNameInputRefForSalary.current?.focus();
+        return;
+      }
+
+      setIsSubmittingExpense(true); // Use general submitting flag
+      const result = await addPartyToFirestore({ name: newPartyName, type: partyTypeToSet });
+      if (result.success && result.id) {
+        toast({ title: "Success", description: `Party "${newPartyName}" (${partyTypeToSet}) added.` });
+        partyIdToSet = result.id;
+        await fetchParties(); // Refresh party list
+        setSelectedPartyForSalary({ id: result.id, name: newPartyName, type: partyTypeToSet });
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
+        setIsSubmittingExpense(false);
+        setIsPartyPopoverOpenForSalary(false);
+        return;
+      }
+      setIsSubmittingExpense(false);
+    } else {
+      const selected = partiesForSalarySuggestions.find(p => p.name === partyValue);
+      if (selected) {
+        partyIdToSet = selected.id;
+        partyTypeToSet = selected.type;
+        setSelectedPartyForSalary(selected);
+      }
+    }
+    setPartyNameInputForSalary(partyNameToSet);
+    setIsPartyPopoverOpenForSalary(false);
+    partyNameInputRefForSalary.current?.focus();
+  }, [partyNameInputForSalary, toast, fetchParties, availableParties, partiesForSalarySuggestions]);
+
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -119,18 +202,20 @@ export default function ExpensesPage() {
     }
 
     let partyDetails: { partyId?: string; partyName?: string } = {};
-    if (category === "Salary" && selectedPartyId) {
-      const party = availableParties.find(p => p.id === selectedPartyId);
-      if (party) {
-        partyDetails = { partyId: party.id, partyName: party.name };
+    if (category === "Salary") {
+      if (selectedPartyForSalary) {
+        partyDetails = { partyId: selectedPartyForSalary.id, partyName: selectedPartyForSalary.name };
+      } else if (partyNameInputForSalary.trim()) {
+        // If a name is typed but not formally selected from existing/newly created,
+        // we could try to find it or just save the name.
+        // For simplicity with the combobox, we should ensure selection or creation sets selectedPartyForSalary.
+        // Let's enforce that a party must be selected/created.
+        toast({ title: "Error", description: "Please select or add a party for the salary expense.", variant: "destructive" });
+        return;
       } else {
-         toast({ title: "Error", description: "Selected party for salary not found.", variant: "destructive" });
+         toast({ title: "Error", description: "Please select a party for salary expense.", variant: "destructive" });
          return;
       }
-    }
-     if (category === "Salary" && !selectedPartyId) {
-      toast({ title: "Error", description: "Please select a party for salary expense.", variant: "destructive" });
-      return;
     }
 
     setIsSubmittingExpense(true);
@@ -153,10 +238,14 @@ export default function ExpensesPage() {
     }
     setIsSubmittingExpense(false);
   };
+  
+  const filteredPartySuggestionsForSalary = useMemo(() => {
+    if (!partyNameInputForSalary.trim()) return partiesForSalarySuggestions;
+    return partiesForSalarySuggestions.filter((party) =>
+      party.name.toLowerCase().includes(partyNameInputForSalary.toLowerCase())
+    );
+  }, [partyNameInputForSalary, partiesForSalarySuggestions]);
 
-  const partiesForSalary = useMemo(() => {
-    return availableParties.filter(p => p.type === "Employee" || p.type === "Supplier");
-  }, [availableParties]);
 
   return (
     <div>
@@ -195,31 +284,80 @@ export default function ExpensesPage() {
 
               {category === "Salary" && (
                 <div>
-                  <Label htmlFor="expenseParty" className="flex items-center mb-1">
+                  <Label htmlFor="partyNameInputForSalary" className="flex items-center mb-1">
                     <Users className="h-4 w-4 mr-2 text-muted-foreground" /> Party (for Salary)
                   </Label>
-                  <Select 
-                    value={selectedPartyId} 
-                    onValueChange={setSelectedPartyId} 
-                    disabled={isLoadingParties || partiesForSalary.length === 0}
-                  >
-                    <SelectTrigger id="expenseParty">
-                      <SelectValue placeholder="Select party" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {isLoadingParties ? (
-                        <SelectItem value="loading" disabled>Loading parties...</SelectItem>
-                      ) : partiesForSalary.length === 0 ? (
-                        <SelectItem value="no-parties" disabled>No eligible parties (Employee/Supplier) found.</SelectItem>
-                      ) : (
-                        partiesForSalary.map(party => (
-                          <SelectItem key={party.id} value={party.id}>{party.name} ({party.type})</SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <Popover open={isPartyPopoverOpenForSalary} onOpenChange={setIsPartyPopoverOpenForSalary}>
+                    <PopoverTrigger asChild>
+                      <Input
+                        id="partyNameInputForSalary"
+                        ref={partyNameInputRefForSalary}
+                        value={partyNameInputForSalary}
+                        onChange={(e) => handlePartyNameInputChangeForSalary(e.target.value)}
+                        onFocus={() => {
+                          if (partyNameInputForSalary.trim() || filteredPartySuggestionsForSalary.length > 0) {
+                            setIsPartyPopoverOpenForSalary(true);
+                          }
+                        }}
+                        placeholder="Type or select party"
+                        autoComplete="off"
+                        className="w-full text-left"
+                      />
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="w-[--radix-popover-trigger-width] p-0"
+                      side="bottom"
+                      align="start"
+                      sideOffset={0}
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                    >
+                      <Command>
+                        <CommandInput
+                          placeholder="Search or add new party..."
+                          value={partyNameInputForSalary}
+                          onValueChange={handlePartyNameInputChangeForSalary}
+                        />
+                        <CommandList>
+                          {isLoadingParties ? (
+                            <CommandItem disabled>Loading parties...</CommandItem>
+                          ) : (
+                            <>
+                              <CommandGroup>
+                                {partyNameInputForSalary.trim() && 
+                                 !partiesForSalarySuggestions.some(p => p.name.toLowerCase() === partyNameInputForSalary.trim().toLowerCase()) && (
+                                  <CommandItem
+                                    key={`__CREATE_SALARY_PARTY__${partyNameInputForSalary.trim()}`}
+                                    value={`__CREATE_SALARY_PARTY__${partyNameInputForSalary.trim()}`}
+                                    onSelect={() => handlePartySelectForSalary(partyNameInputForSalary.trim(), true)}
+                                  >
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Add new party: "{partyNameInputForSalary.trim()}" (as Employee)
+                                  </CommandItem>
+                                )}
+                                {filteredPartySuggestionsForSalary.map((party) => (
+                                  <CommandItem
+                                    key={party.id}
+                                    value={party.name}
+                                    onSelect={() => handlePartySelectForSalary(party.name)}
+                                  >
+                                    {party.name} ({party.type})
+                                  </CommandItem>
+                                ))}
+                                <CommandEmpty>
+                                  {partiesForSalarySuggestions.length === 0 && !partyNameInputForSalary.trim() 
+                                    ? "No Employee/Supplier parties found. Type to add new." 
+                                    : "No matching Employee/Supplier parties."}
+                                </CommandEmpty>
+                              </CommandGroup>
+                            </>
+                          )}
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               )}
+
 
               <div>
                 <Label htmlFor="expenseDescription" className="flex items-center mb-1">
@@ -303,3 +441,5 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
+    
