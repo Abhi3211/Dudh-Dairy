@@ -27,12 +27,12 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays, MoreHorizontal, Edit, Trash2, Filter, Download } from "lucide-react";
-import type { SaleEntry, Party, PurchaseEntry } from "@/lib/types"; // Changed PashuAaharTransaction to PurchaseEntry
+import type { SaleEntry, Party, PurchaseEntry } from "@/lib/types";
 import { format, startOfMonth } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { addSaleEntryToFirestore, getSaleEntriesFromFirestore, updateSaleEntryInFirestore, deleteSaleEntryFromFirestore } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
-import { getPurchaseEntriesFromFirestore, getUniquePurchasedProductNames } from "../purchases/actions"; // Updated import path and function names
+import { getPurchaseEntriesFromFirestore, getUniquePurchasedProductNames } from "../purchases/actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
@@ -53,11 +53,11 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-const productCategories: { categoryName: string; unit: SaleEntry['unit'] }[] = [ // string for categoryName
+const productCategories: { categoryName: string; unit: SaleEntry['unit'] }[] = [
   { categoryName: "Milk", unit: "Ltr" },
   { categoryName: "Ghee", unit: "Kg" },
   { categoryName: "Pashu Aahar", unit: "Bags" },
-  { categoryName: "Other", unit: "Pcs" }, // Added Other category
+  { categoryName: "Other", unit: "Pcs" },
 ];
 
 export default function SalesPage() {
@@ -76,7 +76,7 @@ export default function SalesPage() {
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [customerName, setCustomerName] = useState("");
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
-  const [specificProductName, setSpecificProductName] = useState<string>(""); // Renamed for clarity
+  const [specificProductName, setSpecificProductName] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
   const [rate, setRate] = useState<string>("");
   const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit");
@@ -87,12 +87,12 @@ export default function SalesPage() {
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingPrerequisites, setIsLoadingPrerequisites] = useState(true);
 
-  const [isProductPopoverOpen, setIsProductPopoverOpen] = useState(false); // Renamed
-  const productNameInputRef = useRef<HTMLInputElement>(null); // Renamed
-  const [availableProductSuggestions, setAvailableProductSuggestions] = useState<string[]>([]); // Renamed
+  const [isProductPopoverOpen, setIsProductPopoverOpen] = useState(false);
+  const productNameInputRef = useRef<HTMLInputElement>(null);
+  const [availableProductSuggestions, setAvailableProductSuggestions] = useState<string[]>([]);
 
-  const [allPurchaseEntriesForStock, setAllPurchaseEntriesForStock] = useState<PurchaseEntry[]>([]); // Renamed
-  const [productStock, setProductStock] = useState<Record<string, { quantity: number, unit: string }>>({}); // More generic stock
+  const [allPurchaseEntriesForStock, setAllPurchaseEntriesForStock] = useState<PurchaseEntry[]>([]);
+  const [productStock, setProductStock] = useState<Record<string, { quantity: number, unit: string }>>({});
 
 
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -122,9 +122,9 @@ export default function SalesPage() {
   const fetchPagePrerequisites = useCallback(async () => {
     setIsLoadingPrerequisites(true);
     try {
-      const [parties, productNames, purchaseEntriesData] = await Promise.all([ // Using PurchaseEntry now
+      const [parties, productNames, purchaseEntriesData] = await Promise.all([
         getPartiesFromFirestore(),
-        getUniquePurchasedProductNames(), // Generic fetch
+        getUniquePurchasedProductNames(),
         getPurchaseEntriesFromFirestore()
       ]);
       setAvailableParties(parties);
@@ -167,7 +167,7 @@ export default function SalesPage() {
       });
     });
   
-    sales.forEach(sale => { // Use current sales from state for accurate real-time stock during session
+    sales.forEach(sale => {
       stockEvents.push({
         productName: sale.productName.trim(),
         unit: sale.unit,
@@ -190,7 +190,7 @@ export default function SalesPage() {
 
   const partiesForSuggestions = useMemo(() => {
     return availableParties
-      .filter(p => p.type === "Customer") // Only customers for sales
+      .filter(p => p.type === "Customer")
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [availableParties]);
 
@@ -204,31 +204,31 @@ export default function SalesPage() {
   const currentCategoryName = currentCategoryDetails?.categoryName;
 
   useEffect(() => {
-    // If category is not one that requires specific product name (e.g. Pashu Aahar), 
-    // set specificProductName to the category name itself, unless it's "Other".
-    if (currentCategoryName && currentCategoryName !== "Pashu Aahar" && currentCategoryName !== "Other") {
-      setSpecificProductName(currentCategoryName);
+    if (currentCategoryName === "Pashu Aahar") {
+      // Don't modify the input or popover here.
+      // The user controls it now.
+    } else {
+      setSpecificProductName(currentCategoryName === "Other" ? "" : (currentCategoryName || ""));
       setIsProductPopoverOpen(false);
-    } else if (currentCategoryName !== "Pashu Aahar") { // Clear for "Other" or if "Pashu Aahar" is not selected
-        setSpecificProductName("");
-        setIsProductPopoverOpen(false);
     }
-    // Auto-set rate for Milk and Ghee if available (example, can be more sophisticated)
-    if (currentCategoryName === "Milk") setRate("60"); // Example default rate
-    else if (currentCategoryName === "Ghee") setRate("700"); // Example default rate
-    else if (currentCategoryName !== "Pashu Aahar") setRate(""); // Clear rate for others
-
+  
+    // Auto-set rate for predefined categories
+    if (currentCategoryName === "Milk") setRate("60");
+    else if (currentCategoryName === "Ghee") setRate("700");
+    else if (currentCategoryName !== "Pashu Aahar") setRate("");
   }, [currentCategoryName]);
 
 
   const handleSpecificProductNameChange = useCallback((value: string) => {
     setSpecificProductName(value);
-    if (currentCategoryName === "Pashu Aahar" && value.trim() && availableProductSuggestions.length > 0) {
+    if (currentCategoryName === "Pashu Aahar") {
+      if (value.trim()) { 
         setIsProductPopoverOpen(true);
-    } else {
+      } else { 
         setIsProductPopoverOpen(false);
+      }
     }
-  }, [availableProductSuggestions, currentCategoryName]);
+  }, [currentCategoryName]);
 
   const handleProductSelect = useCallback((currentValue: string) => {
     setSpecificProductName(currentValue);
@@ -243,7 +243,7 @@ export default function SalesPage() {
         if (latestPurchase) {
             setRate(String(latestPurchase.defaultSalePricePerUnit));
         } else {
-            setRate(""); // Clear rate if no default sale price found
+            setRate(""); 
         }
     }
   }, [allPurchaseEntriesForStock, currentCategoryName]);
@@ -299,10 +299,10 @@ export default function SalesPage() {
   const resetFormFields = useCallback(() => {
     if (!editingEntryId) setDate(new Date());
     setCustomerName("");
-    setSelectedCategoryIndex("0"); // Reset to first category (Milk)
-    setSpecificProductName("");    // This will be auto-set by useEffect for Milk
+    setSelectedCategoryIndex("0"); 
+    setSpecificProductName("");    
     setQuantity("");
-    setRate(""); // Will be auto-set for Milk/Ghee by useEffect
+    setRate(""); 
     setPaymentType("Credit");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
@@ -322,7 +322,7 @@ export default function SalesPage() {
     }
     
     let finalProductName = specificProductName.trim();
-    if (!finalProductName) { // If specificProductName is empty (e.g. for Milk, Ghee, Other)
+    if (!finalProductName && (currentCategoryName === "Milk" || currentCategoryName === "Ghee")) {
         finalProductName = currentCategoryDetails.categoryName;
     }
 
@@ -379,7 +379,7 @@ export default function SalesPage() {
     if (result.success) {
       resetFormFields();
       await fetchSalesHistory();
-      await fetchPagePrerequisites(); // To refresh stock
+      await fetchPagePrerequisites(); 
     }
     setIsSubmitting(false);
   };
@@ -399,10 +399,9 @@ export default function SalesPage() {
         if (catDetails.categoryName === "Pashu Aahar" || catDetails.categoryName === "Other") {
             setSpecificProductName(entry.productName);
         } else {
-            setSpecificProductName(catDetails.categoryName); // For Milk, Ghee
+            setSpecificProductName(catDetails.categoryName); 
         }
     } else {
-        // Fallback if product name doesn't match a predefined category directly (e.g. old data or truly "Other")
         const otherCategoryIndex = productCategories.findIndex(cat => cat.categoryName === "Other");
         setSelectedCategoryIndex(String(otherCategoryIndex !== -1 ? otherCategoryIndex : 0));
         setSpecificProductName(entry.productName);
@@ -426,7 +425,7 @@ export default function SalesPage() {
     if (result.success) {
       toast({ title: "Success", description: "Sale entry deleted." });
       await fetchSalesHistory();
-      await fetchPagePrerequisites(); // To refresh stock
+      await fetchPagePrerequisites(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to delete entry.", variant: "destructive" });
     }
@@ -650,7 +649,7 @@ export default function SalesPage() {
                           value={specificProductName}
                           onChange={(e) => handleSpecificProductNameChange(e.target.value)}
                           onFocus={() => {
-                            if (currentCategoryName === "Pashu Aahar" && (specificProductName.trim() || availableProductSuggestions.length > 0)) {
+                            if (currentCategoryName === "Pashu Aahar") {
                               setIsProductPopoverOpen(true);
                             }
                           }}
@@ -882,6 +881,3 @@ export default function SalesPage() {
     </TooltipProvider>
   );
 }
-
-
-    
