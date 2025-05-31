@@ -202,7 +202,7 @@ export function SidebarNav() {
                     Company: {companyProfile.name}
                 </div>
             )}
-            <SidebarMenuItem>
+            <SidebarMenuItem className="list-none">
               <Button
                 variant="ghost"
                 className="w-full justify-start gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2"
