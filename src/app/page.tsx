@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { getDashboardSummaryAndChartData } from "./dashboard/actions";
 import { usePageTitle } from '@/context/PageTitleContext';
+// Removed useLanguage and translations imports
 
 const chartConfig = {
   purchasedValue: { label: "Purchase Value", color: "hsl(var(--chart-4))" }, 
@@ -23,11 +24,14 @@ const chartConfig = {
 
 export default function DashboardPage() {
   const { setPageTitle } = usePageTitle();
-  const pageSpecificTitle = "Summary Dashboard";
+  const pageSpecificTitle = "Summary Dashboard"; // Reverted to English, or use context if main title needs translation
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
   }, [setPageTitle, pageSpecificTitle]);
+
+  // const { language, translations } = useLanguage(); // Removed
+  // const welcomeMessage = translations[language].welcome_dashboard; // Removed
 
   const [filterType, setFilterType] = useState<string>("daily");
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
@@ -112,24 +116,21 @@ export default function DashboardPage() {
   }, [calculateDateRange, filterType]); 
 
   useEffect(() => {
-    // Initialize custom dates only if they are undefined
     if (customStartDate === undefined) {
       setCustomStartDate(subDays(new Date(), 7));
     }
     if (customEndDate === undefined) {
       setCustomEndDate(new Date());
     }
-  }, []); // Runs once on mount to set initial custom dates
+  }, []); 
 
   useEffect(() => {
-    // This effect triggers data fetching when filters change.
-    // It waits for customStartDate and customEndDate to be initialized if filterType is 'custom'.
     if (filterType === 'custom' && (customStartDate === undefined || customEndDate === undefined)) {
       console.log("CLIENT: useEffect - Custom filter selected, but dates not yet initialized. Skipping fetch.");
       return;
     }
     fetchData();
-  }, [fetchData, filterType, customStartDate, customEndDate]); // Re-fetch when these dependencies change
+  }, [fetchData, filterType, customStartDate, customEndDate]); 
 
   const summaryItems = useMemo(() => {
     if (!summary) return [];
@@ -150,6 +151,7 @@ export default function DashboardPage() {
 
   return (
     <div>
+      {/* <h1 className="text-2xl font-semibold mb-2">{welcomeMessage}</h1> Removed translated welcome */}
       <PageHeader description={displayedDateRangeString} />
       
       <Card className="mb-6">
@@ -188,7 +190,7 @@ export default function DashboardPage() {
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-6">
-          {Array(11).fill(0).map((_, index) => ( // Increased to 11 for the new bulk sale tiles
+          {Array(11).fill(0).map((_, index) => ( 
             <Card key={index}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <Skeleton className="h-4 w-3/5" /> <Skeleton className="h-5 w-5 rounded-full" />

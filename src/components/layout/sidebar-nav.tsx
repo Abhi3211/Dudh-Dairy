@@ -7,13 +7,13 @@ import {
   LayoutDashboard,
   Milk,
   ShoppingCart,
-  Package,
+  Package, // Kept for Pashu Aahar or other general product stock
   Users,
   IndianRupee,
   BarChart3,
-  Receipt, // Added Receipt icon
+  Receipt, 
   Truck,
-  Building,
+  Building, // Icon for Purchases (general supplies)
   type LucideIcon,
 } from "lucide-react";
 
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/icons/logo";
+// Removed useLanguage and translations imports
 
 interface NavItem {
   href: string;
@@ -32,67 +33,67 @@ interface NavItem {
   icon: LucideIcon;
   disabled?: boolean;
   adminOnly?: boolean;
+  accountantAccess?: boolean; // New property for accountant
 }
 
-const userRole: "admin" | "accountant" = "admin"; // This should ideally come from a context or auth service
+// This should ideally come from a context or auth service
+// For now, keeping it here to demonstrate role-based visibility
+const userRole: "admin" | "accountant" | "member" = "admin"; 
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/milk-collection", label: "Milk Collection", icon: Milk },
   { href: "/sales", label: "Sales Entry", icon: ShoppingCart },
-  { href: "/purchases", label: "Purchases", icon: Building },
-  { href: "/payments", label: "Payments", icon: IndianRupee },
-  { href: "/expenses", label: "Expenses", icon: Receipt }, // Added Expenses back
-  { href: "/parties", label: "Parties", icon: Users },
   { href: "/bulk-sales", label: "Bulk Sales", icon: Truck },
-  { href: "/profit-loss", label: "Profit/Loss", icon: BarChart3, adminOnly: true },
+  { href: "/purchases", label: "Purchases", icon: Building }, // Changed icon
+  { href: "/payments", label: "Payments", icon: IndianRupee },
+  { href: "/expenses", label: "Expenses", icon: Receipt },
+  { href: "/parties", label: "Parties", icon: Users },
+  { href: "/profit-loss", label: "Profit/Loss", icon: BarChart3, adminOnly: true, accountantAccess: true },
 ];
 
 export function SidebarNav() {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
+  // const { language, translations } = useLanguage(); // Removed
 
   // Define a desired order for items that are not Dashboard or Profit/Loss
   const middleItemsOrder = [
     "/milk-collection",
     "/sales",
+    "/bulk-sales",
     "/purchases",
     "/payments",
-    "/expenses", // Ensure Expenses is in the desired order
+    "/expenses",
     "/parties",
-    "/bulk-sales",
   ];
 
   const visibleNavItems = navItems
     .filter(item => {
-      if (item.adminOnly) {
-        return userRole === 'admin';
+      if (item.adminOnly && userRole !== 'admin') { // Strict admin only
+        return false;
+      }
+      if (item.href === "/profit-loss" && userRole === 'member') { // P&L hidden from member
+          return false;
       }
       return true;
     })
     .sort((a, b) => {
-      // Dashboard always first
       if (a.href === "/") return -1;
       if (b.href === "/") return 1;
 
-      // Profit/Loss always last (for admin)
-      if (userRole === 'admin') {
-        if (a.href === "/profit-loss") return 1;
-        if (b.href === "/profit-loss") return -1;
-      }
+      if (a.href === "/profit-loss") return 1;
+      if (b.href === "/profit-loss") return -1;
       
-      // Sort middle items based on predefined order
       const indexA = middleItemsOrder.indexOf(a.href);
       const indexB = middleItemsOrder.indexOf(b.href);
 
       if (indexA !== -1 && indexB !== -1) {
         return indexA - indexB;
       }
-      // If one item is in middleItemsOrder and the other isn't (should not happen if all middle items are listed)
       if (indexA !== -1) return -1;
       if (indexB !== -1) return 1;
       
-      // Fallback for any items not explicitly ordered (should ideally not be needed)
       return a.label.localeCompare(b.label);
     });
 
@@ -120,6 +121,7 @@ export function SidebarNav() {
             >
               <Link href={item.href}>
                 <item.icon className="h-5 w-5 group-data-[collapsible=icon]:h-4 group-data-[collapsible=icon]:w-4 transition-all" />
+                {/* Reverted to direct label, removed translation logic */}
                 <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
               </Link>
             </Button>

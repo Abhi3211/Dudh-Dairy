@@ -1,79 +1,24 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { AlertTriangle, CalendarIcon, IndianRupee } from "lucide-react";
+import { AlertTriangle, IndianRupee } from "lucide-react"; // Removed CalendarIcon as it's implicitly handled by DatePicker
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, differenceInDays, addDays } from "date-fns";
+import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
-import type { FullProfitLossData, ProfitLossSummaryData, PlChartDataPoint } from "@/lib/types";
+import type { FullProfitLossData, PlChartDataPoint, ProfitLossSummaryData } from "@/lib/types"; // Ensure ProfitLossSummaryData is imported
+import { getProfitLossDataFromFirestore } from "./actions";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-// IMPORTANT: This is a placeholder for actual role management.
-const userRole: "admin" | "accountant" = "admin";
+// IMPORTANT: This should ideally come from an auth context after login
+const userRole: "admin" | "accountant" | "member" = "admin";
 
-
-// Simulated data fetching function
-const getPlData = async (startDate: Date, endDate: Date): Promise<FullProfitLossData> => {
-  const periodDays = Math.max(1, differenceInDays(endDate, startDate) + 1);
-  
-  let totalMilkSales = 0;
-  let totalGheeSales = 0;
-  let totalPashuAaharSales = 0;
-  let totalCostOfGoodsSold = 0;
-  let totalOperatingExpenses = 0;
-
-  const chartSeries: PlChartDataPoint[] = [];
-
-  for (let i = 0; i < periodDays; i++) {
-    const currentDate = addDays(startDate, i);
-    const dailyMilkSales = Math.random() * 1500 + 800; 
-    const dailyGheeSales = Math.random() * 200 + 40;   
-    const dailyPashuAaharSales = Math.random() * 150 + 20; 
-    const dailyCostOfGoodsSold = Math.random() * 1200 + 600; 
-
-    totalMilkSales += dailyMilkSales;
-    totalGheeSales += dailyGheeSales;
-    totalPashuAaharSales += dailyPashuAaharSales;
-    totalCostOfGoodsSold += dailyCostOfGoodsSold;
-    
-    const dailyRevenue = dailyMilkSales + dailyGheeSales + dailyPashuAaharSales;
-    const dailyGrossProfit = dailyRevenue - dailyCostOfGoodsSold;
-    const dailyOperatingExpenses = (dailyRevenue * 0.10) + (Math.random() * 50 + 50); 
-    totalOperatingExpenses += dailyOperatingExpenses;
-    
-    const dailyNetProfitLoss = dailyGrossProfit - dailyOperatingExpenses;
-
-    chartSeries.push({
-      date: format(currentDate, "MMM dd"),
-      netProfit: parseFloat(dailyNetProfitLoss.toFixed(2)),
-    });
-  }
-  
-  const summaryTotalRevenue = totalMilkSales + totalGheeSales + totalPashuAaharSales;
-  const summaryGrossProfit = summaryTotalRevenue - totalCostOfGoodsSold;
-  const summaryNetProfitLoss = summaryGrossProfit - totalOperatingExpenses;
-
-  const summary: ProfitLossSummaryData = {
-    totalRevenue: parseFloat(summaryTotalRevenue.toFixed(2)),
-    milkSales: parseFloat(totalMilkSales.toFixed(2)),
-    gheeSales: parseFloat(totalGheeSales.toFixed(2)),
-    pashuAaharSales: parseFloat(totalPashuAaharSales.toFixed(2)),
-    costOfGoodsSold: parseFloat(totalCostOfGoodsSold.toFixed(2)),
-    grossProfit: parseFloat(summaryGrossProfit.toFixed(2)),
-    operatingExpenses: parseFloat(totalOperatingExpenses.toFixed(2)),
-    netProfitLoss: parseFloat(summaryNetProfitLoss.toFixed(2)),
-    periodDays,
-  };
-
-  return { summary, chartSeries };
-};
 
 const chartConfig = {
   netProfit: { label: "Net Profit/Loss", color: "hsl(var(--chart-1))" }, 
@@ -82,7 +27,7 @@ const chartConfig = {
 
 export default function ProfitLossPage() {
   const { setPageTitle } = usePageTitle();
-  const pageSpecificTitle = userRole === "admin" ? "Profit & Loss Statement" : "Access Denied";
+  const pageSpecificTitle = userRole === "admin" || userRole === "accountant" ? "Profit & Loss Statement" : "Access Denied";
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -125,7 +70,7 @@ export default function ProfitLossPage() {
   }, [filterType, customStartDate, customEndDate]);
 
   const fetchData = useCallback(async () => {
-    if (userRole !== "admin") {
+    if (userRole !== "admin" && userRole !== "accountant") {
       setIsLoading(false);
       return;
     }
@@ -133,25 +78,30 @@ export default function ProfitLossPage() {
     const { startDate, endDate } = calculateDateRange();
     
     if (!startDate || !endDate) {
+        console.warn("ProfitLossPage: fetchData - startDate or endDate is undefined, skipping fetch.");
         setIsLoading(false);
+        setDisplayedDateRangeString("Please select a valid date range.");
+        setPlData(null);
         return;
     }
-
-    const data = await getPlData(startDate, endDate);
+    
+    console.log(`ProfitLossPage: Fetching data for range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+    const data = await getProfitLossDataFromFirestore(startDate, endDate);
+    console.log("ProfitLossPage: Data received from server action:", JSON.parse(JSON.stringify(data)));
     setPlData(data);
 
     const formattedStartDate = format(startDate, "MMM dd, yyyy");
     const formattedEndDate = format(endDate, "MMM dd, yyyy");
     let periodPrefix = "";
-     if (filterType === 'daily' && formattedStartDate === formattedEndDate) {
+     if (filterType === 'daily' && format(startDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')) {
       periodPrefix = "today's";
-    } else if (filterType === 'daily') {
+    } else if (filterType === 'daily' && formattedStartDate === formattedEndDate) {
        periodPrefix = `for ${formattedStartDate}`;
     } else {
-      periodPrefix = `the selected ${filterType}`;
+      periodPrefix = `for the period`;
     }
     setDisplayedDateRangeString(
-      `Showing data for ${periodPrefix}: ${formattedStartDate}${startDate.getTime() !== endDate.getTime() ? ` - ${formattedEndDate}` : ''}`
+      `Financial performance ${periodPrefix}: ${formattedStartDate}${startDate.getTime() !== endDate.getTime() ? ` to ${formattedEndDate}` : ''}`
     );
 
     setIsLoading(false);
@@ -174,7 +124,18 @@ export default function ProfitLossPage() {
     fetchData();
   }, [fetchData, filterType, customStartDate, customEndDate]);
 
-  if (userRole !== "admin") {
+  const isDataEffectivelyEmpty = (summary: ProfitLossSummaryData | undefined | null): boolean => {
+    if (!summary) return true;
+    return (
+      summary.totalRevenue === 0 &&
+      summary.costOfGoodsSold === 0 &&
+      summary.operatingExpenses === 0 && // Though this is always 0 for now
+      summary.netProfitLoss === 0
+    );
+  };
+
+
+  if (userRole !== "admin" && userRole !== "accountant") {
     return (
       <div>
         <PageHeader
@@ -190,7 +151,7 @@ export default function ProfitLossPage() {
           </CardHeader>
           <CardContent>
             <p className="text-destructive">
-              The Profit/Loss report is restricted to admin users only.
+              The Profit/Loss report is restricted to admin and accountant users only.
             </p>
           </CardContent>
         </Card>
@@ -202,7 +163,7 @@ export default function ProfitLossPage() {
     <div>
       <PageHeader
         title={pageSpecificTitle}
-        description={displayedDateRangeString.replace("Showing data for ", "Financial performance for the period: ")}
+        description={displayedDateRangeString}
       />
       
       <Card className="mb-6">
@@ -215,7 +176,7 @@ export default function ProfitLossPage() {
             <Select value={filterType} onValueChange={setFilterType}>
               <SelectTrigger id="filterType"><SelectValue placeholder="Select period" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="daily">Daily</SelectItem>
+                <SelectItem value="daily">Daily (Today)</SelectItem>
                 <SelectItem value="weekly">This Week</SelectItem>
                 <SelectItem value="monthly">This Month</SelectItem>
                 <SelectItem value="custom">Custom Range</SelectItem>
@@ -255,12 +216,13 @@ export default function ProfitLossPage() {
               <Skeleton className="h-6 w-1/2 mb-4" />
               <Skeleton className="h-8 w-3/4" />
             </div>
-          ) : plData && plData.summary ? (
+          ) : plData && plData.summary && !isDataEffectivelyEmpty(plData.summary) ? (
             <>
               <div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">Revenue</h3>
                 <div className="space-y-1 pl-4">
-                  <div className="flex justify-between"><span>Milk Sales:</span> <span className="font-medium">₹{plData.summary.milkSales.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Milk Sales (Retail):</span> <span className="font-medium">₹{plData.summary.milkSalesRetail.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Milk Sales (Bulk):</span> <span className="font-medium">₹{plData.summary.milkSalesBulk.toFixed(2)}</span></div>
                   <div className="flex justify-between"><span>Ghee Sales:</span> <span className="font-medium">₹{plData.summary.gheeSales.toFixed(2)}</span></div>
                   <div className="flex justify-between"><span>Pashu Aahar Sales:</span> <span className="font-medium">₹{plData.summary.pashuAaharSales.toFixed(2)}</span></div>
                   <div className="flex justify-between border-t pt-1 mt-1">
@@ -271,8 +233,11 @@ export default function ProfitLossPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">Cost of Goods Sold (COGS)</h3>
+                 <p className="text-xs text-muted-foreground pl-4 mb-1">(Simplified COGS based on collections & purchases in period)</p>
                 <div className="space-y-1 pl-4">
-                  <div className="flex justify-between"><span>Milk Purchases:</span> <span className="font-medium">₹{plData.summary.costOfGoodsSold.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Milk COGS:</span> <span className="font-medium">₹{plData.summary.cogsMilk.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Ghee COGS:</span> <span className="font-medium">₹{plData.summary.cogsGhee.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Pashu Aahar COGS:</span> <span className="font-medium">₹{plData.summary.cogsPashuAahar.toFixed(2)}</span></div>
                   <div className="flex justify-between border-t pt-1 mt-1">
                     <span className="font-semibold">Total COGS:</span>
                     <span className="font-bold text-chart-4">₹{plData.summary.costOfGoodsSold.toFixed(2)}</span>
@@ -290,11 +255,8 @@ export default function ProfitLossPage() {
               <div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">Operating Expenses</h3>
                 <div className="space-y-1 pl-4">
-                  <div className="flex justify-between"><span>Simulated Expenses:</span> <span className="font-medium">₹{plData.summary.operatingExpenses.toFixed(2)}</span></div>
-                   <div className="flex justify-between border-t pt-1 mt-1">
-                    <span className="font-semibold">Total Operating Expenses:</span>
-                    <span className="font-bold text-chart-4">₹{plData.summary.operatingExpenses.toFixed(2)}</span>
-                  </div>
+                  <div className="flex justify-between"><span>Total Operating Expenses:</span> <span className="font-medium">₹{plData.summary.operatingExpenses.toFixed(2)}</span></div>
+                  <p className="text-xs text-muted-foreground pt-1">(Note: Detailed operating expense tracking from live data is not yet fully implemented. This figure is currently ₹0.00 unless manually set in actions.)</p>
                 </div>
               </div>
               <div className="border-t pt-4">
@@ -308,17 +270,19 @@ export default function ProfitLossPage() {
               </div>
             </>
           ) : (
-            <p className="text-muted-foreground text-center">No data available for the selected period.</p>
+            <p className="text-muted-foreground text-center py-8">
+              {isLoading ? "Loading financial data..." : "No financial data available for the selected period."}
+            </p>
           )}
         </CardContent>
       </Card>
 
-      {userRole === "admin" && (
+      {(userRole === "admin" || userRole === "accountant") && (
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>Net Profit/Loss Trend</CardTitle>
             <CardDescription>
-              {displayedDateRangeString.replace("Showing data for ", "Daily net profit/loss for the period: ")}
+              Daily net profit/loss for the period: {displayedDateRangeString.substring(displayedDateRangeString.indexOf(':') + 1).trim()}
             </CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] sm:h-[400px]">
@@ -336,7 +300,7 @@ export default function ProfitLossPage() {
                       tickLine={false} 
                       axisLine={false} 
                       tickMargin={8} 
-                      tickFormatter={(value) => `₹${value >= 1000 || value <= -1000 ? (value / 1000).toFixed(1) + 'k' : value.toFixed(0)}`}
+                      tickFormatter={(value) => `₹${value >= 1000 || value <= -1000 ? (value / 1000).toFixed(0) + 'k' : value.toFixed(0)}`}
                       allowDecimals={false} 
                     />
                     <Tooltip 
@@ -346,8 +310,8 @@ export default function ProfitLossPage() {
                           const dataPoint = entry.payload as PlChartDataPoint | undefined;
                           return (
                             <div className="flex flex-col">
-                              <span className="text-xs text-muted-foreground">{name} ({dataPoint?.date})</span>
-                              <span className="font-bold">₹{Number(value).toFixed(2)}</span>
+                              <span className="text-xs text-muted-foreground">{dataPoint?.date}</span>
+                              <span className="font-bold">Net Profit: ₹{Number(value).toFixed(2)}</span>
                             </div>
                           );
                         }}

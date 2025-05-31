@@ -9,9 +9,8 @@ import { Button } from "@/components/ui/button";
 import { PanelLeft, Menu } from "lucide-react";
 import { PageTitleProvider } from '@/context/PageTitleContext';
 import { HeaderTitle } from '@/components/layout/HeaderTitle';
-import { LanguageProvider } from "@/context/LanguageContext"; // Added
-import { LanguageToggle } from "@/components/layout/LanguageToggle"; // Added
-import { UserSessionProvider } from "@/context/UserSessionContext"; // Added
+// Removed LanguageProvider and LanguageToggle imports
+import { UserSessionProvider } from "@/context/UserSessionContext"; 
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,9 +37,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased font-sans`}
       >
-        <UserSessionProvider> {/* Added UserSessionProvider */}
+        <UserSessionProvider> 
           <PageTitleProvider>
-            <LanguageProvider> {/* Added LanguageProvider */}
+            {/* Removed LanguageProvider wrapper */}
               <SidebarProvider defaultOpen={true} collapsible="icon">
                 <Sidebar variant="sidebar" className="bg-sidebar text-sidebar-foreground border-r border-sidebar-border shadow-md">
                   <SidebarNav />
@@ -68,7 +67,7 @@ export default function RootLayout({
 
                     <HeaderTitle />
                     <div className="ml-auto">
-                      <LanguageToggle /> {/* Added LanguageToggle */}
+                      {/* Removed LanguageToggle component */}
                     </div>
                   </header>
                   <main className="flex-1 pt-2 md:pt-4 lg:pt-6 px-4 md:px-6 lg:px-8 pb-4 md:pb-6 lg:pb-8">
@@ -76,7 +75,6 @@ export default function RootLayout({
                   </main>
                 </SidebarInset>
               </SidebarProvider>
-            </LanguageProvider>
           </PageTitleProvider>
         </UserSessionProvider>
         <Toaster />
