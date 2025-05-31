@@ -11,9 +11,9 @@ import {
   Users,
   IndianRupee,
   BarChart3,
-  Receipt,
+  Receipt, // Added Receipt icon
   Truck,
-  Building, // Using Building for general purchases
+  Building,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,15 +34,15 @@ interface NavItem {
   adminOnly?: boolean;
 }
 
-const userRole: "admin" | "accountant" = "admin";
+const userRole: "admin" | "accountant" = "admin"; // This should ideally come from a context or auth service
 
-// Updated order and removed "Expenses"
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/milk-collection", label: "Milk Collection", icon: Milk },
   { href: "/sales", label: "Sales Entry", icon: ShoppingCart },
   { href: "/purchases", label: "Purchases", icon: Building },
   { href: "/payments", label: "Payments", icon: IndianRupee },
+  { href: "/expenses", label: "Expenses", icon: Receipt }, // Added Expenses back
   { href: "/parties", label: "Parties", icon: Users },
   { href: "/bulk-sales", label: "Bulk Sales", icon: Truck },
   { href: "/profit-loss", label: "Profit/Loss", icon: BarChart3, adminOnly: true },
@@ -52,27 +52,49 @@ export function SidebarNav() {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
 
-  const visibleNavItems = navItems.filter(item => {
-    if (item.adminOnly) {
-      return userRole === 'admin';
-    }
-    return true;
-  }).sort((a, b) => {
-    // Dashboard always first
-    if (a.href === "/") return -1;
-    if (b.href === "/") return 1;
+  // Define a desired order for items that are not Dashboard or Profit/Loss
+  const middleItemsOrder = [
+    "/milk-collection",
+    "/sales",
+    "/purchases",
+    "/payments",
+    "/expenses", // Ensure Expenses is in the desired order
+    "/parties",
+    "/bulk-sales",
+  ];
 
-    // Profit/Loss always last for admin
-    if (userRole === 'admin') {
-      if (a.href === "/profit-loss") return 1;
-      if (b.href === "/profit-loss") return -1;
-    }
-    // For other items, maintain their defined order from the navItems array
-    // by returning 0 if neither is Dashboard or Profit/Loss.
-    // The initial filter and the fixed positions of Dashboard/ProfitLoss
-    // will ensure the remaining items are in the sequence they were defined.
-    return 0;
-  });
+  const visibleNavItems = navItems
+    .filter(item => {
+      if (item.adminOnly) {
+        return userRole === 'admin';
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      // Dashboard always first
+      if (a.href === "/") return -1;
+      if (b.href === "/") return 1;
+
+      // Profit/Loss always last (for admin)
+      if (userRole === 'admin') {
+        if (a.href === "/profit-loss") return 1;
+        if (b.href === "/profit-loss") return -1;
+      }
+      
+      // Sort middle items based on predefined order
+      const indexA = middleItemsOrder.indexOf(a.href);
+      const indexB = middleItemsOrder.indexOf(b.href);
+
+      if (indexA !== -1 && indexB !== -1) {
+        return indexA - indexB;
+      }
+      // If one item is in middleItemsOrder and the other isn't (should not happen if all middle items are listed)
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      
+      // Fallback for any items not explicitly ordered (should ideally not be needed)
+      return a.label.localeCompare(b.label);
+    });
 
   return (
     <nav className="flex flex-col h-full">
