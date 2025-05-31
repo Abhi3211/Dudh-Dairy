@@ -12,7 +12,8 @@ import { auth } from "@/lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { LogIn, Mail, KeyRound } from "lucide-react";
 import { usePageTitle } from "@/context/PageTitleContext";
-import { useUserSession } from "@/context/UserSessionContext"; // To redirect if already logged in
+import { useUserSession } from "@/context/UserSessionContext"; 
+import Link from "next/link"; // Added Link for navigation
 
 export default function LoginPage() {
   const { setPageTitle } = usePageTitle();
@@ -31,7 +32,6 @@ export default function LoginPage() {
   }, [setPageTitle, pageSpecificTitle]);
 
   useEffect(() => {
-    // If auth is not loading and user is already logged in, redirect to dashboard
     if (!authLoading && firebaseUser) {
       router.replace("/");
     }
@@ -44,9 +44,6 @@ export default function LoginPage() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       toast({ title: "Success", description: "Logged in successfully!" });
-      // Redirection will be handled by useEffect or a protected route mechanism later
-      // For now, onAuthStateChanged in UserSessionContext will update the state,
-      // and pages like Dashboard will react. Let's explicitly redirect here.
       router.push("/");
     } catch (error: any) {
       console.error("Login error:", error);
@@ -60,8 +57,6 @@ export default function LoginPage() {
     }
   };
   
-  // If auth is loading, or user is already logged in (and about to be redirected by useEffect)
-  // show a simple loading state to prevent login form flash.
   if (authLoading || firebaseUser) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -71,7 +66,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
+    <div className="flex justify-center items-center min-h-[calc(100vh-10rem)] py-8">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl flex items-center justify-center">
@@ -112,7 +107,12 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Signing In..." : "Sign In"}
             </Button>
-            {/* TODO: Add "Forgot Password?" and "Sign Up" links later */}
+            <p className="text-center text-sm text-muted-foreground">
+              Don&apos;t have an account?{" "}
+              <Button variant="link" asChild className="px-0.5">
+                <Link href="/signup">Sign Up</Link>
+              </Button>
+            </p>
           </form>
         </CardContent>
       </Card>

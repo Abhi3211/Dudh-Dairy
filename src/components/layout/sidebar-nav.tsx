@@ -15,6 +15,7 @@ import {
   Building,
   LogOut,
   LogIn,
+  UserPlus, // Added UserPlus for Signup
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,7 +33,7 @@ import { useUserSession } from "@/context/UserSessionContext";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Skeleton } from "@/components/ui/skeleton"; // Ensure this import is present
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface NavItem {
   href: string;
@@ -43,8 +44,7 @@ interface NavItem {
   accountantAccess?: boolean;
 }
 
-// This should ideally come from userProfile.role after it's fetched
-const userRole: "admin" | "accountant" | "member" = "admin";
+const userRole: "admin" | "accountant" | "member" = "admin"; // This will be dynamic later
 
 const mainNavItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -84,11 +84,12 @@ export function SidebarNav() {
 
   const visibleNavItems = mainNavItems
     .filter(item => {
-      const currentRole = userProfile?.role || userRole;
-      if (item.adminOnly && currentRole !== 'admin') {
+      // TODO: Replace hardcoded userRole with dynamic role from userProfile once available
+      const currentRoleFromContext = userProfile?.role || userRole; // Fallback to static if profile not loaded
+      if (item.adminOnly && currentRoleFromContext !== 'admin') {
         return false;
       }
-      if (item.href === "/profit-loss" && currentRole === 'member') {
+      if (item.href === "/profit-loss" && currentRoleFromContext === 'member') {
           return false;
       }
       return true;
@@ -150,21 +151,38 @@ export function SidebarNav() {
             </SidebarMenuItem>
           ))
         ) : (
-          pathname !== "/login" && (
-            <SidebarMenuItem>
-              <Button
-                asChild
-                variant="default"
-                className="w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2"
-                onClick={() => setOpenMobile(false)}
-              >
-                <Link href="/login">
-                  <LogIn className="h-5 w-5 group-data-[collapsible=icon]:h-4 group-data-[collapsible=icon]:w-4 transition-all" />
-                  <span className="group-data-[collapsible=icon]:hidden">Login</span>
-                </Link>
-              </Button>
-            </SidebarMenuItem>
-          )
+          <>
+            {pathname !== "/login" && (
+              <SidebarMenuItem>
+                <Button
+                  asChild
+                  variant={pathname === "/login" ? "default" : "ghost"}
+                  className="w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => setOpenMobile(false)}
+                >
+                  <Link href="/login">
+                    <LogIn className="h-5 w-5 group-data-[collapsible=icon]:h-4 group-data-[collapsible=icon]:w-4 transition-all" />
+                    <span className="group-data-[collapsible=icon]:hidden">Login</span>
+                  </Link>
+                </Button>
+              </SidebarMenuItem>
+            )}
+            {pathname !== "/signup" && (
+               <SidebarMenuItem>
+                <Button
+                  asChild
+                  variant={pathname === "/signup" ? "default" : "ghost"}
+                  className="w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => setOpenMobile(false)}
+                >
+                  <Link href="/signup">
+                    <UserPlus className="h-5 w-5 group-data-[collapsible=icon]:h-4 group-data-[collapsible=icon]:w-4 transition-all" />
+                    <span className="group-data-[collapsible=icon]:hidden">Sign Up</span>
+                  </Link>
+                </Button>
+              </SidebarMenuItem>
+            )}
+          </>
         )}
       </SidebarMenu>
       {firebaseUser && (

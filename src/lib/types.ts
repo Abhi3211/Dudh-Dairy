@@ -1,38 +1,39 @@
 
-export type UserRole = 'admin' | 'member';
+export type UserRole = 'admin' | 'member'; // 'accountant' could be added later
 
 export interface UserProfile {
-  uid: string;
-  email: string | null;
+  uid: string; // Document ID in Firestore 'users' collection, matches Firebase Auth UID
+  companyId: string; // ID of the company document in 'companies' collection
+  email: string; // User's email
   displayName: string | null;
-  companyId: string;
   role: UserRole;
 }
 
 export interface Company {
-  id: string;
+  id: string; // Document ID in Firestore 'companies' collection
   name: string;
-  // other company details like subscription status, ownerUid, etc. could go here
+  ownerUid: string; // UID of the user who created/owns the company
+  // other company details like subscription status, etc. could go here
 }
 
 export interface MilkCollectionEntry {
   id: string;
-  companyId?: string; // Added for multi-tenancy
+  companyId?: string;
   date: Date;
   shift: "Morning" | "Evening";
-  customerName: string; // This is the person supplying milk
+  customerName: string;
   quantityLtr: number;
   fatPercentage: number;
-  ratePerLtr: number; // This is the rate factor (Quantity * FAT * Rate = Total)
-  totalAmount: number; // Gross amount: quantity * fat * rate
+  ratePerLtr: number;
+  totalAmount: number;
   advancePaid?: number;
   remarks?: string;
-  netAmountPayable: number; // totalAmount - (advancePaid || 0)
+  netAmountPayable: number;
 }
 
 export interface SaleEntry {
   id: string;
-  companyId?: string; // Added for multi-tenancy
+  companyId?: string;
   date: Date;
   customerName: string;
   productName: string;
@@ -45,21 +46,21 @@ export interface SaleEntry {
 
 export interface BulkSaleEntry {
   id: string;
-  companyId?: string; // Added for multi-tenancy
+  companyId?: string;
   date: Date;
   shift: "Morning" | "Evening";
-  customerName: string; // The bulk buyer
+  customerName: string;
   quantityLtr: number;
   fatPercentage: number;
-  rateFactor: number; // Rate per FAT point
-  totalAmount: number; // quantityLtr * fatPercentage * rateFactor
+  rateFactor: number;
+  totalAmount: number;
   paymentType: "Cash" | "Credit";
   remarks?: string;
 }
 
 export interface PurchaseEntry {
   id: string;
-  companyId?: string; // Added for multi-tenancy
+  companyId?: string;
   date: Date;
   category: string;
   productName: string;
@@ -74,14 +75,14 @@ export interface PurchaseEntry {
 
 export interface Party {
   id: string;
-  companyId?: string; // Added for multi-tenancy
+  companyId?: string;
   name: string;
   type: "Customer" | "Supplier" | "Employee";
 }
 
 export interface PartyLedgerEntry {
   id: string;
-  companyId?: string; // Added for multi-tenancy (though ledger is derived, source transactions will have it)
+  companyId?: string;
   date: Date;
   description: string;
   shift?: "Morning" | "Evening";
@@ -95,7 +96,7 @@ export interface PartyLedgerEntry {
 
 export interface PaymentEntry {
   id:string;
-  companyId?: string; // Added for multi-tenancy
+  companyId?: string;
   date: Date;
   type: "Received" | "Paid";
   partyName: string;
@@ -107,7 +108,7 @@ export interface PaymentEntry {
 
 export interface ExpenseEntry {
   id: string;
-  companyId?: string; // Added for multi-tenancy
+  companyId?: string;
   date: Date;
   category: "Salary" | "Miscellaneous";
   description: string;
@@ -158,18 +159,18 @@ export interface ProfitLossSummaryData {
   closingStockValuePashuAahar: number;
   totalClosingStockValue: number;
   
-  costOfGoodsSold: number; // totalPurchasesValue - totalClosingStockValue
-  grossProfit: number;     // totalRevenue - costOfGoodsSold
-  operatingExpenses: number; // Still 0 for now
-  netProfitLoss: number;     // grossProfit - operatingExpenses
+  costOfGoodsSold: number; 
+  grossProfit: number;    
+  operatingExpenses: number; 
+  netProfitLoss: number;    
   periodDays: number;
 }
 
 export interface PlChartDataPoint {
-  date: string; // e.g., "MMM dd"
-  netProfit: number; // Daily net profit
-  revenue?: number; // Optional: for more detailed chart tooltips
-  cogs?: number;    // Optional: for more detailed chart tooltips
+  date: string; 
+  netProfit: number; 
+  revenue?: number; 
+  cogs?: number;    
 }
 
 export interface FullProfitLossData {
