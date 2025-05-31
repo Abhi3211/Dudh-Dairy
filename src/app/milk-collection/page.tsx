@@ -195,12 +195,12 @@ export default function MilkCollectionPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    if (value.trim() && filteredPartiesForSuggestions.length > 0) {
+    if (value.trim()) {
       setIsCustomerPopoverOpen(true);
     } else {
       setIsCustomerPopoverOpen(false);
     }
-  }, [filteredPartiesForSuggestions]);
+  }, []);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
@@ -218,7 +218,7 @@ export default function MilkCollectionPage() {
         toast({ title: "Info", description: `Customer "${trimmedValue}" already exists. Selecting existing customer.`, variant: "default" });
         setCustomerNameInput(trimmedValue);
         setIsCustomerPopoverOpen(false);
-        customerNameInputRef.current?.focus();
+        // customerNameInputRef.current?.focus(); // Removed explicit refocus
         return;
       }
 
@@ -236,7 +236,7 @@ export default function MilkCollectionPage() {
       setCustomerNameInput(trimmedValue);
     }
     setIsCustomerPopoverOpen(false);
-    customerNameInputRef.current?.focus();
+    // customerNameInputRef.current?.focus(); // Removed explicit refocus
   }, [toast, fetchParties, availableParties]);
 
   const resetFormFields = useCallback(() => {
@@ -487,7 +487,7 @@ export default function MilkCollectionPage() {
                         value={customerNameInput}
                         onChange={(e) => handleCustomerNameInputChange(e.target.value)}
                         onFocus={() => {
-                          if (customerNameInput.trim() || filteredPartiesForSuggestions.length > 0) {
+                          if (customerNameInput.trim()) {
                             setIsCustomerPopoverOpen(true);
                           }
                         }}
