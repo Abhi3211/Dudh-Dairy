@@ -30,18 +30,8 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-// Mock parties for selection in salary, ensure types are consistent with updated Party type
-const mockParties: Party[] = [
-  { id: "EMP1", name: "Anita Sharma (Accountant)", type: "Employee" },
-  { id: "CUST1", name: "Rajesh Kumar", type: "Customer" },
-  { id: "SUP1", name: "Local Cafe Supplies", type: "Supplier" },
-];
-
-// Initial raw expense data
-const rawInitialExpenses: (Omit<ExpenseEntry, 'id' | 'date'> & { tempId: string, dateOffset: number })[] = [
-  { tempId: "E1", dateOffset: -1, category: "Salary", description: "Helper wages - April", amount: 5000, partyId: "EMP1", partyName: "Anita Sharma (Accountant)" },
-  { tempId: "E2", dateOffset: 0, category: "Miscellaneous", description: "Office stationary", amount: 250 },
-];
+// Removed mockParties
+// Removed rawInitialExpenses
 
 const expenseCategories: ExpenseEntry['category'][] = ["Salary", "Miscellaneous"];
 
@@ -55,7 +45,7 @@ export default function ExpensesPage() {
 
   const { toast } = useToast();
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
-  const [availableParties] = useState<Party[]>(mockParties); 
+  const [availableParties, setAvailableParties] = useState<Party[]>([]); // Initialize as empty
 
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [category, setCategory] = useState<ExpenseEntry['category']>("Miscellaneous");
@@ -64,14 +54,11 @@ export default function ExpensesPage() {
   const [amount, setAmount] = useState("");
 
   useEffect(() => {
-    setDate(new Date());
-    const processedExpenses = rawInitialExpenses.map(e => {
-      const entryDate = new Date();
-      entryDate.setDate(entryDate.getDate() + e.dateOffset);
-      return { ...e, id: e.tempId, date: entryDate };
-    }).sort((a,b) => b.date.getTime() - a.date.getTime());
-    setExpenses(processedExpenses);
-  }, []);
+    if (date === undefined) { // Set date only if it's not already set
+        setDate(new Date());
+    }
+    // No initial expenses to process
+  }, [date]); // Dependency on date ensures it's set once if undefined
 
   useEffect(() => {
     if (category !== "Salary") {
@@ -97,7 +84,8 @@ export default function ExpensesPage() {
       if (party) {
         partyDetails = { partyId: party.id, partyName: party.name };
       } else {
-         toast({ title: "Error", description: "Selected party not found.", variant: "destructive" });
+         // This case is less likely now that availableParties starts empty
+         toast({ title: "Error", description: "Selected party not found. Please ensure parties are loaded.", variant: "destructive" });
          return;
       }
     }
@@ -107,7 +95,7 @@ export default function ExpensesPage() {
     }
 
     const newExpense: ExpenseEntry = {
-      id: String(Date.now()),
+      id: String(Date.now()), // Using timestamp as a temporary ID for client-side only
       date,
       category,
       description: description.trim(),
@@ -116,7 +104,7 @@ export default function ExpensesPage() {
     };
     setExpenses(prevExpenses => [newExpense, ...prevExpenses].sort((a,b) => b.date.getTime() - a.date.getTime()));
     
-    toast({ title: "Success", description: "Expense recorded."});
+    toast({ title: "Success", description: "Expense recorded (client-side). Note: This data is not yet saved to the database."});
 
     setDescription("");
     setAmount("");
@@ -126,6 +114,7 @@ export default function ExpensesPage() {
   };
 
   const partiesForSalary = useMemo(() => {
+    // This will be empty until availableParties is populated from a data source
     return availableParties.filter(p => p.type === "Employee" || p.type === "Supplier");
   }, [availableParties]);
 
@@ -169,7 +158,7 @@ export default function ExpensesPage() {
                   <Label htmlFor="expenseParty" className="flex items-center mb-1">
                     <Users className="h-4 w-4 mr-2 text-muted-foreground" /> Party (for Salary)
                   </Label>
-                  <Select value={selectedPartyId} onValueChange={setSelectedPartyId}>
+                  <Select value={selectedPartyId} onValueChange={setSelectedPartyId} disabled={partiesForSalary.length === 0}>
                     <SelectTrigger id="expenseParty">
                       <SelectValue placeholder="Select party" />
                     </SelectTrigger>
@@ -178,7 +167,7 @@ export default function ExpensesPage() {
                         <SelectItem key={party.id} value={party.id}>{party.name} ({party.type})</SelectItem>
                       ))}
                       {partiesForSalary.length === 0 && (
-                        <SelectItem value="no-parties" disabled>No eligible parties found</SelectItem>
+                        <SelectItem value="no-parties" disabled>No eligible parties found. Add parties on the Parties page.</SelectItem>
                       )}
                     </SelectContent>
                   </Select>
@@ -221,7 +210,7 @@ export default function ExpensesPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Expense History</CardTitle>
-            <CardDescription>List of all recorded expenses.</CardDescription>
+            <CardDescription>List of all recorded expenses. (Note: Currently client-side only)</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
