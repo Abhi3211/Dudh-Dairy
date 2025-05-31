@@ -124,7 +124,7 @@ export default function SalesPage() {
     try {
       const [parties, productNames, purchaseEntriesData] = await Promise.all([
         getPartiesFromFirestore(),
-        getUniquePurchasedProductNames(),
+        getUniquePurchasedProductNames(), // Fetches all unique product names initially
         getPurchaseEntriesFromFirestore()
       ]);
       setAvailableParties(parties);
@@ -205,17 +205,19 @@ export default function SalesPage() {
 
   useEffect(() => {
     if (currentCategoryName === "Pashu Aahar") {
-      // Don't modify the input or popover here.
-      // The user controls it now.
+      setSpecificProductName(""); // Clear when switching to Pashu Aahar
+      setRate(""); // Clear rate as well, will be set on product selection
+      // Do not open popover here, user will trigger it by focus/typing
     } else {
       setSpecificProductName(currentCategoryName === "Other" ? "" : (currentCategoryName || ""));
       setIsProductPopoverOpen(false);
     }
   
-    // Auto-set rate for predefined categories
+    // Auto-set rate for predefined categories EXCEPT Pashu Aahar (rate set on product select)
     if (currentCategoryName === "Milk") setRate("60");
     else if (currentCategoryName === "Ghee") setRate("700");
     else if (currentCategoryName !== "Pashu Aahar") setRate("");
+  
   }, [currentCategoryName]);
 
 
@@ -653,7 +655,11 @@ export default function SalesPage() {
                               setIsProductPopoverOpen(true);
                             }
                           }}
-                          placeholder={currentCategoryName === "Pashu Aahar" ? "Type or select Pashu Aahar" : "Enter product name"}
+                          placeholder={
+                            currentCategoryName === "Pashu Aahar" 
+                              ? "Type or select Pashu Aahar" 
+                              : "Enter product name"
+                          }
                           required = {currentCategoryName === "Pashu Aahar" || currentCategoryName === "Other"}
                           autoComplete="off"
                           className="w-full text-left"
