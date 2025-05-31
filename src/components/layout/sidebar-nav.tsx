@@ -12,7 +12,8 @@ import {
   IndianRupee,
   BarChart3, 
   Receipt,   
-  Truck, // Added for Bulk Sales
+  Truck, 
+  Building, // Using Building for general purchases
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,8 +40,8 @@ const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/milk-collection", label: "Milk Collection", icon: Milk },
   { href: "/sales", label: "Sales Entry", icon: ShoppingCart },
-  { href: "/bulk-sales", label: "Bulk Sales", icon: Truck }, // New Bulk Sales Link
-  { href: "/pashu-aahar", label: "Pashu Aahar", icon: Package },
+  { href: "/bulk-sales", label: "Bulk Sales", icon: Truck },
+  { href: "/purchases", label: "Purchases", icon: Building }, // Changed from Pashu Aahar
   { href: "/parties", label: "Parties", icon: Users },
   { href: "/payments", label: "Payments", icon: IndianRupee },
   { href: "/expenses", label: "Expenses", icon: Receipt },
@@ -63,7 +64,8 @@ export function SidebarNav() {
       if (a.href === "/profit-loss") return 1;
       if (b.href === "/profit-loss") return -1;
     }
-    return 0;
+    // Basic alphabetical sort for other items
+    return a.label.localeCompare(b.label);
   });
 
   return (
@@ -99,3 +101,4 @@ export function SidebarNav() {
     </nav>
   );
 }
+

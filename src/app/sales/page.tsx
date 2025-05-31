@@ -27,12 +27,12 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays, MoreHorizontal, Edit, Trash2, Filter, Download } from "lucide-react";
-import type { SaleEntry, Party, PashuAaharTransaction } from "@/lib/types";
+import type { SaleEntry, Party, PurchaseEntry } from "@/lib/types"; // Changed PashuAaharTransaction to PurchaseEntry
 import { format, startOfMonth } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { addSaleEntryToFirestore, getSaleEntriesFromFirestore, updateSaleEntryInFirestore, deleteSaleEntryFromFirestore } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
-import { getPashuAaharTransactionsFromFirestore, getUniquePashuAaharProductNamesFromFirestore } from "../pashu-aahar/actions";
+import { getPurchaseEntriesFromFirestore, getUniquePurchasedProductNames } from "../purchases/actions"; // Updated import path and function names
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
@@ -53,10 +53,11 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-const productCategories: { categoryName: "Milk" | "Ghee" | "Pashu Aahar"; unit: SaleEntry['unit'] }[] = [
+const productCategories: { categoryName: string; unit: SaleEntry['unit'] }[] = [ // string for categoryName
   { categoryName: "Milk", unit: "Ltr" },
   { categoryName: "Ghee", unit: "Kg" },
   { categoryName: "Pashu Aahar", unit: "Bags" },
+  { categoryName: "Other", unit: "Pcs" }, // Added Other category
 ];
 
 export default function SalesPage() {
@@ -75,7 +76,7 @@ export default function SalesPage() {
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [customerName, setCustomerName] = useState("");
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<string>("0");
-  const [specificPashuAaharName, setSpecificPashuAaharName] = useState<string>("");
+  const [specificProductName, setSpecificProductName] = useState<string>(""); // Renamed for clarity
   const [quantity, setQuantity] = useState<string>("");
   const [rate, setRate] = useState<string>("");
   const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit");
@@ -86,13 +87,12 @@ export default function SalesPage() {
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingPrerequisites, setIsLoadingPrerequisites] = useState(true);
 
-  const [isPashuAaharPopoverOpen, setIsPashuAaharPopoverOpen] = useState(false);
-  const pashuAaharInputRef = useRef<HTMLInputElement>(null);
-  const [availablePashuAaharProducts, setAvailablePashuAaharProducts] = useState<string[]>([]);
+  const [isProductPopoverOpen, setIsProductPopoverOpen] = useState(false); // Renamed
+  const productNameInputRef = useRef<HTMLInputElement>(null); // Renamed
+  const [availableProductSuggestions, setAvailableProductSuggestions] = useState<string[]>([]); // Renamed
 
-  const [allPashuAaharPurchases, setAllPashuAaharPurchases] = useState<PashuAaharTransaction[]>([]);
-  const [allSalesEntriesForStockCalc, setAllSalesEntriesForStockCalc] = useState<SaleEntry[]>([]);
-  const [pashuAaharStock, setPashuAaharStock] = useState<Record<string, number>>({});
+  const [allPurchaseEntriesForStock, setAllPurchaseEntriesForStock] = useState<PurchaseEntry[]>([]); // Renamed
+  const [productStock, setProductStock] = useState<Record<string, { quantity: number, unit: string }>>({}); // More generic stock
 
 
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -122,16 +122,14 @@ export default function SalesPage() {
   const fetchPagePrerequisites = useCallback(async () => {
     setIsLoadingPrerequisites(true);
     try {
-      const [parties, pashuAaharNames, pashuAaharPurchasesData, allSalesData] = await Promise.all([
+      const [parties, productNames, purchaseEntriesData] = await Promise.all([ // Using PurchaseEntry now
         getPartiesFromFirestore(),
-        getUniquePashuAaharProductNamesFromFirestore(),
-        getPashuAaharTransactionsFromFirestore(),
-        getSaleEntriesFromFirestore()
+        getUniquePurchasedProductNames(), // Generic fetch
+        getPurchaseEntriesFromFirestore()
       ]);
       setAvailableParties(parties);
-      setAvailablePashuAaharProducts(pashuAaharNames.sort((a, b) => a.localeCompare(b)));
-      setAllPashuAaharPurchases(pashuAaharPurchasesData);
-      setAllSalesEntriesForStockCalc(allSalesData);
+      setAvailableProductSuggestions(productNames.sort((a, b) => a.localeCompare(b)));
+      setAllPurchaseEntriesForStock(purchaseEntriesData);
 
     } catch (error) {
       console.error("CLIENT: Failed to fetch page prerequisites:", error);
@@ -157,44 +155,42 @@ export default function SalesPage() {
   }, [fetchSalesHistory, fetchPagePrerequisites, date, editingEntryId, tableFilterStartDate, tableFilterEndDate]);
 
   useEffect(() => {
-    const stock: Record<string, number> = {};
-    const stockEvents: { productName: string; date: Date; quantityChange: number; type: 'purchase' | 'sale' }[] = [];
-
-    allPashuAaharPurchases.forEach(tx => {
-        if (tx.type === "Purchase") {
-            stockEvents.push({
-                productName: tx.productName.trim(),
-                date: tx.date instanceof Date ? tx.date : new Date(tx.date),
-                quantityChange: tx.quantityBags,
-                type: 'purchase'
-            });
-        }
+    const stock: Record<string, { quantity: number, unit: string }> = {};
+    const stockEvents: { productName: string; unit: string; date: Date; quantityChange: number; }[] = [];
+  
+    allPurchaseEntriesForStock.forEach(tx => {
+      stockEvents.push({
+        productName: tx.productName.trim(),
+        unit: tx.unit,
+        date: tx.date instanceof Date ? tx.date : new Date(tx.date),
+        quantityChange: tx.quantity,
+      });
     });
-
-    allSalesEntriesForStockCalc.forEach(sale => {
-        if (sale.unit === "Bags" && availablePashuAaharProducts.includes(sale.productName)) {
-            stockEvents.push({
-                productName: sale.productName.trim(),
-                date: sale.date instanceof Date ? sale.date : new Date(sale.date),
-                quantityChange: -sale.quantity,
-                type: 'sale'
-            });
-        }
+  
+    sales.forEach(sale => { // Use current sales from state for accurate real-time stock during session
+      stockEvents.push({
+        productName: sale.productName.trim(),
+        unit: sale.unit,
+        date: sale.date instanceof Date ? sale.date : new Date(sale.date),
+        quantityChange: -sale.quantity,
+      });
     });
     
     stockEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
-
+  
     stockEvents.forEach(event => {
-      const pName = event.productName;
-      stock[pName] = (stock[pName] || 0) + event.quantityChange;
+      const key = `${event.productName}#${event.unit}`;
+      const current = stock[key] || { quantity: 0, unit: event.unit };
+      current.quantity += event.quantityChange;
+      stock[key] = current;
     });
-    setPashuAaharStock(stock);
-  }, [allPashuAaharPurchases, allSalesEntriesForStockCalc, availablePashuAaharProducts]);
+    setProductStock(stock);
+  }, [allPurchaseEntriesForStock, sales]);
 
 
   const partiesForSuggestions = useMemo(() => {
     return availableParties
-      .filter(p => p.type === "Customer" || p.type === "Customer") 
+      .filter(p => p.type === "Customer") // Only customers for sales
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [availableParties]);
 
@@ -208,35 +204,49 @@ export default function SalesPage() {
   const currentCategoryName = currentCategoryDetails?.categoryName;
 
   useEffect(() => {
-    if (currentCategoryName !== "Pashu Aahar") {
-      setSpecificPashuAaharName("");
-      setIsPashuAaharPopoverOpen(false);
+    // If category is not one that requires specific product name (e.g. Pashu Aahar), 
+    // set specificProductName to the category name itself, unless it's "Other".
+    if (currentCategoryName && currentCategoryName !== "Pashu Aahar" && currentCategoryName !== "Other") {
+      setSpecificProductName(currentCategoryName);
+      setIsProductPopoverOpen(false);
+    } else if (currentCategoryName !== "Pashu Aahar") { // Clear for "Other" or if "Pashu Aahar" is not selected
+        setSpecificProductName("");
+        setIsProductPopoverOpen(false);
     }
+    // Auto-set rate for Milk and Ghee if available (example, can be more sophisticated)
+    if (currentCategoryName === "Milk") setRate("60"); // Example default rate
+    else if (currentCategoryName === "Ghee") setRate("700"); // Example default rate
+    else if (currentCategoryName !== "Pashu Aahar") setRate(""); // Clear rate for others
+
   }, [currentCategoryName]);
 
 
-  const handleSpecificPashuAaharNameChange = useCallback((value: string) => {
-    setSpecificPashuAaharName(value);
-    if (value.trim() && availablePashuAaharProducts.length > 0) {
-        setIsPashuAaharPopoverOpen(true);
+  const handleSpecificProductNameChange = useCallback((value: string) => {
+    setSpecificProductName(value);
+    if (currentCategoryName === "Pashu Aahar" && value.trim() && availableProductSuggestions.length > 0) {
+        setIsProductPopoverOpen(true);
     } else {
-        setIsPashuAaharPopoverOpen(false);
+        setIsProductPopoverOpen(false);
     }
-  }, [availablePashuAaharProducts]);
+  }, [availableProductSuggestions, currentCategoryName]);
 
-  const handlePashuAaharSelect = useCallback((currentValue: string) => {
-    setSpecificPashuAaharName(currentValue);
-    setIsPashuAaharPopoverOpen(false);
-    pashuAaharInputRef.current?.focus();
+  const handleProductSelect = useCallback((currentValue: string) => {
+    setSpecificProductName(currentValue);
+    setIsProductPopoverOpen(false);
+    productNameInputRef.current?.focus();
 
-    const latestPurchase = allPashuAaharPurchases
-      .filter(tx => tx.productName === currentValue && tx.type === 'Purchase' && tx.salePricePerBag && tx.salePricePerBag > 0)
-      .sort((a,b) => (b.date instanceof Date ? b.date.getTime() : new Date(b.date).getTime()) - (a.date instanceof Date ? a.date.getTime() : new Date(a.date).getTime()))[0];
+    if (currentCategoryName === "Pashu Aahar") {
+        const latestPurchase = allPurchaseEntriesForStock
+        .filter(tx => tx.productName === currentValue && tx.category === "Pashu Aahar" && tx.defaultSalePricePerUnit && tx.defaultSalePricePerUnit > 0)
+        .sort((a,b) => (b.date instanceof Date ? b.date.getTime() : new Date(b.date).getTime()) - (a.date instanceof Date ? a.date.getTime() : new Date(a.date).getTime()))[0];
 
-    if (latestPurchase) {
-      setRate(String(latestPurchase.salePricePerBag));
+        if (latestPurchase) {
+            setRate(String(latestPurchase.defaultSalePricePerUnit));
+        } else {
+            setRate(""); // Clear rate if no default sale price found
+        }
     }
-  }, [allPashuAaharPurchases]);
+  }, [allPurchaseEntriesForStock, currentCategoryName]);
 
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
@@ -289,14 +299,14 @@ export default function SalesPage() {
   const resetFormFields = useCallback(() => {
     if (!editingEntryId) setDate(new Date());
     setCustomerName("");
-    setSelectedCategoryIndex("0");
-    setSpecificPashuAaharName("");
+    setSelectedCategoryIndex("0"); // Reset to first category (Milk)
+    setSpecificProductName("");    // This will be auto-set by useEffect for Milk
     setQuantity("");
-    setRate("");
+    setRate(""); // Will be auto-set for Milk/Ghee by useEffect
     setPaymentType("Credit");
     setEditingEntryId(null);
     setIsCustomerPopoverOpen(false);
-    setIsPashuAaharPopoverOpen(false);
+    setIsProductPopoverOpen(false);
   }, [editingEntryId]);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -306,21 +316,26 @@ export default function SalesPage() {
       return;
     }
 
-    let finalProductName = "";
     if (!currentCategoryDetails) {
       toast({ title: "Error", description: "Please select a product category.", variant: "destructive" });
       return;
     }
+    
+    let finalProductName = specificProductName.trim();
+    if (!finalProductName) { // If specificProductName is empty (e.g. for Milk, Ghee, Other)
+        finalProductName = currentCategoryDetails.categoryName;
+    }
 
-    if (currentCategoryDetails.categoryName === "Pashu Aahar") {
-      if (!specificPashuAaharName.trim()) {
+
+    if (currentCategoryDetails.categoryName === "Pashu Aahar" && !specificProductName.trim()) {
         toast({ title: "Error", description: "Please enter or select the specific Pashu Aahar product name.", variant: "destructive" });
         return;
-      }
-      finalProductName = specificPashuAaharName.trim();
-    } else {
-      finalProductName = currentCategoryDetails.categoryName;
     }
+    if (currentCategoryDetails.categoryName === "Other" && !specificProductName.trim()) {
+        toast({ title: "Error", description: "Please enter product name for 'Other' category.", variant: "destructive" });
+        return;
+    }
+
 
     const parsedQuantity = parseFloat(quantity);
     const parsedRate = parseFloat(rate);
@@ -375,26 +390,24 @@ export default function SalesPage() {
     setCustomerName(entry.customerName);
 
     const categoryIndex = productCategories.findIndex(
-      (cat) => cat.categoryName === entry.productName || (cat.categoryName === "Pashu Aahar" && cat.unit === entry.unit)
+      (cat) => cat.categoryName === entry.productName || (cat.categoryName === "Pashu Aahar" && entry.unit === "Bags") || (cat.categoryName === "Other" && entry.unit === "Pcs")
     );
-
+    
     if (categoryIndex !== -1) {
-      setSelectedCategoryIndex(String(categoryIndex));
-      if (productCategories[categoryIndex].categoryName === "Pashu Aahar") {
-        setSpecificPashuAaharName(entry.productName);
-      } else {
-        setSpecificPashuAaharName("");
-      }
+        setSelectedCategoryIndex(String(categoryIndex));
+        const catDetails = productCategories[categoryIndex];
+        if (catDetails.categoryName === "Pashu Aahar" || catDetails.categoryName === "Other") {
+            setSpecificProductName(entry.productName);
+        } else {
+            setSpecificProductName(catDetails.categoryName); // For Milk, Ghee
+        }
     } else {
-      const pashuAaharCatIndex = productCategories.findIndex(cat => cat.categoryName === "Pashu Aahar");
-      if (pashuAaharCatIndex !== -1 && entry.unit === "Bags") { 
-        setSelectedCategoryIndex(String(pashuAaharCatIndex));
-        setSpecificPashuAaharName(entry.productName);
-      } else {
-        setSelectedCategoryIndex("0"); 
-        setSpecificPashuAaharName("");
-      }
+        // Fallback if product name doesn't match a predefined category directly (e.g. old data or truly "Other")
+        const otherCategoryIndex = productCategories.findIndex(cat => cat.categoryName === "Other");
+        setSelectedCategoryIndex(String(otherCategoryIndex !== -1 ? otherCategoryIndex : 0));
+        setSpecificProductName(entry.productName);
     }
+
 
     setQuantity(String(entry.quantity));
     setRate(String(entry.rate));
@@ -511,6 +524,12 @@ export default function SalesPage() {
     }
     return desc;
   }, [tableFilterStartDate, tableFilterEndDate]);
+  
+  const currentPashuAaharStock = useMemo(() => {
+    const stockKey = `${specificProductName}#Bags`;
+    return productStock[stockKey]?.quantity ?? 0;
+  }, [specificProductName, productStock]);
+
 
   return (
     <TooltipProvider>
@@ -618,78 +637,83 @@ export default function SalesPage() {
                   </Select>
                 </div>
 
-                {currentCategoryName === "Pashu Aahar" && (
-                  <div key="pashu-aahar-specific-name-section">
-                    <Label htmlFor="specificPashuAaharName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />Specific Pashu Aahar Name</Label>
-                    <Popover open={isPashuAaharPopoverOpen} onOpenChange={setIsPashuAaharPopoverOpen}>
+                { (currentCategoryName === "Pashu Aahar" || currentCategoryName === "Other") && (
+                  <div key="specific-product-name-section">
+                    <Label htmlFor="specificProductName" className="flex items-center mb-1"><Tag className="h-4 w-4 mr-2 text-muted-foreground" />
+                      {currentCategoryName === "Pashu Aahar" ? "Specific Pashu Aahar Name" : "Product Name"}
+                    </Label>
+                    <Popover open={isProductPopoverOpen} onOpenChange={setIsProductPopoverOpen}>
                       <PopoverTrigger asChild>
                         <Input
-                          id="specificPashuAaharName"
-                          ref={pashuAaharInputRef}
-                          value={specificPashuAaharName}
-                          onChange={(e) => handleSpecificPashuAaharNameChange(e.target.value)}
+                          id="specificProductName"
+                          ref={productNameInputRef}
+                          value={specificProductName}
+                          onChange={(e) => handleSpecificProductNameChange(e.target.value)}
                           onFocus={() => {
-                            if (specificPashuAaharName.trim() || availablePashuAaharProducts.length > 0) {
-                              setIsPashuAaharPopoverOpen(true);
+                            if (currentCategoryName === "Pashu Aahar" && (specificProductName.trim() || availableProductSuggestions.length > 0)) {
+                              setIsProductPopoverOpen(true);
                             }
                           }}
-                          placeholder="Type or select Pashu Aahar"
-                          required
+                          placeholder={currentCategoryName === "Pashu Aahar" ? "Type or select Pashu Aahar" : "Enter product name"}
+                          required = {currentCategoryName === "Pashu Aahar" || currentCategoryName === "Other"}
                           autoComplete="off"
                           className="w-full"
                         />
                       </PopoverTrigger>
-                      <PopoverContent
-                        className="w-[--radix-popover-trigger-width] p-0"
-                        onOpenAutoFocus={(e) => e.preventDefault()}
-                        side="bottom"
-                        align="start"
-                        sideOffset={0}
-                      >
-                        <Command>
-                          <CommandInput
-                            placeholder="Search Pashu Aahar..."
-                            value={specificPashuAaharName}
-                            onValueChange={handleSpecificPashuAaharNameChange}
-                          />
-                          <CommandList>
-                            {isLoadingPrerequisites && availablePashuAaharProducts.length === 0 ? (
-                              <CommandItem disabled>Loading products...</CommandItem>
-                            ) : (
-                              <>
-                                <CommandGroup>
-                                  {availablePashuAaharProducts
-                                    .filter(name => name.toLowerCase().includes(specificPashuAaharName.toLowerCase()))
-                                    .map(productName => (
-                                      <CommandItem
-                                        key={productName}
-                                        value={productName}
-                                        onSelect={() => handlePashuAaharSelect(productName)}
-                                      >
-                                        {productName}
-                                        {pashuAaharStock[productName] !== undefined && (
-                                          <span className="ml-auto text-xs text-muted-foreground">
-                                            (Stock: {pashuAaharStock[productName] ?? 0} Bags)
-                                          </span>
-                                        )}
-                                      </CommandItem>
-                                    ))}
-                                  <CommandEmpty>
-                                    {availablePashuAaharProducts.length === 0 && !specificPashuAaharName.trim() ? "No products recorded." : "No products match search."}
-                                  </CommandEmpty>
-                                </CommandGroup>
-                              </>
-                            )}
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
+                      {currentCategoryName === "Pashu Aahar" && (
+                        <PopoverContent
+                            className="w-[--radix-popover-trigger-width] p-0"
+                            onOpenAutoFocus={(e) => e.preventDefault()}
+                            side="bottom"
+                            align="start"
+                            sideOffset={0}
+                        >
+                            <Command>
+                            <CommandInput
+                                placeholder="Search Pashu Aahar..."
+                                value={specificProductName}
+                                onValueChange={handleSpecificProductNameChange}
+                            />
+                            <CommandList>
+                                {isLoadingPrerequisites && availableProductSuggestions.length === 0 ? (
+                                <CommandItem disabled>Loading products...</CommandItem>
+                                ) : (
+                                <>
+                                    <CommandGroup>
+                                    {availableProductSuggestions
+                                        .filter(name => name.toLowerCase().includes(specificProductName.toLowerCase()))
+                                        .map(productNameItem => (
+                                        <CommandItem
+                                            key={productNameItem}
+                                            value={productNameItem}
+                                            onSelect={() => handleProductSelect(productNameItem)}
+                                        >
+                                            {productNameItem}
+                                            {productStock[`${productNameItem}#Bags`] !== undefined && (
+                                            <span className="ml-auto text-xs text-muted-foreground">
+                                                (Stock: {productStock[`${productNameItem}#Bags`]?.quantity ?? 0} Bags)
+                                            </span>
+                                            )}
+                                        </CommandItem>
+                                        ))}
+                                    <CommandEmpty>
+                                        {availableProductSuggestions.length === 0 && !specificProductName.trim() ? "No products recorded." : "No products match search."}
+                                    </CommandEmpty>
+                                    </CommandGroup>
+                                </>
+                                )}
+                            </CommandList>
+                            </Command>
+                        </PopoverContent>
+                      )}
                     </Popover>
                   </div>
                 )}
 
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="quantity">Quantity</Label>
+                    <Label htmlFor="quantity">Quantity ({currentCategoryDetails?.unit || 'Units'})</Label>
                     <Input id="quantity" type="text" inputMode="decimal" step={currentCategoryDetails?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
                   </div>
                   <div>
@@ -795,7 +819,7 @@ export default function SalesPage() {
                           <TableCell>{sale.date instanceof Date && !isNaN(sale.date.getTime()) ? format(sale.date, 'P') : 'Invalid Date'}</TableCell>
                           <TableCell>{sale.customerName}</TableCell>
                           <TableCell>{sale.productName}</TableCell>
-                          <TableCell className="text-right">{sale.quantity} {sale.unit}</TableCell>
+                          <TableCell className="text-right">{sale.quantity.toFixed(sale.unit === "Ltr" || sale.unit === "Kg" ? 1:0)} {sale.unit}</TableCell>
                           <TableCell className="text-right">{sale.rate.toFixed(2)}</TableCell>
                           <TableCell className="text-right">{sale.totalAmount.toFixed(2)}</TableCell>
                           <TableCell>{sale.paymentType}</TableCell>

@@ -19,7 +19,7 @@ export interface SaleEntry {
   customerName: string;
   productName: string;
   quantity: number;
-  unit: "Ltr" | "Kg" | "Bags";
+  unit: "Ltr" | "Kg" | "Bags" | "Pcs"; // Added Pcs
   rate: number;
   totalAmount: number;
   paymentType: "Cash" | "Credit";
@@ -38,16 +38,17 @@ export interface BulkSaleEntry {
   remarks?: string;
 }
 
-export interface PashuAaharTransaction {
+export interface PurchaseEntry {
   id: string;
   date: Date;
-  type: "Purchase" | "Sale"; // "Sale" might be implicit if sold via SalesEntry
+  category: string; // e.g., "Pashu Aahar", "Ghee", "Diesel", "Office Supplies"
   productName: string;
-  supplierOrCustomerName?: string; // Supplier if type is "Purchase"
-  quantityBags: number;
-  pricePerBag?: number; // Cost price
-  salePricePerBag?: number; // Optional sale price set at time of purchase
-  totalAmount: number; // For purchases: quantityBags * pricePerBag
+  supplierName?: string;
+  quantity: number;
+  unit: string; // e.g., "Bags", "Kg", "Ltr", "Pcs"
+  pricePerUnit?: number; // Cost price per unit
+  defaultSalePricePerUnit?: number; // Optional sale price set at time of purchase
+  totalAmount: number; // For purchases: quantity * pricePerUnit
   paymentType: "Cash" | "Credit";
 }
 
@@ -96,8 +97,8 @@ export interface DailySummary {
   milkPurchasedAmount: number;
   milkSoldLitres: number; // Retail milk sold
   milkSoldAmount: number; // Retail milk sold value
-  bulkMilkSoldLitres: number; // New
-  bulkMilkSoldAmount: number; // New
+  bulkMilkSoldLitres: number; 
+  bulkMilkSoldAmount: number; 
   gheeSalesAmount: number;
   pashuAaharSalesAmount: number;
   totalCashIn: number;
@@ -138,3 +139,4 @@ export interface FullProfitLossData {
   summary: ProfitLossSummaryData;
   chartSeries: PlChartDataPoint[];
 }
+
