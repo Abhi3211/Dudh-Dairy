@@ -116,11 +116,7 @@ export interface ExpenseEntry {
   partyName?: string;
 }
 
-// Dashboard and P&L types might also need companyId if we store historical summaries per company
-// For now, focusing on transactional data.
-
 export interface DailySummary {
-  // companyId?: string; // Consider if summaries are stored per company
   milkPurchasedLitres: number;
   milkPurchasedAmount: number;
   milkSoldLitres: number;
@@ -145,23 +141,35 @@ export interface DashboardData {
   chartSeries: ChartDataPoint[];
 }
 
-
 export interface ProfitLossSummaryData {
-  // companyId?: string; // Consider if P&L summaries are stored per company
   totalRevenue: number;
-  milkSales: number;
+  milkSalesRetail: number;
+  milkSalesBulk: number;
   gheeSales: number;
   pashuAaharSales: number;
-  costOfGoodsSold: number;
-  grossProfit: number;
-  operatingExpenses: number;
-  netProfitLoss: number;
+  
+  purchasesMilkCollectionValue: number;
+  purchasesGheeValue: number;
+  purchasesPashuAaharValue: number;
+  totalPurchasesValue: number;
+
+  closingStockValueMilk: number;
+  closingStockValueGhee: number;
+  closingStockValuePashuAahar: number;
+  totalClosingStockValue: number;
+  
+  costOfGoodsSold: number; // totalPurchasesValue - totalClosingStockValue
+  grossProfit: number;     // totalRevenue - costOfGoodsSold
+  operatingExpenses: number; // Still 0 for now
+  netProfitLoss: number;     // grossProfit - operatingExpenses
   periodDays: number;
 }
 
 export interface PlChartDataPoint {
-  date: string;
-  netProfit: number;
+  date: string; // e.g., "MMM dd"
+  netProfit: number; // Daily net profit
+  revenue?: number; // Optional: for more detailed chart tooltips
+  cogs?: number;    // Optional: for more detailed chart tooltips
 }
 
 export interface FullProfitLossData {

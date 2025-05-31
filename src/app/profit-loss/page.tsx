@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { AlertTriangle, IndianRupee } from "lucide-react"; // Removed CalendarIcon as it's implicitly handled by DatePicker
+import { AlertTriangle, IndianRupee } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -12,16 +12,16 @@ import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } fro
 import { Skeleton } from "@/components/ui/skeleton";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
-import type { FullProfitLossData, PlChartDataPoint, ProfitLossSummaryData } from "@/lib/types"; // Ensure ProfitLossSummaryData is imported
+import type { FullProfitLossData, PlChartDataPoint, ProfitLossSummaryData } from "@/lib/types";
 import { getProfitLossDataFromFirestore } from "./actions";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-// IMPORTANT: This should ideally come from an auth context after login
 const userRole: "admin" | "accountant" | "member" = "admin";
-
 
 const chartConfig = {
   netProfit: { label: "Net Profit/Loss", color: "hsl(var(--chart-1))" }, 
+  revenue: { label: "Revenue", color: "hsl(var(--chart-3))" },
+  cogs: { label: "COGS", color: "hsl(var(--chart-4))" },
 } satisfies ChartConfig;
 
 
@@ -93,7 +93,7 @@ export default function ProfitLossPage() {
     const formattedStartDate = format(startDate, "MMM dd, yyyy");
     const formattedEndDate = format(endDate, "MMM dd, yyyy");
     let periodPrefix = "";
-     if (filterType === 'daily' && format(startDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')) {
+     if (filterType === 'daily' && format(startDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') ) {
       periodPrefix = "today's";
     } else if (filterType === 'daily' && formattedStartDate === formattedEndDate) {
        periodPrefix = `for ${formattedStartDate}`;
@@ -128,8 +128,10 @@ export default function ProfitLossPage() {
     if (!summary) return true;
     return (
       summary.totalRevenue === 0 &&
+      summary.totalPurchasesValue === 0 &&
+      summary.totalClosingStockValue === 0 && // Check if closing stock is also zero
       summary.costOfGoodsSold === 0 &&
-      summary.operatingExpenses === 0 && // Though this is always 0 for now
+      summary.operatingExpenses === 0 && 
       summary.netProfitLoss === 0
     );
   };
@@ -231,20 +233,41 @@ export default function ProfitLossPage() {
                   </div>
                 </div>
               </div>
+
               <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Cost of Goods Sold (COGS)</h3>
-                 <p className="text-xs text-muted-foreground pl-4 mb-1">(Simplified COGS based on collections & purchases in period)</p>
+                <h3 className="text-lg font-semibold text-foreground mb-2 mt-4">Cost of Goods Sold (COGS)</h3>
                 <div className="space-y-1 pl-4">
-                  <div className="flex justify-between"><span>Milk COGS:</span> <span className="font-medium">₹{plData.summary.cogsMilk.toFixed(2)}</span></div>
-                  <div className="flex justify-between"><span>Ghee COGS:</span> <span className="font-medium">₹{plData.summary.cogsGhee.toFixed(2)}</span></div>
-                  <div className="flex justify-between"><span>Pashu Aahar COGS:</span> <span className="font-medium">₹{plData.summary.cogsPashuAahar.toFixed(2)}</span></div>
-                  <div className="flex justify-between border-t pt-1 mt-1">
-                    <span className="font-semibold">Total COGS:</span>
-                    <span className="font-bold text-chart-4">₹{plData.summary.costOfGoodsSold.toFixed(2)}</span>
-                  </div>
+                    <h4 className="text-md font-medium text-muted-foreground mt-2 mb-1">Purchases (During Period):</h4>
+                    <div className="space-y-1 pl-4">
+                        <div className="flex justify-between"><span>Milk Collections:</span> <span className="font-medium">₹{plData.summary.purchasesMilkCollectionValue.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Ghee Purchases:</span> <span className="font-medium">₹{plData.summary.purchasesGheeValue.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Pashu Aahar Purchases:</span> <span className="font-medium">₹{plData.summary.purchasesPashuAaharValue.toFixed(2)}</span></div>
+                        <div className="flex justify-between border-t pt-1 mt-1">
+                            <span className="font-semibold">Total Purchases:</span>
+                            <span className="font-bold">₹{plData.summary.totalPurchasesValue.toFixed(2)}</span>
+                        </div>
+                    </div>
+
+                    <h4 className="text-md font-medium text-muted-foreground mt-3 mb-1">Less: Estimated Value of Closing Stock:</h4>
+                     <p className="text-xs text-muted-foreground pl-4 mb-1">(Based on average cost of items purchased and remaining in stock for the period)</p>
+                    <div className="space-y-1 pl-4">
+                        <div className="flex justify-between"><span>Closing Stock - Milk:</span> <span className="font-medium">₹{plData.summary.closingStockValueMilk.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Closing Stock - Ghee:</span> <span className="font-medium">₹{plData.summary.closingStockValueGhee.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Closing Stock - Pashu Aahar:</span> <span className="font-medium">₹{plData.summary.closingStockValuePashuAahar.toFixed(2)}</span></div>
+                        <div className="flex justify-between border-t pt-1 mt-1">
+                            <span className="font-semibold">Total Closing Stock Value:</span>
+                            <span className="font-bold text-chart-2">₹{plData.summary.totalClosingStockValue.toFixed(2)}</span>
+                        </div>
+                    </div>
+                    
+                    <div className="flex justify-between border-t pt-2 mt-3">
+                        <span className="font-semibold">Total Cost of Goods Sold:</span>
+                        <span className="font-bold text-chart-4">₹{plData.summary.costOfGoodsSold.toFixed(2)}</span>
+                    </div>
                 </div>
               </div>
-              <div className="border-t pt-4">
+
+              <div className="border-t pt-4 mt-4">
                 <div className="flex justify-between text-lg">
                   <span className="font-semibold text-foreground">Gross Profit:</span>
                   <span className={`font-bold ${plData.summary.grossProfit >= 0 ? 'text-chart-3' : 'text-chart-4'}`}>
@@ -253,13 +276,13 @@ export default function ProfitLossPage() {
                 </div>
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Operating Expenses</h3>
+                <h3 className="text-lg font-semibold text-foreground mb-2 mt-4">Operating Expenses</h3>
                 <div className="space-y-1 pl-4">
                   <div className="flex justify-between"><span>Total Operating Expenses:</span> <span className="font-medium">₹{plData.summary.operatingExpenses.toFixed(2)}</span></div>
                   <p className="text-xs text-muted-foreground pt-1">(Note: Detailed operating expense tracking from live data is not yet fully implemented. This figure is currently ₹0.00 unless manually set in actions.)</p>
                 </div>
               </div>
-              <div className="border-t pt-4">
+              <div className="border-t pt-4 mt-4">
                 <div className="flex justify-between text-xl">
                   <span className="font-bold text-foreground">Net Profit / (Loss):</span>
                   <span className={`font-extrabold ${plData.summary.netProfitLoss >= 0 ? 'text-chart-3' : 'text-chart-4'}`}>
@@ -280,9 +303,11 @@ export default function ProfitLossPage() {
       {(userRole === "admin" || userRole === "accountant") && (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Net Profit/Loss Trend</CardTitle>
+            <CardTitle>Daily Financial Trend</CardTitle> {/* Updated title */}
             <CardDescription>
-              Daily net profit/loss for the period: {displayedDateRangeString.substring(displayedDateRangeString.indexOf(':') + 1).trim()}
+              Daily Revenue, COGS, and Net Profit/Loss for the period: {displayedDateRangeString.substring(displayedDateRangeString.indexOf(':') + 1).trim()}
+              <br/>
+              <span className="text-xs text-muted-foreground">(Chart's daily Net Profit reflects COGS adjusted for daily stock changes based on average costs, aiming to align with summary.)</span>
             </CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] sm:h-[400px]">
@@ -308,17 +333,23 @@ export default function ProfitLossPage() {
                         indicator="line" 
                         formatter={(value, name, entry) => {
                           const dataPoint = entry.payload as PlChartDataPoint | undefined;
+                          let label = "";
+                          if (name === "netProfit") label = "Net Profit";
+                          else if (name === "revenue") label = "Revenue";
+                          else if (name === "cogs") label = "COGS";
                           return (
                             <div className="flex flex-col">
                               <span className="text-xs text-muted-foreground">{dataPoint?.date}</span>
-                              <span className="font-bold">Net Profit: ₹{Number(value).toFixed(2)}</span>
+                              <span className="font-bold">{label}: ₹{Number(value).toFixed(2)}</span>
                             </div>
                           );
                         }}
                       />} 
                     />
                     <Legend />
-                    <Line type="monotone" dataKey="netProfit" stroke="var(--color-netProfit)" strokeWidth={2} dot={false} name="Net Profit/Loss" />
+                    <Line type="monotone" dataKey="revenue" stroke="var(--color-revenue)" strokeWidth={2} dot={false} name="Revenue" />
+                    <Line type="monotone" dataKey="cogs" stroke="var(--color-cogs)" strokeWidth={2} dot={false} name="COGS" />
+                    <Line type="monotone" dataKey="netProfit" stroke="var(--color-netProfit)" strokeWidth={2.5} dot={false} name="Net Profit/Loss" />
                   </LineChart>
                 </ResponsiveContainer>
               </ChartContainer>
