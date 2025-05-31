@@ -1,6 +1,23 @@
 
+export type UserRole = 'admin' | 'member';
+
+export interface UserProfile {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  companyId: string;
+  role: UserRole;
+}
+
+export interface Company {
+  id: string;
+  name: string;
+  // other company details like subscription status, ownerUid, etc. could go here
+}
+
 export interface MilkCollectionEntry {
   id: string;
+  companyId?: string; // Added for multi-tenancy
   date: Date;
   shift: "Morning" | "Evening";
   customerName: string; // This is the person supplying milk
@@ -15,11 +32,12 @@ export interface MilkCollectionEntry {
 
 export interface SaleEntry {
   id: string;
+  companyId?: string; // Added for multi-tenancy
   date: Date;
   customerName: string;
   productName: string;
   quantity: number;
-  unit: "Ltr" | "Kg" | "Bags" | "Pcs"; // Added Pcs
+  unit: "Ltr" | "Kg" | "Bags" | "Pcs";
   rate: number;
   totalAmount: number;
   paymentType: "Cash" | "Credit";
@@ -27,6 +45,7 @@ export interface SaleEntry {
 
 export interface BulkSaleEntry {
   id: string;
+  companyId?: string; // Added for multi-tenancy
   date: Date;
   shift: "Morning" | "Evening";
   customerName: string; // The bulk buyer
@@ -40,26 +59,29 @@ export interface BulkSaleEntry {
 
 export interface PurchaseEntry {
   id: string;
+  companyId?: string; // Added for multi-tenancy
   date: Date;
-  category: string; // e.g., "Pashu Aahar", "Ghee", "Diesel", "Office Supplies"
+  category: string;
   productName: string;
   supplierName?: string;
   quantity: number;
-  unit: string; // e.g., "Bags", "Kg", "Ltr", "Pcs"
-  pricePerUnit?: number; // Cost price per unit
-  defaultSalePricePerUnit?: number; // Optional sale price set at time of purchase
-  totalAmount: number; // For purchases: quantity * pricePerUnit
+  unit: string;
+  pricePerUnit?: number;
+  defaultSalePricePerUnit?: number;
+  totalAmount: number;
   paymentType: "Cash" | "Credit";
 }
 
 export interface Party {
   id: string;
+  companyId?: string; // Added for multi-tenancy
   name: string;
   type: "Customer" | "Supplier" | "Employee";
 }
 
 export interface PartyLedgerEntry {
   id: string;
+  companyId?: string; // Added for multi-tenancy (though ledger is derived, source transactions will have it)
   date: Date;
   description: string;
   shift?: "Morning" | "Evening";
@@ -73,6 +95,7 @@ export interface PartyLedgerEntry {
 
 export interface PaymentEntry {
   id:string;
+  companyId?: string; // Added for multi-tenancy
   date: Date;
   type: "Received" | "Paid";
   partyName: string;
@@ -84,6 +107,7 @@ export interface PaymentEntry {
 
 export interface ExpenseEntry {
   id: string;
+  companyId?: string; // Added for multi-tenancy
   date: Date;
   category: "Salary" | "Miscellaneous";
   description: string;
@@ -92,13 +116,17 @@ export interface ExpenseEntry {
   partyName?: string;
 }
 
+// Dashboard and P&L types might also need companyId if we store historical summaries per company
+// For now, focusing on transactional data.
+
 export interface DailySummary {
+  // companyId?: string; // Consider if summaries are stored per company
   milkPurchasedLitres: number;
   milkPurchasedAmount: number;
-  milkSoldLitres: number; // Retail milk sold
-  milkSoldAmount: number; // Retail milk sold value
-  bulkMilkSoldLitres: number; 
-  bulkMilkSoldAmount: number; 
+  milkSoldLitres: number;
+  milkSoldAmount: number;
+  bulkMilkSoldLitres: number;
+  bulkMilkSoldAmount: number;
   gheeSalesAmount: number;
   pashuAaharSalesAmount: number;
   totalCashIn: number;
@@ -119,6 +147,7 @@ export interface DashboardData {
 
 
 export interface ProfitLossSummaryData {
+  // companyId?: string; // Consider if P&L summaries are stored per company
   totalRevenue: number;
   milkSales: number;
   gheeSales: number;
@@ -139,4 +168,3 @@ export interface FullProfitLossData {
   summary: ProfitLossSummaryData;
   chartSeries: PlChartDataPoint[];
 }
-
