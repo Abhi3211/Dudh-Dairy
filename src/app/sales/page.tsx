@@ -568,7 +568,7 @@ export default function SalesPage() {
                         placeholder="Start typing customer name"
                         autoComplete="off"
                         required
-                        className="w-full"
+                        className="w-full text-left"
                       />
                     </PopoverTrigger>
                     <PopoverContent
@@ -657,7 +657,7 @@ export default function SalesPage() {
                           placeholder={currentCategoryName === "Pashu Aahar" ? "Type or select Pashu Aahar" : "Enter product name"}
                           required = {currentCategoryName === "Pashu Aahar" || currentCategoryName === "Other"}
                           autoComplete="off"
-                          className="w-full"
+                          className="w-full text-left"
                         />
                       </PopoverTrigger>
                       {currentCategoryName === "Pashu Aahar" && (
@@ -883,3 +883,5 @@ export default function SalesPage() {
   );
 }
 
+
+    

@@ -34,7 +34,8 @@ import {
   getPurchaseEntriesFromFirestore,
   updatePurchaseEntryInFirestore,
   deletePurchaseEntryFromFirestore,
-  getUniquePurchasedProductNames
+  getUniquePurchasedProductNames,
+  getUniqueCategoriesFromFirestore
 } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
 import { getSaleEntriesFromFirestore } from "../sales/actions"; 
@@ -58,14 +59,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { usePageTitle } from '@/context/PageTitleContext';
 
-const purchaseCategories: { name: string; unit: string; specificNames?: boolean }[] = [
-  { name: "Pashu Aahar", unit: "Bags", specificNames: true },
-  { name: "Ghee", unit: "Kg" },
-  { name: "Milk Powder", unit: "Kg" },
-  { name: "Diesel", unit: "Ltr" },
-  { name: "Office Supplies", unit: "Pcs" },
-  { name: "Other", unit: "Pcs" },
-];
 
 export default function PurchasesPage() {
   const { setPageTitle } = usePageTitle();
@@ -82,7 +75,11 @@ export default function PurchasesPage() {
   const [currentStockByProduct, setCurrentStockByProduct] = useState<Record<string, { quantity: number; unit: string }>>({});
 
   const [date, setDate] = useState<Date | undefined>(undefined);
-  const [selectedCategoryName, setSelectedCategoryName] = useState<string>(purchaseCategories[0].name);
+  
+  const [categoryNameInput, setCategoryNameInput] = useState("");
+  const [isCategoryPopoverOpen, setIsCategoryPopoverOpen] = useState(false);
+  const categoryNameInputRef = useRef<HTMLInputElement>(null);
+  const [existingCategorySuggestions, setExistingCategorySuggestions] = useState<string[]>([]);
   
   const [productName, setProductName] = useState("");
   const [isProductPopoverOpen, setIsProductPopoverOpen] = useState(false);
@@ -97,6 +94,7 @@ export default function PurchasesPage() {
   const [isLoadingParties, setIsLoadingParties] = useState(true);
 
   const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState("");
   const [pricePerUnit, setPricePerUnit] = useState("");
   const [defaultSalePricePerUnitInput, setDefaultSalePricePerUnitInput] = useState("");
   const [paymentType, setPaymentType] = useState<"Cash" | "Credit">("Credit");
@@ -111,11 +109,18 @@ export default function PurchasesPage() {
     setIsLoadingData(true);
     setIsLoadingParties(true);
     try {
-      const [fetchedPurchases, fetchedSalesData, fetchedParties, fetchedProductNames] = await Promise.all([
+      const [
+        fetchedPurchases, 
+        fetchedSalesData, 
+        fetchedParties, 
+        fetchedProductNames,
+        fetchedCategoryNames
+      ] = await Promise.all([
         getPurchaseEntriesFromFirestore(),
         getSaleEntriesFromFirestore(),
         getPartiesFromFirestore(),
-        getUniquePurchasedProductNames(), // Fetch all initially
+        getUniquePurchasedProductNames(),
+        getUniqueCategoriesFromFirestore()
       ]);
 
       const processedPurchases = fetchedPurchases.map(tx => ({
@@ -126,6 +131,7 @@ export default function PurchasesPage() {
       setAllSales(fetchedSalesData.map(s => ({ ...s, date: s.date instanceof Date ? s.date : new Date(s.date) })));
       setAvailableParties(fetchedParties);
       setProductNameSuggestions(fetchedProductNames);
+      setExistingCategorySuggestions(fetchedCategoryNames);
 
     } catch (error) {
       console.error("CLIENT: Failed to fetch Purchase page data:", error);
@@ -143,37 +149,6 @@ export default function PurchasesPage() {
     fetchPageData();
   }, [fetchPageData, editingTransactionId, date]);
   
-  const currentCategoryDetails = useMemo(() => {
-    return purchaseCategories.find(cat => cat.name === selectedCategoryName) || purchaseCategories[0];
-  }, [selectedCategoryName]);
-
-  useEffect(() => {
-    // Reset product name when category changes, unless it's for pashu aahar specific names
-    if (currentCategoryDetails && !currentCategoryDetails.specificNames) {
-       // If category is not "Pashu Aahar", set product name to category name
-      if (currentCategoryDetails.name !== "Other" && currentCategoryDetails.name !== "Pashu Aahar") {
-        setProductName(currentCategoryDetails.name);
-      } else {
-        setProductName(""); // Clear for "Other" or "Pashu Aahar" which has its own suggestion logic
-      }
-    }
-     // Fetch product name suggestions based on category
-    const fetchNamesForCategory = async () => {
-      if (currentCategoryDetails?.specificNames) {
-        setIsLoadingData(true);
-        const names = await getUniquePurchasedProductNames(currentCategoryDetails.name);
-        setProductNameSuggestions(names);
-        setIsLoadingData(false);
-      } else {
-        // For non-specific name categories, could load all product names or none
-        // For now, keeping the full list, user can type
-         // setProductNameSuggestions(await getUniquePurchasedProductNames()); // Keep all for now
-      }
-    };
-    fetchNamesForCategory();
-
-  }, [currentCategoryDetails]);
-
 
   useEffect(() => {
     const stockCalc: Record<string, { quantity: number; unit: string }> = {};
@@ -215,10 +190,11 @@ export default function PurchasesPage() {
 
   const resetFormFields = useCallback(() => {
     if (!editingTransactionId) setDate(new Date());
-    // setSelectedCategoryName(purchaseCategories[0].name); // Keep category
+    setCategoryNameInput("");
     setProductName("");
     setSupplierNameInput("");
     setQuantity("");
+    setUnit("");
     setPricePerUnit("");
     setDefaultSalePricePerUnitInput("");
     setPaymentType("Credit");
@@ -226,6 +202,7 @@ export default function PurchasesPage() {
     setTransactionToEdit(null);
     setIsSupplierPopoverOpen(false);
     setIsProductPopoverOpen(false);
+    setIsCategoryPopoverOpen(false);
   }, [editingTransactionId]);
 
   const availableSuppliers = useMemo(() => {
@@ -235,15 +212,45 @@ export default function PurchasesPage() {
       .sort((a, b) => a.localeCompare(b));
   }, [availableParties]);
 
+  const handleCategoryNameInputChange = useCallback((value: string) => {
+    setCategoryNameInput(value);
+    if (value.trim() && (existingCategorySuggestions.length > 0 || !isLoadingData)) {
+        setIsCategoryPopoverOpen(true);
+    } else {
+        setIsCategoryPopoverOpen(false);
+    }
+  }, [existingCategorySuggestions, isLoadingData]);
+
+  const handleCategorySelect = useCallback((currentValue: string) => {
+    const isCreatingNew = currentValue.startsWith("__CREATE_CATEGORY__");
+    let actualValue = currentValue;
+
+    if (isCreatingNew) {
+        actualValue = categoryNameInput.trim(); 
+        if (!actualValue) {
+            toast({ title: "Error", description: "Category name cannot be empty.", variant: "destructive" });
+            setIsCategoryPopoverOpen(false);
+            return;
+        }
+        if (!existingCategorySuggestions.some(cat => cat.toLowerCase() === actualValue.toLowerCase())) {
+            setExistingCategorySuggestions(prev => [...prev, actualValue].sort((a, b) => a.localeCompare(b)));
+            toast({ title: "Info", description: `Category "${actualValue}" added to suggestions for this session.` });
+        }
+    }
+    setCategoryNameInput(actualValue);
+    setIsCategoryPopoverOpen(false);
+    categoryNameInputRef.current?.focus();
+  }, [categoryNameInput, existingCategorySuggestions, toast]);
+
+
   const handleProductNameInputChange = useCallback((value: string) => {
     setProductName(value);
-    const showSuggestions = currentCategoryDetails?.specificNames || productNameSuggestions.length > 0;
-    if (value.trim() && showSuggestions) {
+    if (value.trim() && (productNameSuggestions.length > 0 || !isLoadingData)) {
       setIsProductPopoverOpen(true);
     } else {
       setIsProductPopoverOpen(false);
     }
-  }, [productNameSuggestions, currentCategoryDetails]);
+  }, [productNameSuggestions, isLoadingData]);
 
   const handleProductSelect = useCallback((currentValue: string) => {
     const isCreatingNew = currentValue.startsWith("__CREATE_PRODUCT__");
@@ -306,8 +313,8 @@ export default function PurchasesPage() {
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!date || !selectedCategoryName || !productName.trim() || !supplierNameInput.trim() || !quantity || !pricePerUnit || !paymentType) {
-      toast({ title: "Error", description: "Please fill all required fields (Date, Category, Product, Supplier, Quantity, Price/Unit, Payment Type).", variant: "destructive" });
+    if (!date || !categoryNameInput.trim() || !productName.trim() || !supplierNameInput.trim() || !quantity || !unit.trim() || !pricePerUnit || !paymentType) {
+      toast({ title: "Error", description: "Please fill all required fields (Date, Category, Product, Supplier, Quantity, Unit, Price/Unit, Payment Type).", variant: "destructive" });
       return;
     }
     const parsedQuantity = parseFloat(quantity.replace(',', '.'));
@@ -325,19 +332,14 @@ export default function PurchasesPage() {
         toast({ title: "Error", description: "Default sale price must be a valid non-negative number if entered.", variant: "destructive" }); return;
     }
     
-    const categoryInfo = purchaseCategories.find(cat => cat.name === selectedCategoryName);
-    if (!categoryInfo) {
-      toast({ title: "Error", description: "Invalid category selected.", variant: "destructive" }); return;
-    }
-
     setIsSubmitting(true);
     const purchaseData: Omit<PurchaseEntry, 'id'> = {
       date,
-      category: selectedCategoryName,
+      category: categoryNameInput.trim(),
       productName: productName.trim(),
       supplierName: supplierNameInput.trim(),
       quantity: parsedQuantity,
-      unit: categoryInfo.unit,
+      unit: unit.trim(),
       pricePerUnit: parsedPrice,
       defaultSalePricePerUnit: parsedDefaultSalePrice,
       totalAmount: parsedQuantity * parsedPrice,
@@ -364,10 +366,11 @@ export default function PurchasesPage() {
     setEditingTransactionId(entry.id);
     setTransactionToEdit(entry);
     setDate(entry.date);
-    setSelectedCategoryName(entry.category);
+    setCategoryNameInput(entry.category);
     setProductName(entry.productName);
     setSupplierNameInput(entry.supplierName || "");
     setQuantity(String(entry.quantity));
+    setUnit(entry.unit);
     setPricePerUnit(String(entry.pricePerUnit || ""));
     setDefaultSalePricePerUnitInput(String(entry.defaultSalePricePerUnit || ""));
     setPaymentType(entry.paymentType || "Credit");
@@ -415,7 +418,7 @@ export default function PurchasesPage() {
               {Object.entries(currentStockByProduct)
                 .sort(([keyA], [keyB]) => keyA.localeCompare(keyB)) // Sort by product name#unit
                 .map(([productUnitKey, stockInfo]) => {
-                  const [prodName, unit] = productUnitKey.split('#');
+                  const [prodName, unitKey] = productUnitKey.split('#');
                   return (
                     <Card key={productUnitKey} className="shadow-sm">
                       <CardHeader className="flex flex-row items-center justify-between space-y-0 px-3 pt-3 pb-1">
@@ -426,7 +429,7 @@ export default function PurchasesPage() {
                       </CardHeader>
                       <CardContent className="px-3 pt-1 pb-3">
                         <div className="text-xl font-bold text-foreground">
-                          {stockInfo.quantity.toFixed(unit === "Ltr" || unit === "Kg" ? 1:0)}
+                          {stockInfo.quantity.toFixed(unitKey === "Ltr" || unitKey === "Kg" ? 1:0)}
                           <span className="text-base font-normal text-muted-foreground ml-1">{stockInfo.unit}</span>
                         </div>
                       </CardContent>
@@ -454,17 +457,75 @@ export default function PurchasesPage() {
               </div>
               
               <div>
-                <Label htmlFor="purchaseCategory" className="flex items-center mb-1"><ListFilter className="h-4 w-4 mr-2 text-muted-foreground" />Category</Label>
-                <Select value={selectedCategoryName} onValueChange={setSelectedCategoryName}>
-                    <SelectTrigger id="purchaseCategory">
-                        <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {purchaseCategories.map(cat => (
-                            <SelectItem key={cat.name} value={cat.name}>{cat.name} ({cat.unit})</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <Label htmlFor="categoryNameInput" className="flex items-center mb-1"><ListFilter className="h-4 w-4 mr-2 text-muted-foreground" />Category</Label>
+                <Popover open={isCategoryPopoverOpen} onOpenChange={setIsCategoryPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Input
+                      id="categoryNameInput"
+                      ref={categoryNameInputRef}
+                      value={categoryNameInput}
+                      onChange={(e) => handleCategoryNameInputChange(e.target.value)}
+                      onFocus={() => {
+                          if (categoryNameInput.trim() || existingCategorySuggestions.length > 0 || !isLoadingData) {
+                              setIsCategoryPopoverOpen(true);
+                          }
+                      }}
+                      placeholder="Type or select category"
+                      autoComplete="off"
+                      required
+                      className="w-full text-left"
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[--radix-popover-trigger-width] p-0"
+                    side="bottom"
+                    align="start"
+                    sideOffset={4}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                  >
+                    <Command>
+                      <CommandInput
+                        placeholder="Search or add new category..."
+                        value={categoryNameInput}
+                        onValueChange={handleCategoryNameInputChange}
+                      />
+                      <CommandList>
+                        {isLoadingData && existingCategorySuggestions.length === 0 ? (
+                            <CommandItem disabled>Loading categories...</CommandItem>
+                        ) : (
+                          <>
+                            <CommandEmpty>
+                              {existingCategorySuggestions.length === 0 && !categoryNameInput.trim() ? "No categories recorded. Type to add new." : "No categories match your search."}
+                            </CommandEmpty>
+                            <CommandGroup>
+                              {categoryNameInput.trim() && !existingCategorySuggestions.some(cat => cat.toLowerCase() === categoryNameInput.trim().toLowerCase()) && (
+                                <CommandItem
+                                  key={`__CREATE_CATEGORY__${categoryNameInput.trim()}`}
+                                  value={`__CREATE_CATEGORY__${categoryNameInput.trim()}`}
+                                  onSelect={() => handleCategorySelect(`__CREATE_CATEGORY__${categoryNameInput.trim()}`)}
+                                >
+                                  <PlusCircle className="mr-2 h-4 w-4" />
+                                  Add new category: "{categoryNameInput.trim()}"
+                                </CommandItem>
+                              )}
+                              {existingCategorySuggestions
+                                .filter(name => name.toLowerCase().includes(categoryNameInput.toLowerCase()))
+                                .map((name) => (
+                                  <CommandItem
+                                    key={name}
+                                    value={name}
+                                    onSelect={() => handleCategorySelect(name)}
+                                  >
+                                    {name}
+                                  </CommandItem>
+                                ))}
+                            </CommandGroup>
+                          </>
+                        )}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div>
@@ -477,16 +538,14 @@ export default function PurchasesPage() {
                       value={productName}
                       onChange={(e) => handleProductNameInputChange(e.target.value)}
                       onFocus={() => {
-                        const showSuggestions = currentCategoryDetails?.specificNames || productNameSuggestions.length > 0;
-                        if (productName.trim() || showSuggestions) {
+                        if (productName.trim() || productNameSuggestions.length > 0 || !isLoadingData) {
                           setIsProductPopoverOpen(true);
                         }
                       }}
-                      placeholder={currentCategoryDetails?.specificNames ? "Type or select specific product" : "Enter product name"}
+                      placeholder="Type or select product"
                       autoComplete="off"
                       required
-                      className="w-full"
-                      disabled={currentCategoryDetails && !currentCategoryDetails.specificNames && currentCategoryDetails.name !== "Other" && currentCategoryDetails.name !== "Pashu Aahar"}
+                      className="w-full text-left"
                     />
                   </PopoverTrigger>
                   <PopoverContent
@@ -541,7 +600,6 @@ export default function PurchasesPage() {
                 </Popover>
               </div>
 
-
               <div>
                 <Label htmlFor="supplierNameInput" className="flex items-center mb-1">
                   <User className="h-4 w-4 mr-2 text-muted-foreground" /> Supplier Name
@@ -561,7 +619,7 @@ export default function PurchasesPage() {
                       placeholder="Start typing supplier name"
                       autoComplete="off"
                       required
-                      className="w-full"
+                      className="w-full text-left"
                     />
                   </PopoverTrigger>
                   <PopoverContent
@@ -617,33 +675,37 @@ export default function PurchasesPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="purchaseQuantity" className="flex items-center mb-1"><Warehouse className="h-4 w-4 mr-2 text-muted-foreground" />Quantity ({currentCategoryDetails?.unit || 'Units'})</Label>
+                 <div>
+                  <Label htmlFor="purchaseQuantity" className="flex items-center mb-1"><Warehouse className="h-4 w-4 mr-2 text-muted-foreground" />Quantity</Label>
                   <Input id="purchaseQuantity" type="text" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 10" required />
                 </div>
                 <div>
-                  <Label htmlFor="purchasePrice" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Price/Unit (₹)</Label>
-                  <Input id="purchasePrice" type="text" inputMode="decimal" value={pricePerUnit} onChange={(e) => setPricePerUnit(e.target.value)} placeholder="e.g., 300" required />
+                  <Label htmlFor="unit" className="flex items-center mb-1"> Unit</Label>
+                  <Input id="unit" type="text" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="e.g., Bags, Kg, Ltr" required />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                    <Label htmlFor="paymentType" className="flex items-center mb-1"><CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />Payment Type</Label>
-                    <Select value={paymentType} onValueChange={(value: "Cash" | "Credit") => setPaymentType(value)}>
-                    <SelectTrigger id="paymentType">
-                        <SelectValue placeholder="Select payment type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="Cash">Cash</SelectItem>
-                        <SelectItem value="Credit">Credit</SelectItem>
-                    </SelectContent>
-                    </Select>
+                  <Label htmlFor="purchasePrice" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Price/Unit (₹)</Label>
+                  <Input id="purchasePrice" type="text" inputMode="decimal" value={pricePerUnit} onChange={(e) => setPricePerUnit(e.target.value)} placeholder="e.g., 300" required />
                 </div>
                 <div>
                     <Label htmlFor="defaultSalePricePerUnit" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Sale Price/Unit <span className="text-xs text-muted-foreground ml-1">(Optional)</span></Label>
                     <Input id="defaultSalePricePerUnit" type="text" inputMode="decimal" value={defaultSalePricePerUnitInput} onChange={(e) => setDefaultSalePricePerUnitInput(e.target.value)} placeholder="e.g., 350" />
                 </div>
+              </div>
+              <div>
+                <Label htmlFor="paymentType" className="flex items-center mb-1"><CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />Payment Type</Label>
+                <Select value={paymentType} onValueChange={(value: "Cash" | "Credit") => setPaymentType(value)}>
+                <SelectTrigger id="paymentType">
+                    <SelectValue placeholder="Select payment type" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="Cash">Cash</SelectItem>
+                    <SelectItem value="Credit">Credit</SelectItem>
+                </SelectContent>
+                </Select>
               </div>
 
 
@@ -765,3 +827,5 @@ export default function PurchasesPage() {
     </div>
   );
 }
+
+    

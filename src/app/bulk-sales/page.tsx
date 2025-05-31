@@ -460,7 +460,7 @@ export default function BulkSalesPage() {
                         placeholder="Start typing customer name"
                         autoComplete="off"
                         required
-                        className="w-full"
+                        className="w-full text-left"
                       />
                     </PopoverTrigger>
                     <PopoverContent 
@@ -733,5 +733,7 @@ export default function BulkSalesPage() {
     </TooltipProvider>
   );
 }
+
+    
 
     

@@ -257,7 +257,7 @@ export default function PaymentsPage() {
                       placeholder="Start typing party name"
                       autoComplete="off"
                       required
-                      className="w-full"
+                      className="w-full text-left"
                     />
                   </PopoverTrigger>
                   <PopoverContent 
@@ -395,3 +395,5 @@ export default function PaymentsPage() {
     </div>
   );
 }
+
+    
