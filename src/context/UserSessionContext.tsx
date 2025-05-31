@@ -2,18 +2,17 @@
 "use client";
 import type { UserProfile, Company } from '@/lib/types';
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { auth } from '@/lib/firebase';
-import type { User as FirebaseUser } from 'firebase/auth'; // Renamed to avoid conflict
+import { auth, db } from '@/lib/firebase'; // Added db
+import type { User as FirebaseUser } from 'firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore'; // Firestore imports
 
 interface UserSessionContextType {
-  firebaseUser: FirebaseUser | null; // User from Firebase Auth
-  userProfile: UserProfile | null;    // Your Firestore user profile
-  companyProfile: Company | null;   // Your Firestore company profile
+  firebaseUser: FirebaseUser | null;
+  userProfile: UserProfile | null;
+  companyProfile: Company | null;
   authLoading: boolean;
-  setUserProfile: (profile: UserProfile | null) => void;
-  setCompanyProfile: (company: Company | null) => void;
-  // Logout function can be added here later or handled directly via auth.signOut()
+  profilesLoading: boolean; // New state for loading user/company profiles from Firestore
 }
 
 export const UserSessionContext = createContext<UserSessionContextType | undefined>(undefined);
@@ -23,34 +22,72 @@ export const UserSessionProvider = ({ children }: { children: ReactNode }) => {
   const [authLoading, setAuthLoading] = useState(true);
   const [userProfile, setUserProfileState] = useState<UserProfile | null>(null);
   const [companyProfile, setCompanyProfileState] = useState<Company | null>(null);
+  const [profilesLoading, setProfilesLoading] = useState<boolean>(false); // Initialize to false
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      console.log("Auth state changed, user:", user);
+      console.log("CLIENT: Auth state changed, user:", user?.uid);
       setFirebaseUser(user);
       setAuthLoading(false);
+
       if (!user) {
-        // If Firebase user is logged out, clear our app-specific profiles
         setUserProfileState(null);
         setCompanyProfileState(null);
+        setProfilesLoading(false); // No profiles to load if no user
+      } else {
+        // User is logged in, fetch their profiles from Firestore
+        setProfilesLoading(true);
+        const fetchProfiles = async () => {
+          try {
+            // 1. Fetch UserProfile
+            const userDocRef = doc(db, "users", user.uid);
+            const userDocSnap = await getDoc(userDocRef);
+
+            if (userDocSnap.exists()) {
+              // Assuming user document ID is the UID, and data matches UserProfile type
+              const fetchedUserProfile = { uid: userDocSnap.id, ...userDocSnap.data() } as UserProfile;
+              setUserProfileState(fetchedUserProfile);
+              console.log("CLIENT: UserProfile fetched:", fetchedUserProfile);
+
+              // 2. Fetch Company Profile using companyId from UserProfile
+              if (fetchedUserProfile.companyId) {
+                const companyDocRef = doc(db, "companies", fetchedUserProfile.companyId);
+                const companyDocSnap = await getDoc(companyDocRef);
+                if (companyDocSnap.exists()) {
+                  const fetchedCompanyProfile = { id: companyDocSnap.id, ...companyDocSnap.data() } as Company;
+                  setCompanyProfileState(fetchedCompanyProfile);
+                  console.log("CLIENT: CompanyProfile fetched:", fetchedCompanyProfile);
+                } else {
+                  console.warn(`CLIENT: Company document not found for companyId: ${fetchedUserProfile.companyId}. User: ${user.uid}`);
+                  setCompanyProfileState(null); // Or handle as an error state
+                }
+              } else {
+                console.warn(`CLIENT: No companyId found in UserProfile for user: ${user.uid}`);
+                setCompanyProfileState(null); // Should ideally not happen if signup is correct
+              }
+            } else {
+              console.warn(`CLIENT: UserProfile document not found for uid: ${user.uid}. This user might need to complete signup or be an old auth user without a profile.`);
+              setUserProfileState(null);
+              setCompanyProfileState(null);
+              // Consider redirecting to a profile completion step or login if profile is mandatory
+            }
+          } catch (error) {
+            console.error("CLIENT: Error fetching user/company profiles:", error);
+            setUserProfileState(null);
+            setCompanyProfileState(null);
+            // Potentially show a toast error to the user here via a toast context or prop
+          } finally {
+            setProfilesLoading(false);
+          }
+        };
+        fetchProfiles();
       }
-      // If user is logged in, userProfile and companyProfile will be fetched
-      // in a subsequent step based on firebaseUser.uid
-      // For now, they remain null until explicitly set.
     });
     return () => unsubscribe(); // Cleanup subscription on unmount
-  }, []);
-
-  const setUserProfile = (profile: UserProfile | null) => {
-    setUserProfileState(profile);
-  };
-
-  const setCompanyProfile = (company: Company | null) => {
-    setCompanyProfileState(company);
-  };
+  }, []); // Empty dependency array: onAuthStateChanged handles its own re-runs.
 
   return (
-    <UserSessionContext.Provider value={{ firebaseUser, userProfile, companyProfile, authLoading, setUserProfile, setCompanyProfile }}>
+    <UserSessionContext.Provider value={{ firebaseUser, userProfile, companyProfile, authLoading, profilesLoading }}>
       {children}
     </UserSessionContext.Provider>
   );

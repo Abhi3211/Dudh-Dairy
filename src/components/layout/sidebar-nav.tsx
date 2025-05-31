@@ -15,7 +15,7 @@ import {
   Building,
   LogOut,
   LogIn,
-  UserPlus, // Added UserPlus for Signup
+  UserPlus,
   type LucideIcon,
 } from "lucide-react";
 
@@ -44,7 +44,7 @@ interface NavItem {
   accountantAccess?: boolean;
 }
 
-const userRole: "admin" | "accountant" | "member" = "admin"; // This will be dynamic later
+const staticUserRole: "admin" | "accountant" | "member" = "admin"; // This will be dynamic later
 
 const mainNavItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -62,7 +62,7 @@ export function SidebarNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { setOpenMobile } = useSidebar();
-  const { firebaseUser, authLoading, userProfile } = useUserSession();
+  const { firebaseUser, authLoading, userProfile, companyProfile, profilesLoading } = useUserSession();
   const { toast } = useToast();
 
   const handleLogout = async () => {
@@ -82,14 +82,14 @@ export function SidebarNav() {
     "/payments", "/expenses", "/parties",
   ];
 
+  const currentDynamicRole = userProfile?.role || staticUserRole;
+
   const visibleNavItems = mainNavItems
     .filter(item => {
-      // TODO: Replace hardcoded userRole with dynamic role from userProfile once available
-      const currentRoleFromContext = userProfile?.role || userRole; // Fallback to static if profile not loaded
-      if (item.adminOnly && currentRoleFromContext !== 'admin') {
+      if (item.adminOnly && currentDynamicRole !== 'admin') {
         return false;
       }
-      if (item.href === "/profit-loss" && currentRoleFromContext === 'member') {
+      if (item.href === "/profit-loss" && currentDynamicRole === 'member') {
           return false;
       }
       return true;
@@ -107,11 +107,14 @@ export function SidebarNav() {
       return a.label.localeCompare(b.label);
     });
 
-  if (authLoading) {
+  if (authLoading || (firebaseUser && profilesLoading)) {
     return (
        <nav className="flex flex-col h-full">
         <div className="p-4 group-data-[collapsible=icon]:p-2 transition-all">
-            <Logo />
+            <div className="flex flex-col items-start group-data-[collapsible=icon]:items-center">
+                <Skeleton className="h-7 w-24 mb-1 group-data-[collapsible=icon]:h-6 group-data-[collapsible=icon]:w-6 group-data-[collapsible=icon]:mb-0" />
+                <Skeleton className="h-3 w-32 group-data-[collapsible=icon]:hidden" />
+            </div>
         </div>
         <SidebarMenu className="flex-1 p-2 space-y-1">
             {Array(8).fill(0).map((_, i) => <Skeleton key={i} className="h-9 w-full rounded-md" />)}
@@ -123,7 +126,7 @@ export function SidebarNav() {
   return (
     <nav className="flex flex-col h-full">
       <div className="p-4 group-data-[collapsible=icon]:p-2 transition-all">
-         <Logo />
+         <Logo companyName={companyProfile?.name} />
       </div>
       <SidebarMenu className="flex-1 p-2">
         {firebaseUser ? (
@@ -185,13 +188,18 @@ export function SidebarNav() {
           </>
         )}
       </SidebarMenu>
-      {firebaseUser && (
+      {firebaseUser && userProfile && !profilesLoading && (
         <>
           <SidebarSeparator className="my-1" />
           <SidebarFooter className="p-2 mt-auto">
             {userProfile && (
                 <div className="px-2 py-1 text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden truncate">
                     Logged in as: {userProfile.displayName || userProfile.email}
+                </div>
+            )}
+             {companyProfile && (
+                <div className="px-2 py-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden truncate">
+                    Company: {companyProfile.name}
                 </div>
             )}
             <SidebarMenuItem>

@@ -7,13 +7,14 @@ export interface UserProfile {
   email: string; // User's email
   displayName: string | null;
   role: UserRole;
+  createdAt?: Date; // Made optional for flexibility, though signup sets it
 }
 
 export interface Company {
   id: string; // Document ID in Firestore 'companies' collection
   name: string;
   ownerUid: string; // UID of the user who created/owns the company
-  // other company details like subscription status, etc. could go here
+  createdAt?: Date; // Made optional for flexibility, though signup sets it
 }
 
 export interface MilkCollectionEntry {
