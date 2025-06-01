@@ -195,15 +195,12 @@ export default function MilkCollectionPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    if (value.trim()) {
-      setIsCustomerPopoverOpen(true);
-    } else {
-      setIsCustomerPopoverOpen(false);
-    }
   }, []);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
+    let finalCustomerName = trimmedValue;
+
     if (isCreateNew) {
       if (!trimmedValue) {
         toast({ title: "Error", description: "Customer name cannot be empty.", variant: "destructive" });
@@ -216,27 +213,27 @@ export default function MilkCollectionPage() {
       );
       if (existingParty) {
         toast({ title: "Info", description: `Customer "${trimmedValue}" already exists. Selecting existing customer.`, variant: "default" });
-        setCustomerNameInput(trimmedValue);
-        setIsCustomerPopoverOpen(false);
-        // customerNameInputRef.current?.focus(); // Removed explicit refocus
-        return;
-      }
-
-      setIsSubmitting(true); 
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
-      if (result.success && result.id) {
-        setCustomerNameInput(trimmedValue);
-        toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
-        await fetchParties(); 
+        finalCustomerName = trimmedValue;
       } else {
-        toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
+        setIsSubmitting(true); 
+        const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
+        if (result.success && result.id) {
+          finalCustomerName = trimmedValue;
+          toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
+          await fetchParties(); 
+        } else {
+          toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
+          setIsSubmitting(false);
+          setIsCustomerPopoverOpen(false); // Close popover on error too
+          return; // Stop further processing
+        }
+        setIsSubmitting(false);
       }
-      setIsSubmitting(false);
-    } else {
-      setCustomerNameInput(trimmedValue);
     }
+    
+    setCustomerNameInput(finalCustomerName);
     setIsCustomerPopoverOpen(false);
-    // customerNameInputRef.current?.focus(); // Removed explicit refocus
+    // customerNameInputRef.current?.focus(); // Explicit refocus can be jarring, usually not needed.
   }, [toast, fetchParties, availableParties]);
 
   const resetFormFields = useCallback(() => {
@@ -477,7 +474,7 @@ export default function MilkCollectionPage() {
                 
                 <div>
                   <Label htmlFor="customerNameInput" className="flex items-center mb-1">
-                    <User className="h-4 w-4 mr-2 text-muted-foreground" /> Customer Name (Milk Supplier)
+                    <User className="h-4 w-4 mr-2 text-muted-foreground" /> Customer name.
                   </Label>
                   <Popover open={isCustomerPopoverOpen} onOpenChange={setIsCustomerPopoverOpen}>
                     <PopoverTrigger asChild>
@@ -486,11 +483,7 @@ export default function MilkCollectionPage() {
                         ref={customerNameInputRef}
                         value={customerNameInput}
                         onChange={(e) => handleCustomerNameInputChange(e.target.value)}
-                        onFocus={() => {
-                          if (customerNameInput.trim()) {
-                            setIsCustomerPopoverOpen(true);
-                          }
-                        }}
+                        onFocus={() => setIsCustomerPopoverOpen(true)}
                         placeholder="Start typing customer name"
                         autoComplete="off"
                         required
@@ -526,7 +519,9 @@ export default function MilkCollectionPage() {
                                     Add new milk supplier: "{customerNameInput.trim()}"
                                   </CommandItem>
                                 )}
-                                {filteredPartiesForSuggestions.map((party) => (
+                                {filteredPartiesForSuggestions
+                                  .filter(party => party.name.toLowerCase().includes(customerNameInput.toLowerCase()))
+                                  .map((party) => (
                                   <CommandItem
                                     key={party.id} 
                                     value={party.name}
@@ -766,3 +761,5 @@ export default function MilkCollectionPage() {
   );
 }
 
+
+    
