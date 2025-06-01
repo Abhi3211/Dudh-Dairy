@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { IndianRupee, Milk, Package, TrendingUp, TrendingDown, Truck } from "lucide-react"; // Removed AlertCircle
+import { IndianRupee, Milk, Package, TrendingUp, TrendingDown, Truck, HandCoins } from "lucide-react";
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import type { DailySummary, ChartDataPoint, DashboardData } from "@/lib/types";
@@ -163,7 +163,7 @@ export default function DashboardPage() {
       { title: "Pashu Aahar Sales", value: summary.pashuAaharSalesAmount.toFixed(2), icon: Package, unit: "₹" },
       { title: "Total Cash In", value: summary.totalCashIn.toFixed(2), icon: TrendingUp, unit: "₹" },
       { title: "Total Credit Out", value: summary.totalCreditOut.toFixed(2), icon: TrendingDown, unit: "₹" },
-      // { title: "Total Outstanding", value: summary.totalOutstandingAmount.toFixed(2), icon: AlertCircle, unit: "₹", highlight: true }, // Removed
+      { title: "Total Party Advance", value: summary.totalPartyAdvance.toFixed(2), icon: HandCoins, unit: "₹" },
     ];
   }, [summary]);
 
@@ -215,7 +215,7 @@ export default function DashboardPage() {
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-6">
-          {Array(10).fill(0).map((_, index) => ( // Changed from 11 to 10
+          {Array(11).fill(0).map((_, index) => ( // Now 11 cards
             <Card key={index}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <Skeleton className="h-4 w-3/5" /> <Skeleton className="h-5 w-5 rounded-full" />
