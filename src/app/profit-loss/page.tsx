@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { AlertTriangle, IndianRupee } from "lucide-react";
+import { AlertTriangle, IndianRupee, AlertCircle } from "lucide-react"; // Added AlertCircle
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -15,8 +15,7 @@ import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/u
 import type { FullProfitLossData, PlChartDataPoint, ProfitLossSummaryData } from "@/lib/types";
 import { getProfitLossDataFromFirestore } from "./actions";
 import { usePageTitle } from '@/context/PageTitleContext';
-
-const userRole: "admin" | "accountant" | "member" = "admin";
+import { useUserSession } from "@/context/UserSessionContext"; // Import useUserSession
 
 const chartConfig = {
   netProfit: { label: "Net Profit/Loss", color: "hsl(var(--chart-1))" }, 
@@ -27,7 +26,12 @@ const chartConfig = {
 
 export default function ProfitLossPage() {
   const { setPageTitle } = usePageTitle();
-  const pageSpecificTitle = userRole === "admin" || userRole === "accountant" ? "Profit & Loss Statement" : "Access Denied";
+  const { firebaseUser, companyProfile, authLoading, profilesLoading } = useUserSession();
+  const companyId = companyProfile?.id;
+  
+  const currentDynamicRole = companyProfile?.ownerUid === firebaseUser?.uid ? 'admin' : (firebaseUser ? 'member' : undefined); // Simplified role
+  
+  const pageSpecificTitle = currentDynamicRole === "admin" || currentDynamicRole === "accountant" ? "Profit & Loss Statement" : "Access Denied";
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -70,10 +74,27 @@ export default function ProfitLossPage() {
   }, [filterType, customStartDate, customEndDate]);
 
   const fetchData = useCallback(async () => {
-    if (userRole !== "admin" && userRole !== "accountant") {
+    if (authLoading || profilesLoading) {
+      // Still waiting for user/company info
+      return;
+    }
+    if (!firebaseUser) {
+      setIsLoading(false);
+      setDisplayedDateRangeString("Please log in to view Profit & Loss.");
+      setPlData(null);
+      return;
+    }
+    if (!companyId) {
+      setIsLoading(false);
+      setDisplayedDateRangeString("Company information not found. Unable to load Profit & Loss.");
+      setPlData(null);
+      return;
+    }
+    if (currentDynamicRole !== "admin" && currentDynamicRole !== "accountant") { // accountant role could be added to UserProfile
       setIsLoading(false);
       return;
     }
+    
     setIsLoading(true);
     const { startDate, endDate } = calculateDateRange();
     
@@ -85,8 +106,8 @@ export default function ProfitLossPage() {
         return;
     }
     
-    console.log(`ProfitLossPage: Fetching data for range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
-    const data = await getProfitLossDataFromFirestore(startDate, endDate);
+    console.log(`ProfitLossPage: Fetching data for range: ${startDate.toISOString()} to ${endDate.toISOString()} for company: ${companyId}`);
+    const data = await getProfitLossDataFromFirestore(startDate, endDate, companyId);
     console.log("ProfitLossPage: Data received from server action:", JSON.parse(JSON.stringify(data)));
     setPlData(data);
 
@@ -105,7 +126,7 @@ export default function ProfitLossPage() {
     );
 
     setIsLoading(false);
-  }, [calculateDateRange, filterType]); 
+  }, [calculateDateRange, filterType, companyId, firebaseUser, authLoading, profilesLoading, currentDynamicRole]); 
 
 
   useEffect(() => {
@@ -122,22 +143,55 @@ export default function ProfitLossPage() {
       return; 
     }
     fetchData();
-  }, [fetchData, filterType, customStartDate, customEndDate]);
+  }, [fetchData, filterType, customStartDate, customEndDate, companyId]); // Added companyId
 
   const isDataEffectivelyEmpty = (summary: ProfitLossSummaryData | undefined | null): boolean => {
     if (!summary) return true;
     return (
       summary.totalRevenue === 0 &&
       summary.totalPurchasesValue === 0 &&
-      summary.totalClosingStockValue === 0 && // Check if closing stock is also zero
+      summary.totalClosingStockValue === 0 && 
       summary.costOfGoodsSold === 0 &&
       summary.operatingExpenses === 0 && 
       summary.netProfitLoss === 0
     );
   };
 
+  if (authLoading || profilesLoading) {
+    return (
+      <div>
+        <PageHeader title="Profit & Loss Statement" description="Loading user and company data..." />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+  
+  if (!firebaseUser) {
+    return (
+      <div>
+        <PageHeader title="Access Denied" description="Please log in to view this page." />
+         <Card className="border-destructive">
+          <CardHeader><CardTitle className="flex items-center text-destructive"><AlertCircle className="h-5 w-5 mr-2" />Not Logged In</CardTitle></CardHeader>
+          <CardContent><p>You must be logged in to access the Profit & Loss statement.</p></CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-  if (userRole !== "admin" && userRole !== "accountant") {
+  if (!companyId && !profilesLoading) { // Show only after profiles have loaded and still no companyId
+    return (
+      <div>
+        <PageHeader title="Information Missing" description="Company information is not available." />
+         <Card className="border-destructive">
+          <CardHeader><CardTitle className="flex items-center text-destructive"><AlertCircle className="h-5 w-5 mr-2" />Company Not Found</CardTitle></CardHeader>
+          <CardContent><p>Your user profile is not associated with a company. The Profit & Loss statement cannot be displayed.</p></CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+
+  if (currentDynamicRole !== "admin" && currentDynamicRole !== "accountant") { // accountant role would come from UserProfile
     return (
       <div>
         <PageHeader
@@ -153,7 +207,7 @@ export default function ProfitLossPage() {
           </CardHeader>
           <CardContent>
             <p className="text-destructive">
-              The Profit/Loss report is restricted to admin and accountant users only.
+              The Profit & Loss report is restricted to admin and accountant users only.
             </p>
           </CardContent>
         </Card>
@@ -175,7 +229,7 @@ export default function ProfitLossPage() {
         <CardContent className="flex flex-col sm:flex-row gap-4 items-end">
           <div className="flex-1 min-w-[150px]">
             <Label htmlFor="filterType">Period</Label>
-            <Select value={filterType} onValueChange={setFilterType}>
+            <Select value={filterType} onValueChange={setFilterType} disabled={!companyId || isLoading}>
               <SelectTrigger id="filterType"><SelectValue placeholder="Select period" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="daily">Daily (Today)</SelectItem>
@@ -294,16 +348,16 @@ export default function ProfitLossPage() {
             </>
           ) : (
             <p className="text-muted-foreground text-center py-8">
-              {isLoading ? "Loading financial data..." : "No financial data available for the selected period."}
+              {isLoading ? "Loading financial data..." : "No financial data available for the selected period, or all values are zero."}
             </p>
           )}
         </CardContent>
       </Card>
 
-      {(userRole === "admin" || userRole === "accountant") && (
+      {(currentDynamicRole === "admin" || currentDynamicRole === "accountant") && (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Daily Financial Trend</CardTitle> {/* Updated title */}
+            <CardTitle>Daily Financial Trend</CardTitle>
             <CardDescription>
               Daily Revenue, COGS, and Net Profit/Loss for the period: {displayedDateRangeString.substring(displayedDateRangeString.indexOf(':') + 1).trim()}
               <br/>

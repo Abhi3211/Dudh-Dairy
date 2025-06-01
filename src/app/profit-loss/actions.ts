@@ -6,13 +6,15 @@ import type { FullProfitLossData, ProfitLossSummaryData, PlChartDataPoint, SaleE
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { startOfDay, endOfDay, eachDayOfInterval, format, differenceInDays, addDays, isWithinInterval } from 'date-fns';
 
-async function getPashuAaharProductNamesFromPurchasesForPL(): Promise<string[]> {
+async function getPashuAaharProductNamesFromPurchasesForPL(companyId: string): Promise<string[]> {
   const pashuAaharNames = new Set<string>();
   try {
     const purchasesCollection = collection(db, 'purchaseEntries');
-    // Fetch all purchase entries and filter locally if category isn't always set,
-    // or rely on productName if category is broad. For now, assuming 'Pashu Aahar' category exists.
-    const q = query(purchasesCollection, where('category', '==', 'Pashu Aahar'));
+    const q = query(
+      purchasesCollection, 
+      where('companyId', '==', companyId),
+      where('category', '==', 'Pashu Aahar')
+    );
     const snapshot = await getDocs(q);
     snapshot.forEach(doc => {
       const data = doc.data() as PurchaseEntry;
@@ -21,7 +23,7 @@ async function getPashuAaharProductNamesFromPurchasesForPL(): Promise<string[]> 
       }
     });
   } catch (error) {
-    console.error("SERVER ACTION (P&L): Error fetching Pashu Aahar product names from purchases:", error);
+    console.error(`SERVER ACTION (P&L): Error fetching Pashu Aahar product names from purchases for company ${companyId}:`, error);
   }
   return Array.from(pashuAaharNames);
 }
@@ -46,24 +48,37 @@ interface CumulativeStockData {
 
 export async function getProfitLossDataFromFirestore(
   clientStartDate: Date,
-  clientEndDate: Date
+  clientEndDate: Date,
+  companyId: string
 ): Promise<FullProfitLossData> {
-  console.log(`SERVER ACTION (P&L): getProfitLossDataFromFirestore called for range: ${clientStartDate.toISOString()} to ${clientEndDate.toISOString()}`);
+  console.log(`SERVER ACTION (P&L): getProfitLossDataFromFirestore called for range: ${clientStartDate.toISOString()} to ${clientEndDate.toISOString()} for companyId: ${companyId}`);
+
+  const defaultEmptyData: FullProfitLossData = {
+    summary: {
+      totalRevenue: 0, milkSalesRetail: 0, milkSalesBulk: 0, gheeSales: 0, pashuAaharSales: 0,
+      purchasesMilkCollectionValue: 0, purchasesGheeValue: 0, purchasesPashuAaharValue: 0, totalPurchasesValue: 0,
+      closingStockValueMilk: 0, closingStockValueGhee: 0, closingStockValuePashuAahar: 0, totalClosingStockValue: 0,
+      costOfGoodsSold: 0, grossProfit: 0, operatingExpenses: 0, netProfitLoss: 0,
+      periodDays: Math.max(1, differenceInDays(clientEndDate, clientStartDate) + 1),
+    },
+    chartSeries: []
+  };
+
+  if (!companyId) {
+    console.warn("SERVER ACTION (P&L): companyId is missing. Returning empty P&L data.");
+    return defaultEmptyData;
+  }
 
   const periodStart = startOfDay(clientStartDate);
   const periodEnd = endOfDay(clientEndDate);
   const firestoreStartDate = Timestamp.fromDate(periodStart);
   const firestoreEndDate = Timestamp.fromDate(periodEnd);
 
-  const summary: ProfitLossSummaryData = {
-    totalRevenue: 0, milkSalesRetail: 0, milkSalesBulk: 0, gheeSales: 0, pashuAaharSales: 0,
-    purchasesMilkCollectionValue: 0, purchasesGheeValue: 0, purchasesPashuAaharValue: 0, totalPurchasesValue: 0,
-    closingStockValueMilk: 0, closingStockValueGhee: 0, closingStockValuePashuAahar: 0, totalClosingStockValue: 0,
-    costOfGoodsSold: 0, grossProfit: 0, operatingExpenses: 0, netProfitLoss: 0,
-    periodDays: Math.max(1, differenceInDays(periodEnd, periodStart) + 1),
-  };
+  const summary: ProfitLossSummaryData = { ...defaultEmptyData.summary };
+  summary.periodDays = Math.max(1, differenceInDays(periodEnd, periodStart) + 1);
 
-  const knownPashuAaharProductsLower = (await getPashuAaharProductNamesFromPurchasesForPL()).map(name => name.toLowerCase());
+
+  const knownPashuAaharProductsLower = (await getPashuAaharProductNamesFromPurchasesForPL(companyId)).map(name => name.toLowerCase());
 
   const daysInRange = eachDayOfInterval({ start: periodStart, end: periodEnd });
   const dailyAggregator: Record<string, DailyData> = {};
@@ -75,11 +90,11 @@ export async function getProfitLossDataFromFirestore(
     };
   });
 
-  // Fetch all relevant data for the period
-  const salesEntriesSnapshot = await getDocs(query(collection(db, 'salesEntries'), where('date', '>=', firestoreStartDate), where('date', '<=', firestoreEndDate)));
-  const bulkSalesEntriesSnapshot = await getDocs(query(collection(db, 'bulkSalesEntries'), where('date', '>=', firestoreStartDate), where('date', '<=', firestoreEndDate)));
-  const milkCollectionsSnapshot = await getDocs(query(collection(db, 'milkCollections'), where('date', '>=', firestoreStartDate), where('date', '<=', firestoreEndDate)));
-  const purchaseEntriesSnapshot = await getDocs(query(collection(db, 'purchaseEntries'), where('date', '>=', firestoreStartDate), where('date', '<=', firestoreEndDate)));
+  // Fetch all relevant data for the period and company
+  const salesEntriesSnapshot = await getDocs(query(collection(db, 'salesEntries'), where('companyId', '==', companyId), where('date', '>=', firestoreStartDate), where('date', '<=', firestoreEndDate)));
+  const bulkSalesEntriesSnapshot = await getDocs(query(collection(db, 'bulkSalesEntries'), where('companyId', '==', companyId), where('date', '>=', firestoreStartDate), where('date', '<=', firestoreEndDate)));
+  const milkCollectionsSnapshot = await getDocs(query(collection(db, 'milkCollections'), where('companyId', '==', companyId), where('date', '>=', firestoreStartDate), where('date', '<=', firestoreEndDate)));
+  const purchaseEntriesSnapshot = await getDocs(query(collection(db, 'purchaseEntries'), where('companyId', '==', companyId), where('date', '>=', firestoreStartDate), where('date', '<=', firestoreEndDate)));
 
   // --- Process data for Daily Aggregator and Summary Purchases/Revenue ---
   salesEntriesSnapshot.forEach(doc => {
@@ -235,44 +250,12 @@ export async function getProfitLossDataFromFirestore(
       dailyRevenue = dailyData.revenue;
       dailyPurchasesValue = dailyData.milkCollectionValue + dailyData.gheePurchaseValue + dailyData.pashuAaharPurchaseValue;
       
-      // Simplified daily COGS for chart: daily purchases - (change in stock value for that day based on daily sales)
-      // This is complex to do perfectly daily without full inventory state per day.
-      // For now, let's use a simpler daily "profit" for chart: dailyRevenue - dailyPurchases.
-      // This won't exactly sum to the summary Net Profit but shows daily operational flow.
-      // Or, use a running COGS. Let's refine the daily COGS for chart.
-
       let dailyChangeInStockValue = 0;
 
-      // Milk stock change for the day
-      const milkCollectionsToday = milkCollectionsSnapshot.docs
-          .filter(d => format(d.data().date.toDate(), "MMM dd") === formattedDate)
-          .reduce((sum, d) => sum + d.data().totalAmount, 0);
-      const milkQtyCollectedToday = milkCollectionsSnapshot.docs
-          .filter(d => format(d.data().date.toDate(), "MMM dd") === formattedDate)
-          .reduce((sum, d) => sum + d.data().quantityLtr, 0);
+      const milkValueSoldToday = (dailyData.milkSoldLtr * avgMilkCost); 
       
-      const milkValueSoldToday = (dailyData.milkSoldLtr * avgMilkCost); // Approx value of milk sold
-      const netMilkStockValueChangeToday = milkCollectionsToday - milkValueSoldToday; // If positive, stock value increased
-      dailyChangeInStockValue += netMilkStockValueChangeToday;
-
-      // Ghee stock change for the day
-      const gheePurchasesToday = purchaseEntriesSnapshot.docs
-          .filter(d => format(d.data().date.toDate(), "MMM dd") === formattedDate && (d.data().category === "Ghee" || d.data().productName.toLowerCase() === "ghee"))
-          .reduce((sum, d) => sum + d.data().totalAmount, 0);
       const gheeValueSoldToday = (dailyData.gheeSoldKg * avgGheeCost);
-      const netGheeStockValueChangeToday = gheePurchasesToday - gheeValueSoldToday;
-      dailyChangeInStockValue += netGheeStockValueChangeToday;
       
-      // Pashu Aahar stock change for the day
-      const pashuAaharPurchasesTodayValue = purchaseEntriesSnapshot.docs
-        .filter(d => {
-            const purchaseDocDate = d.data().date.toDate();
-            const formattedPurchaseDocDate = format(purchaseDocDate, "MMM dd");
-            return formattedPurchaseDocDate === formattedDate && 
-                   (d.data().category === "Pashu Aahar" || (d.data().unit === "Bags" && knownPashuAaharProductsLower.includes(d.data().productName.toLowerCase())));
-        })
-        .reduce((sum, d) => sum + d.data().totalAmount, 0);
-
       let pashuAaharValueSoldToday = 0;
       Object.entries(dailyData.pashuAaharSoldBags).forEach(([pName, soldQty]) => {
           const pAvgCost = (cumulativeStock.pashuAaharPurchasedBags[pName]?.qty > 0) 
@@ -280,17 +263,8 @@ export async function getProfitLossDataFromFirestore(
               : 0;
           pashuAaharValueSoldToday += soldQty * pAvgCost;
       });
-      const netPashuAaharStockValueChangeToday = pashuAaharPurchasesTodayValue - pashuAaharValueSoldToday;
-      dailyChangeInStockValue += netPashuAaharStockValueChangeToday;
 
-      // COGS for the day = Purchases - IncreaseInStock OR Purchases + DecreaseInStock
-      // COGS = Purchases - (EndingStock - OpeningStock).
-      // For simplicity: dailyCOGS = dailyPurchases - (value of sold items based on avg cost) is wrong
-      // Correct: dailyCOGS = cost of items sold that day.
-      // Value of Milk Sold + Value of Ghee Sold + Value of PA Sold
       dailyCogs = milkValueSoldToday + gheeValueSoldToday + pashuAaharValueSoldToday;
-
-
       const dailyNetProfit = dailyRevenue - dailyCogs; // Operating expenses are 0
 
       chartSeries.push({
@@ -304,8 +278,6 @@ export async function getProfitLossDataFromFirestore(
     }
   }
 
-
-  // Round final summary figures
   Object.keys(summary).forEach(key => {
     const K = key as keyof ProfitLossSummaryData;
     if (typeof summary[K] === 'number') {
@@ -313,6 +285,6 @@ export async function getProfitLossDataFromFirestore(
     }
   });
 
-  console.log("SERVER ACTION (P&L): P&L data processed. Summary:", JSON.parse(JSON.stringify(summary)), "ChartSeries Length:", chartSeries.length);
+  console.log(`SERVER ACTION (P&L): P&L data processed for company ${companyId}. Summary:`, JSON.parse(JSON.stringify(summary)), "ChartSeries Length:", chartSeries.length);
   return { summary, chartSeries };
 }
