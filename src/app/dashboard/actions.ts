@@ -51,7 +51,7 @@ export async function getDashboardSummaryAndChartData(
     totalCashIn: 0,
     totalCreditOut: 0,
     totalOutstandingAmount: 0,
-    totalRevenue: 0, // Added to track total revenue for P&L alignment
+    totalRevenue: 0, 
   };
 
   const daysInRange = eachDayOfInterval({ start: clientStartDate, end: clientEndDate });
@@ -63,50 +63,34 @@ export async function getDashboardSummaryAndChartData(
   });
 
   const partyBalances = new Map<string, number>();
-  const allParties = await getPartiesFromFirestore();
+  const allParties = await getPartiesFromFirestore(); // This now returns parties with numeric openingBalance
 
   console.log("SERVER ACTION (Dashboard): Initializing party balances. Client End Date for OB check:", clientEndDate.toISOString());
   allParties.forEach(party => {
     let initialBalance = 0;
-    console.log(`SERVER ACTION (Dashboard): Processing party ${party.name} (Type: ${party.type}) for OB. OB Value: ${party.openingBalance}, OB Date: ${party.openingBalanceAsOfDate}`);
+    // party.openingBalance is now guaranteed to be a number by getPartiesFromFirestore
+    const numericOpeningBalance = party.openingBalance || 0; 
+    const obDate: Date | undefined = party.openingBalanceAsOfDate; // This is now Date | undefined
 
-    // Ensure openingBalanceAsOfDate is a valid Date object if it exists for comparison
-    let obDate: Date | undefined = undefined;
-    if (party.openingBalanceAsOfDate) {
-        // getPartiesFromFirestore should have already converted it to a Date object.
-        // If it's somehow not a Date object here, that's a deeper issue in data consistency.
-        if (party.openingBalanceAsOfDate instanceof Date) {
-            obDate = party.openingBalanceAsOfDate;
-        } else {
-            // This should ideally not happen if types are consistent.
-            console.warn(`SERVER ACTION (Dashboard): party.openingBalanceAsOfDate for ${party.name} is not a Date instance:`, party.openingBalanceAsOfDate);
-            // Attempt a failsafe parse, though this indicates a data integrity problem earlier.
-            try {
-                obDate = new Date(party.openingBalanceAsOfDate.toString());
-                if (isNaN(obDate.getTime())) obDate = undefined; // Invalid date parsed
-            } catch (e) { obDate = undefined; }
-        }
-    }
-    
-    console.log(`SERVER ACTION (Dashboard): Party: ${party.name}, Parsed OB Date for check: ${obDate?.toISOString()}`);
+    console.log(`SERVER ACTION (Dashboard): Processing party ${party.name} (Type: ${party.type}) for OB. Numeric OB Value: ${numericOpeningBalance}, OB Date: ${obDate?.toISOString()}`);
 
-    if (party.openingBalance !== undefined && party.openingBalance !== 0 && obDate && obDate <= clientEndDate) {
+    if (numericOpeningBalance !== 0 && obDate && obDate <= clientEndDate) {
       console.log(`SERVER ACTION (Dashboard): OB for ${party.name} IS relevant. Condition: (OB Date ${obDate.toISOString()} <= Client End Date ${clientEndDate.toISOString()}) is TRUE.`);
       if (party.type === 'Customer' || party.type === 'Employee') {
-        initialBalance = party.openingBalance;
+        initialBalance = numericOpeningBalance;
       } else if (party.type === 'Supplier') {
-        initialBalance = -party.openingBalance; 
+        initialBalance = -numericOpeningBalance; 
       }
-      console.log(`SERVER ACTION (Dashboard): --> Initial balance for ${party.name} set to: ${initialBalance} (Raw OB: ${party.openingBalance})`);
+      console.log(`SERVER ACTION (Dashboard): --> Initial balance for ${party.name} set to: ${initialBalance} (Raw Numeric OB: ${numericOpeningBalance})`);
     } else {
-      if (party.openingBalance !== undefined && party.openingBalance !== 0) {
-          const reason = !obDate ? "OB Date is undefined/invalid" : !(obDate <= clientEndDate) ? `OB Date ${obDate.toISOString()} > Client End Date ${clientEndDate.toISOString()}` : "Unknown reason";
-          console.log(`SERVER ACTION (Dashboard): OB for ${party.name} NOT relevant or not applied. Reason: ${reason}. Raw OB: ${party.openingBalance}.`);
-      } else {
-          console.log(`SERVER ACTION (Dashboard): No OB or OB is zero for ${party.name}. Raw OB: ${party.openingBalance}`);
-      }
+      const reasonParts = [];
+      if (numericOpeningBalance === 0) reasonParts.push("OB is zero");
+      if (!obDate) reasonParts.push("OB Date is undefined");
+      if (obDate && !(obDate <= clientEndDate)) reasonParts.push(`OB Date ${obDate.toISOString()} > Client End Date ${clientEndDate.toISOString()}`);
+      const reason = reasonParts.length > 0 ? reasonParts.join("; ") : "Unknown reason or OB is zero/undefined";
+      console.log(`SERVER ACTION (Dashboard): OB for ${party.name} NOT relevant or not applied. Reason: ${reason}. Raw Numeric OB: ${numericOpeningBalance}.`);
     }
-    partyBalances.set(party.name, initialBalance);
+    partyBalances.set(party.name, initialBalance); // initialBalance is now definitely a number
   });
 
 
@@ -125,8 +109,8 @@ export async function getDashboardSummaryAndChartData(
       summary.milkPurchasedLitres += entry.quantityLtr || 0;
       summary.milkPurchasedAmount += entry.totalAmount || 0;
 
-      const currentBalance = partyBalances.get(entry.customerName) || 0;
-      partyBalances.set(entry.customerName, currentBalance - (entry.netAmountPayable || 0));
+      const currentBalance = partyBalances.get(entry.customerName) || 0; // customerName here is the milk supplier party
+      partyBalances.set(entry.customerName, currentBalance - (entry.netAmountPayable || 0)); // Ensure numeric operation
 
       if (entry.date) {
         const entryDateStr = format(entry.date.toDate(), "MMM dd");
@@ -164,10 +148,10 @@ export async function getDashboardSummaryAndChartData(
 
       if (entry.paymentType === "Cash") {
         summary.totalCashIn += currentSaleAmount;
-      } else if (entry.paymentType === "Credit" && entry.customerName) { // Ensure customerName exists for credit sales
+      } else if (entry.paymentType === "Credit" && entry.customerName) {
         summary.totalCreditOut += currentSaleAmount;
         const currentBalance = partyBalances.get(entry.customerName) || 0;
-        partyBalances.set(entry.customerName, currentBalance + currentSaleAmount);
+        partyBalances.set(entry.customerName, currentBalance + currentSaleAmount); // Ensure numeric operation
       }
       
       if (entry.date) {
@@ -197,10 +181,10 @@ export async function getDashboardSummaryAndChartData(
 
         if (entry.paymentType === "Cash") {
             summary.totalCashIn += currentSaleAmount;
-        } else if (entry.paymentType === "Credit" && entry.customerName) { // Ensure customerName exists for credit sales
+        } else if (entry.paymentType === "Credit" && entry.customerName) {
             summary.totalCreditOut += currentSaleAmount;
             const currentBalance = partyBalances.get(entry.customerName) || 0;
-            partyBalances.set(entry.customerName, currentBalance + currentSaleAmount);
+            partyBalances.set(entry.customerName, currentBalance + currentSaleAmount); // Ensure numeric operation
         }
 
         if (entry.date) {
@@ -223,25 +207,26 @@ export async function getDashboardSummaryAndChartData(
     paymentEntriesSnapshot.forEach(doc => {
       const entry = doc.data() as Omit<PaymentEntry, 'id' | 'date'> & { date: Timestamp };
       const currentPartyBalance = partyBalances.get(entry.partyName) || 0;
+      const paymentAmount = entry.amount || 0;
       
       if (entry.partyType === "Customer") {
         if (entry.type === "Received") { 
-          partyBalances.set(entry.partyName, currentPartyBalance - entry.amount); 
-          summary.totalCashIn += entry.amount; 
+          partyBalances.set(entry.partyName, currentPartyBalance - paymentAmount); 
+          summary.totalCashIn += paymentAmount; 
         } else if (entry.type === "Paid") { 
-          partyBalances.set(entry.partyName, currentPartyBalance + entry.amount); 
+          partyBalances.set(entry.partyName, currentPartyBalance + paymentAmount); 
         }
       } else if (entry.partyType === "Supplier") {
          if (entry.type === "Paid") { 
-            partyBalances.set(entry.partyName, currentPartyBalance + entry.amount); 
+            partyBalances.set(entry.partyName, currentPartyBalance + paymentAmount); 
          } else if (entry.type === "Received") { 
-            partyBalances.set(entry.partyName, currentPartyBalance - entry.amount); 
+            partyBalances.set(entry.partyName, currentPartyBalance - paymentAmount); 
          }
       } else if (entry.partyType === "Employee") {
          if (entry.type === "Paid") { 
-            partyBalances.set(entry.partyName, currentPartyBalance + entry.amount); 
+            partyBalances.set(entry.partyName, currentPartyBalance + paymentAmount); 
          } else if (entry.type === "Received") { 
-            partyBalances.set(entry.partyName, currentPartyBalance - entry.amount); 
+            partyBalances.set(entry.partyName, currentPartyBalance - paymentAmount); 
          }
       }
     });
@@ -268,7 +253,7 @@ export async function getDashboardSummaryAndChartData(
   
   let calculatedOutstanding = 0;
   console.log("SERVER ACTION (Dashboard): Calculating Total Outstanding Amount from final party balances:");
-  partyBalances.forEach((balance, partyName) => {
+  partyBalances.forEach((balance, partyName) => { // balance is now definitely a number
     const partyDetails = allParties.find(p => p.name === partyName);
     console.log(`SERVER ACTION (Dashboard): Final balance for ${partyName} (${partyDetails?.type || 'Unknown Type'}): ${balance.toFixed(2)}`);
     if (balance > 0) { 
