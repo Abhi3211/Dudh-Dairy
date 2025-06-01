@@ -47,7 +47,7 @@ interface NavItem {
 const staticUserRole: "admin" | "accountant" | "member" = "admin"; // This will be dynamic later
 
 const mainNavItems: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }, // Updated href
   { href: "/milk-collection", label: "Milk Collection", icon: Milk },
   { href: "/sales", label: "Sales Entry", icon: ShoppingCart },
   { href: "/bulk-sales", label: "Bulk Sales", icon: Truck },
@@ -69,7 +69,7 @@ export function SidebarNav() {
     try {
       await signOut(auth);
       toast({ title: "Logged Out", description: "You have been successfully logged out." });
-      router.push("/login");
+      router.push("/login"); // Ensure redirect to login on logout
       setOpenMobile(false);
     } catch (error) {
       console.error("Logout error:", error);
@@ -95,8 +95,8 @@ export function SidebarNav() {
       return true;
     })
     .sort((a, b) => {
-      if (a.href === "/") return -1;
-      if (b.href === "/") return 1;
+      if (a.href === "/dashboard") return -1; // Updated for /dashboard
+      if (b.href === "/dashboard") return 1; // Updated for /dashboard
       if (a.href === "/profit-loss") return 1;
       if (b.href === "/profit-loss") return -1;
       const indexA = middleItemsOrder.indexOf(a.href);

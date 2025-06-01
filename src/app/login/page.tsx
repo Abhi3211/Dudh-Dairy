@@ -13,7 +13,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { LogIn, Mail, KeyRound } from "lucide-react";
 import { usePageTitle } from "@/context/PageTitleContext";
 import { useUserSession } from "@/context/UserSessionContext"; 
-import Link from "next/link"; // Added Link for navigation
+import Link from "next/link";
 
 export default function LoginPage() {
   const { setPageTitle } = usePageTitle();
@@ -33,7 +33,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && firebaseUser) {
-      router.replace("/");
+      router.replace("/dashboard"); // Redirect to dashboard if already logged in
     }
   }, [firebaseUser, authLoading, router]);
 
@@ -44,7 +44,7 @@ export default function LoginPage() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       toast({ title: "Success", description: "Logged in successfully!" });
-      router.push("/");
+      router.push("/dashboard"); // Redirect to dashboard after successful login
     } catch (error: any) {
       console.error("Login error:", error);
       toast({
