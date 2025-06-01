@@ -4,7 +4,7 @@
 import { db } from '@/lib/firebase';
 import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry, PurchaseEntry, Party } from '@/lib/types'; 
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { eachDayOfInterval, format, startOfDay, endOfDay, isBefore, isEqual } from 'date-fns'; // Added isBefore, isEqual
+import { eachDayOfInterval, format, startOfDay, endOfDay, isBefore, isEqual } from 'date-fns';
 import { getPartiesFromFirestore } from '../parties/actions';
 
 async function getPashuAaharProductNamesFromPurchases(): Promise<string[]> {
@@ -38,13 +38,13 @@ export async function getDashboardSummaryAndChartData(
   const knownPashuAaharProductsLower = (await getPashuAaharProductNamesFromPurchases()).map(name => name.toLowerCase());
   console.log("SERVER ACTION (Dashboard): Fetched known Pashu Aahar product names for sales calculation:", knownPashuAaharProductsLower);
 
-  const summary: DailySummary = {
+  const summary: Omit<DailySummary, 'totalOutstandingAmount'> = { // Type updated
     milkPurchasedLitres: 0, milkPurchasedAmount: 0,
     milkSoldLitres: 0, milkSoldAmount: 0,
     bulkMilkSoldLitres: 0, bulkMilkSoldAmount: 0,
     gheeSalesAmount: 0, pashuAaharSalesAmount: 0,
     totalCashIn: 0, totalCreditOut: 0,
-    totalOutstandingAmount: 0,
+    // totalOutstandingAmount: 0, // Removed
   };
 
   const daysInRange = eachDayOfInterval({ start: clientStartDate, end: clientEndDate });
@@ -56,37 +56,35 @@ export async function getDashboardSummaryAndChartData(
 
   const allParties = await getPartiesFromFirestore();
   console.log(`SERVER ACTION (Dashboard): Fetched ${allParties.length} parties for balance initialization.`);
-  const partyBalances = new Map<string, number>();
+  const partyBalances = new Map<string, number>(); // This map might still be useful for other future calculations or detailed views, so we keep its logic for now.
 
-  // Step 1: Initialize partyBalances with Opening Balances
-  // An opening balance is considered if its 'asOfDate' is on or before the clientEndDate of the dashboard period.
   allParties.forEach(party => {
-    let initialBalanceForParty = 0;
-    const numericOpeningBalance = party.openingBalance || 0; // Ensured to be number by getPartiesFromFirestore
-    const obDate: Date | undefined = party.openingBalanceAsOfDate; // Ensured to be Date | undefined
+    const numericOpeningBalance = party.openingBalance || 0;
+    const obDate: Date | undefined = party.openingBalanceAsOfDate;
 
     console.log(`SERVER ACTION (Dashboard): Processing OB for Party: ${party.name} (Type: ${party.type}, ID: ${party.id}). Raw OB Value: ${numericOpeningBalance}, OB Date: ${obDate?.toISOString()}`);
-
+    
+    let initialBalanceForParty = 0;
     let applyOB = false;
     if (numericOpeningBalance !== 0) {
-      if (obDate) { // If OB date exists
-        if (isBefore(obDate, clientEndDate) || isEqual(obDate, clientEndDate) || isEqual(startOfDay(obDate), startOfDay(clientEndDate))) { // on or before clientEndDate
+      if (obDate) {
+        if (isBefore(obDate, clientEndDate) || isEqual(obDate, clientEndDate) || isEqual(startOfDay(obDate), startOfDay(clientEndDate))) {
           applyOB = true;
           console.log(`SERVER ACTION (Dashboard): OB for ${party.name} IS relevant for period. Date condition: (OB Date ${obDate.toISOString()} <= Period End Date ${clientEndDate.toISOString()}) is TRUE.`);
         } else {
           console.log(`SERVER ACTION (Dashboard): OB for ${party.name} NOT relevant for period. Date condition: (OB Date ${obDate.toISOString()} > Period End Date ${clientEndDate.toISOString()}) is FALSE.`);
         }
       } else { // obDate is undefined, but numericOpeningBalance is non-zero
-        applyOB = true; // Assume it's a pre-existing historical balance relevant up to any end date.
+        applyOB = true;
         console.log(`SERVER ACTION (Dashboard): OB for ${party.name} IS relevant for period. OB Date is undefined, applying as pre-existing historical balance.`);
       }
     }
 
     if (applyOB) {
       if (party.type === 'Customer' || party.type === 'Employee') {
-        initialBalanceForParty = numericOpeningBalance; // Positive: Party owes Dairy
+        initialBalanceForParty = numericOpeningBalance;
       } else if (party.type === 'Supplier') {
-        initialBalanceForParty = -numericOpeningBalance; // Positive party.openingBalance means Dairy owes Supplier -> negative on dairy's books
+        initialBalanceForParty = -numericOpeningBalance;
       }
       console.log(`SERVER ACTION (Dashboard): --> Initial balance for ${party.name} (from OB) set to: ${initialBalanceForParty.toFixed(2)} (Based on Raw Numeric OB: ${numericOpeningBalance})`);
     } else {
@@ -97,10 +95,7 @@ export async function getDashboardSummaryAndChartData(
     partyBalances.set(party.name, initialBalanceForParty);
   });
 
-  // Step 2: Process transactions *within the selected dashboard period* (clientStartDate to clientEndDate)
-  // These transactions will adjust the balances initialized in Step 1.
   try {
-    // Fetch Milk Collections
     const milkCollectionsQuery = query(
       collection(db, 'milkCollections'),
       where('date', '>=', firestorePeriodStart),
@@ -130,7 +125,6 @@ export async function getDashboardSummaryAndChartData(
       }
     });
 
-    // Fetch Sales Entries (Retail Sales)
     const salesEntriesQuery = query(
       collection(db, 'salesEntries'),
       where('date', '>=', firestorePeriodStart),
@@ -178,7 +172,6 @@ export async function getDashboardSummaryAndChartData(
       }
     });
 
-    // Fetch Bulk Sales Entries
     const bulkSalesEntriesQuery = query(
       collection(db, 'bulkSalesEntries'),
       where('date', '>=', firestorePeriodStart),
@@ -217,7 +210,6 @@ export async function getDashboardSummaryAndChartData(
         }
     });
 
-    // Fetch Payment Entries
     const paymentEntriesQuery = query(
       collection(db, 'paymentEntries'),
       where('date', '>=', firestorePeriodStart),
@@ -252,20 +244,20 @@ export async function getDashboardSummaryAndChartData(
         if (entry.type === "Received") { 
           newBalance = currentPartyBalance - paymentAmount; 
           summary.totalCashIn += paymentAmount; 
-        } else if (entry.type === "Paid") { // e.g. refund to customer
+        } else if (entry.type === "Paid") {
           newBalance = currentPartyBalance + paymentAmount; 
         } else { validPaymentType = false; }
       } else if (entry.partyType === "Supplier") {
          if (entry.type === "Paid") { 
             newBalance = currentPartyBalance + paymentAmount; 
-         } else if (entry.type === "Received") { // e.g. refund from supplier
+         } else if (entry.type === "Received") { 
             newBalance = currentPartyBalance - paymentAmount; 
             summary.totalCashIn += paymentAmount; 
          } else { validPaymentType = false; }
       } else if (entry.partyType === "Employee") {
-         if (entry.type === "Paid") { // e.g. salary
+         if (entry.type === "Paid") { 
             newBalance = currentPartyBalance + paymentAmount; 
-         } else if (entry.type === "Received") { // e.g. employee paying back loan
+         } else if (entry.type === "Received") {
             newBalance = currentPartyBalance - paymentAmount; 
             summary.totalCashIn += paymentAmount;
          } else { validPaymentType = false; }
@@ -282,30 +274,15 @@ export async function getDashboardSummaryAndChartData(
 
   } catch (error) {
     console.error("SERVER ACTION (Dashboard): Error fetching dashboard transaction data from Firestore:", error);
-    // Return a default state if error occurs during transaction fetching
-    const defaultSummary: DailySummary = {
+    const defaultSummary: Omit<DailySummary, 'totalOutstandingAmount'> = {
         milkPurchasedLitres: 0, milkPurchasedAmount: 0, milkSoldLitres: 0, milkSoldAmount: 0,
         bulkMilkSoldLitres: 0, bulkMilkSoldAmount: 0, gheeSalesAmount: 0, pashuAaharSalesAmount: 0,
-        totalCashIn: 0, totalCreditOut: 0, totalOutstandingAmount: 0,
+        totalCashIn: 0, totalCreditOut: 0,
     };
-    return { summary: defaultSummary, chartSeries: [] };
+    return { summary: defaultSummary as DailySummary, chartSeries: [] }; // Cast back for return
   }
   
-  // Step 3: Calculate final "Total Outstanding Amount"
-  // This sums positive balances from the partyBalances map, which now reflects OBs + in-period transactions.
-  let calculatedOutstanding = 0;
-  console.log("SERVER ACTION (Dashboard): Calculating Total Outstanding Amount from final party balances (OBs + Period Transactions):");
-  partyBalances.forEach((balance, partyName) => { 
-    const partyDetails = allParties.find(p => p.name === partyName);
-    console.log(`SERVER ACTION (Dashboard): Final balance for ${partyName} (Type: ${partyDetails?.type || 'Unknown Type'}, ID: ${partyDetails?.id || 'N/A'}): ${balance.toFixed(2)}`);
-    // Only sum if the final balance is positive (party owes dairy)
-    if (balance > 0) { 
-      calculatedOutstanding += balance;
-      console.log(`SERVER ACTION (Dashboard): --> Added ${balance.toFixed(2)} to outstanding. Current calculatedOutstanding: ${calculatedOutstanding.toFixed(2)}`);
-    }
-  });
-  summary.totalOutstandingAmount = parseFloat(calculatedOutstanding.toFixed(2));
-  console.log("SERVER ACTION (Dashboard): Final Calculated Total Outstanding Amount (Receivables):", summary.totalOutstandingAmount);
+  // Removed calculation for totalOutstandingAmount
   
   const chartSeries: ChartDataPoint[] = daysInRange.map(day => {
     const formattedDate = format(day, "MMM dd");
@@ -316,7 +293,6 @@ export async function getDashboardSummaryAndChartData(
     };
   });
   
-  // Final rounding for summary display
   summary.milkPurchasedLitres = parseFloat(summary.milkPurchasedLitres.toFixed(1));
   summary.milkPurchasedAmount = parseFloat(summary.milkPurchasedAmount.toFixed(2));
   summary.milkSoldLitres = parseFloat(summary.milkSoldLitres.toFixed(1));
@@ -329,5 +305,5 @@ export async function getDashboardSummaryAndChartData(
   summary.totalCreditOut = parseFloat(summary.totalCreditOut.toFixed(2));
   
   console.log("SERVER ACTION (Dashboard): Dashboard data processed. Summary:", JSON.parse(JSON.stringify(summary)), "ChartSeries Length:", chartSeries.length);
-  return { summary, chartSeries };
+  return { summary: summary as DailySummary, chartSeries }; // Cast back to DailySummary for return type
 }

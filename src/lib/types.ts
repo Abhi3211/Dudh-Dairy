@@ -131,7 +131,7 @@ export interface DailySummary {
   pashuAaharSalesAmount: number;
   totalCashIn: number;
   totalCreditOut: number;
-  totalOutstandingAmount: number;
+  // totalOutstandingAmount: number; // Removed
 }
 
 export interface ChartDataPoint {

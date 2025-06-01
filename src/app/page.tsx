@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { IndianRupee, Milk, Package, TrendingUp, TrendingDown, AlertCircle, Truck } from "lucide-react";
+import { IndianRupee, Milk, Package, TrendingUp, TrendingDown, Truck } from "lucide-react"; // Removed AlertCircle
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import type { DailySummary, ChartDataPoint, DashboardData } from "@/lib/types";
@@ -28,7 +28,7 @@ export default function DashboardPage() {
   const pageSpecificTitle = "Summary Dashboard";
   
   const router = useRouter();
-  const { firebaseUser, authLoading, userProfile } = useUserSession(); // Get userProfile too
+  const { firebaseUser, authLoading, userProfile } = useUserSession();
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -79,9 +79,8 @@ export default function DashboardPage() {
   }, [filterType, customStartDate, customEndDate]);
 
   const fetchData = useCallback(async () => {
-    // Ensure user is authenticated before fetching data
     if (authLoading || !firebaseUser) {
-      setIsLoading(false); // Stop loading if user is not authenticated
+      setIsLoading(false);
       return;
     }
 
@@ -101,8 +100,6 @@ export default function DashboardPage() {
 
     console.log(`CLIENT: Fetching data for range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
     try {
-      // TODO: Pass companyId to getDashboardSummaryAndChartData when multi-tenancy is fully implemented
-      // For now, it will fetch global data.
       const data: DashboardData = await getDashboardSummaryAndChartData(startDate, endDate);
       console.log("CLIENT: Data received from server action:", data);
       setSummary(data.summary);
@@ -143,9 +140,9 @@ export default function DashboardPage() {
     if (filterType === 'custom' && (customStartDate === undefined || customEndDate === undefined)) {
       return;
     }
-    if (!authLoading && firebaseUser) { // Only fetch if authenticated
+    if (!authLoading && firebaseUser) { 
         fetchData();
-    } else if (!authLoading && !firebaseUser) { // If not authenticated and not loading, clear data
+    } else if (!authLoading && !firebaseUser) { 
         setSummary(null);
         setChartData([]);
         setIsLoading(false);
@@ -166,7 +163,7 @@ export default function DashboardPage() {
       { title: "Pashu Aahar Sales", value: summary.pashuAaharSalesAmount.toFixed(2), icon: Package, unit: "₹" },
       { title: "Total Cash In", value: summary.totalCashIn.toFixed(2), icon: TrendingUp, unit: "₹" },
       { title: "Total Credit Out", value: summary.totalCreditOut.toFixed(2), icon: TrendingDown, unit: "₹" },
-      { title: "Total Outstanding", value: summary.totalOutstandingAmount.toFixed(2), icon: AlertCircle, unit: "₹", highlight: true },
+      // { title: "Total Outstanding", value: summary.totalOutstandingAmount.toFixed(2), icon: AlertCircle, unit: "₹", highlight: true }, // Removed
     ];
   }, [summary]);
 
@@ -174,8 +171,6 @@ export default function DashboardPage() {
     return <div className="flex justify-center items-center min-h-screen"><p>Loading user session...</p></div>;
   }
 
-  // If not authenticated (and not loading), this page content won't be rendered due to redirect.
-  // But as a fallback or if redirect fails, ensure nothing sensitive is shown.
   if (!firebaseUser) {
      return <div className="flex justify-center items-center min-h-screen"><p>Redirecting to login...</p></div>;
   }
@@ -220,7 +215,7 @@ export default function DashboardPage() {
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-6">
-          {Array(11).fill(0).map((_, index) => ( 
+          {Array(10).fill(0).map((_, index) => ( // Changed from 11 to 10
             <Card key={index}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <Skeleton className="h-4 w-3/5" /> <Skeleton className="h-5 w-5 rounded-full" />
