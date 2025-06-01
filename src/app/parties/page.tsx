@@ -153,8 +153,19 @@ export default function PartiesPage() {
   }, [allLedgerEntriesForParty, ledgerFilterStartDate, ledgerFilterEndDate, ledgerShiftFilter]);
 
   const currentOverallBalance = useMemo(() => {
-    return allLedgerEntriesForParty.length > 0 ? allLedgerEntriesForParty[allLedgerEntriesForParty.length - 1].balance : (selectedParty?.openingBalance || 0);
-  }, [allLedgerEntriesForParty, selectedParty]);
+    // The balance from the last entry in the ledger IS the current overall balance from dairy's perspective
+    // Positive means party owes dairy, negative means dairy owes party
+    if (filteredLedgerEntries.length > 0) {
+      return filteredLedgerEntries[filteredLedgerEntries.length - 1].balance;
+    }
+    // If no ledger entries for the period, but there's an OB, this interpretation depends on new OB convention.
+    // User entered positive OB: Dairy owes party. For dairy's perspective, this is negative.
+    // User entered negative OB: Party owes dairy. For dairy's perspective, this is positive.
+    if (selectedParty?.openingBalance) {
+        return -selectedParty.openingBalance; 
+    }
+    return 0;
+  }, [filteredLedgerEntries, selectedParty]);
 
 
   const handleAddPartySubmit = async (e: FormEvent) => {
@@ -176,7 +187,7 @@ export default function PartiesPage() {
     const partyData: Omit<Party, 'id'> = {
       name: newPartyName.trim(),
       type: newPartyType,
-      openingBalance: openingBalanceNum,
+      openingBalance: openingBalanceNum, // This is now stored as per the new universal convention
       openingBalanceAsOfDate: openingBalanceNum !== 0 ? newPartyOpeningBalanceDate : undefined,
     };
     
@@ -291,13 +302,9 @@ export default function PartiesPage() {
   }, [ledgerFilterStartDate, ledgerFilterEndDate]);
 
   const openingBalanceConventionText = useMemo(() => {
-    if (newPartyType === "Customer" || newPartyType === "Employee") {
-      return "Positive: Party owes Dairy. Negative: Dairy owes Party.";
-    } else if (newPartyType === "Supplier") {
-      return "Positive: Dairy owes Party. Negative: Party owes Dairy.";
-    }
-    return "";
-  }, [newPartyType]);
+    // Universal convention based on user feedback
+    return "Positive (+): Dairy owes this party (e.g., an advance from customer, or amount due to supplier). Negative (-): This party owes Dairy (e.g., customer dues).";
+  }, []);
 
 
   return (
@@ -332,13 +339,9 @@ export default function PartiesPage() {
                 <div className="flex-1">
                     <CardTitle>Transaction History for {selectedParty.name} <span className="text-sm font-normal text-muted-foreground">({selectedParty.type})</span></CardTitle>
                     <CardDescription className="mt-1">
-                        Current Overall Balance: <span className={`font-semibold ${currentOverallBalance === 0 ? '' : currentOverallBalance > 0 ? 'text-chart-4' : 'text-chart-3'}`}>₹{Math.abs(currentOverallBalance).toFixed(2)}</span>
-                        {currentOverallBalance > 0 && selectedParty.type === "Customer" && " (Owes to Dairy)"}
-                        {currentOverallBalance < 0 && selectedParty.type === "Customer" && " (Dairy Owes)"}
-                        {currentOverallBalance > 0 && selectedParty.type === "Supplier" && " (Dairy Owes)"}
-                        {currentOverallBalance < 0 && selectedParty.type === "Supplier" && " (Owes to Dairy)"}
-                        {currentOverallBalance > 0 && selectedParty.type === "Employee" && " (Owes to Dairy)"}
-                        {currentOverallBalance < 0 && selectedParty.type === "Employee" && " (Dairy Owes)"}
+                        Current Overall Balance (Dairy's Perspective): <span className={`font-semibold ${currentOverallBalance === 0 ? '' : currentOverallBalance > 0 ? 'text-chart-3' : 'text-chart-4'}`}>₹{Math.abs(currentOverallBalance).toFixed(2)}</span>
+                        {currentOverallBalance > 0 && " (Party Owes Dairy)"}
+                        {currentOverallBalance < 0 && " (Dairy Owes Party)"}
                         {currentOverallBalance === 0 && " (Settled)"}
                         <br />
                         Showing transactions {ledgerDateRangeDescription}
@@ -398,7 +401,7 @@ export default function PartiesPage() {
                         <TableCell>{entry.milkQuantityLtr ? `${entry.milkQuantityLtr.toFixed(1)}L` : '-'}</TableCell>
                         <TableCell className="text-right text-chart-4">{entry.debit && entry.debit !== 0 ? entry.debit.toFixed(2) : "-"}</TableCell>
                         <TableCell className="text-right text-chart-3">{entry.credit && entry.credit !== 0 ? entry.credit.toFixed(2) : "-"}</TableCell>
-                        <TableCell className={`text-right font-semibold ${entry.balance === 0 ? '' : entry.balance > 0 ? 'text-chart-4' : 'text-chart-3'}`}>{entry.balance.toFixed(2)}</TableCell>
+                        <TableCell className={`text-right font-semibold ${entry.balance === 0 ? '' : entry.balance > 0 ? 'text-chart-3' : 'text-chart-4'}`}>{entry.balance.toFixed(2)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -406,7 +409,7 @@ export default function PartiesPage() {
                     <TableFooter>
                         <TableRow>
                             <TableCell colSpan={6} className="text-right font-semibold">Final Balance for Period:</TableCell>
-                            <TableCell className={`text-right font-bold ${filteredLedgerEntries[filteredLedgerEntries.length -1].balance === 0 ? '' : filteredLedgerEntries[filteredLedgerEntries.length -1].balance > 0 ? 'text-chart-4' : 'text-chart-3'}`}>
+                            <TableCell className={`text-right font-bold ${filteredLedgerEntries[filteredLedgerEntries.length -1].balance === 0 ? '' : filteredLedgerEntries[filteredLedgerEntries.length -1].balance > 0 ? 'text-chart-3' : 'text-chart-4'}`}>
                                 {filteredLedgerEntries[filteredLedgerEntries.length -1].balance.toFixed(2)}
                             </TableCell>
                         </TableRow>
@@ -477,6 +480,7 @@ export default function PartiesPage() {
                         <TableCell>{party.name}</TableCell>
                         <TableCell>{party.type}</TableCell>
                         <TableCell className={party.openingBalance && party.openingBalance < 0 ? 'text-chart-3' : party.openingBalance && party.openingBalance > 0 ? 'text-chart-4' : ''}>
+                          {/* Displaying the raw entered OB. Positive means Dairy Owes, Negative means Party Owes. */}
                           {party.openingBalance !== undefined && party.openingBalance !== 0 ? party.openingBalance.toFixed(2) : "-"}
                         </TableCell>
                         <TableCell>
@@ -510,3 +514,6 @@ export default function PartiesPage() {
     </div>
   );
 }
+
+
+    

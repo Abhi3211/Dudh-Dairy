@@ -2,7 +2,7 @@
 'use server';
 
 import { db } from '@/lib/firebase';
-import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry, PurchaseEntry, Party } from '@/lib/types'; 
+import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry, PurchaseEntry, Party, UserProfile } from '@/lib/types'; 
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { eachDayOfInterval, format, startOfDay, endOfDay, isBefore, isEqual } from 'date-fns';
 import { getPartiesFromFirestore } from '../parties/actions';
@@ -56,15 +56,18 @@ export async function getDashboardSummaryAndChartData(
 
   const allParties = await getPartiesFromFirestore();
   console.log(`SERVER ACTION (Dashboard): Fetched ${allParties.length} parties for balance initialization.`);
-  const partyBalances = new Map<string, number>();
+  const partyBalances = new Map<string, number>(); // Key: party.name, Value: balance from dairy's perspective (+ve means party owes dairy)
 
   allParties.forEach(party => {
+    // numericOpeningBalance is the value entered by user. Universal convention:
+    // Positive: Dairy owes Party
+    // Negative: Party owes Dairy
     const numericOpeningBalance = party.openingBalance || 0; 
     const obDate: Date | undefined = party.openingBalanceAsOfDate; 
 
-    console.log(`SERVER ACTION (Dashboard): Processing OB for Party: ${party.name} (Type: ${party.type}, ID: ${party.id}). Raw Numeric OB: ${numericOpeningBalance}, OB Date: ${obDate?.toISOString()}`);
+    console.log(`SERVER ACTION (Dashboard): Processing OB for Party: ${party.name} (Type: ${party.type}, ID: ${party.id}). User-entered OB: ${numericOpeningBalance}, OB Date: ${obDate?.toISOString()}`);
     
-    let initialBalanceForParty = 0;
+    let initialBalanceForParty = 0; // This will be from Dairy's perspective
     let applyOB = false;
 
     if (numericOpeningBalance !== 0) {
@@ -76,22 +79,20 @@ export async function getDashboardSummaryAndChartData(
           console.log(`SERVER ACTION (Dashboard): OB for ${party.name} NOT relevant for period end. Date condition: (OB Date ${obDate.toISOString()} > Period End Date ${clientEndDate.toISOString()}) is FALSE.`);
         }
       } else { 
-        applyOB = true;
+        applyOB = true; // Historical balance with no date, always apply
         console.log(`SERVER ACTION (Dashboard): OB for ${party.name} IS relevant for period end. OB Date is undefined, applying as pre-existing historical balance.`);
       }
     }
 
-
     if (applyOB) {
-      if (party.type === 'Customer' || party.type === 'Employee') {
-        initialBalanceForParty = numericOpeningBalance; 
-      } else if (party.type === 'Supplier') {
-        initialBalanceForParty = -numericOpeningBalance; 
-      }
-      console.log(`SERVER ACTION (Dashboard): --> Initial balance for ${party.name} (from OB) set to: ${initialBalanceForParty.toFixed(2)} (Based on Raw Numeric OB: ${numericOpeningBalance})`);
+      // Convert user-entered OB to dairy's perspective for partyBalances map:
+      // If user entered +100 (Dairy owes Party), map stores -100.
+      // If user entered -50 (Party owes Dairy), map stores +50.
+      initialBalanceForParty = -numericOpeningBalance; 
+      console.log(`SERVER ACTION (Dashboard): --> Initial balance (Dairy's perspective) for ${party.name} (Type: ${party.type}) set to: ${initialBalanceForParty.toFixed(2)} (Based on User Input OB: ${numericOpeningBalance})`);
     } else {
       if (numericOpeningBalance !== 0) { 
-         console.log(`SERVER ACTION (Dashboard): OB for ${party.name} of ${numericOpeningBalance} NOT applied as initial for this period. Initial balance remains ${initialBalanceForParty.toFixed(2)}.`);
+         console.log(`SERVER ACTION (Dashboard): User-entered OB for ${party.name} of ${numericOpeningBalance} NOT applied as initial for this period. Initial balance (Dairy's perspective) remains ${initialBalanceForParty.toFixed(2)}.`);
       }
     }
     partyBalances.set(party.name, initialBalanceForParty);
@@ -109,14 +110,15 @@ export async function getDashboardSummaryAndChartData(
       const entry = doc.data() as Omit<MilkCollectionEntry, 'id' | 'date'> & { date: Timestamp };
       summary.milkPurchasedLitres += entry.quantityLtr || 0;
       summary.milkPurchasedAmount += entry.totalAmount || 0;
-      const netAmountPayable = entry.netAmountPayable || 0;
+      const netAmountPayable = entry.netAmountPayable || 0; // Amount Dairy owes for this collection
 
       if (!partyBalances.has(entry.customerName)) {
         console.warn(`SERVER ACTION (Dashboard): Unknown party (milk supplier) "${entry.customerName}" in milk collection entry ID ${doc.id}. Balance not updated from this transaction.`);
       } else {
         const currentBalance = partyBalances.get(entry.customerName) || 0;
+        // Dairy owes more for milk -> party's balance (from dairy's perspective) becomes more negative or less positive
         partyBalances.set(entry.customerName, currentBalance - netAmountPayable); 
-        console.log(`SERVER ACTION (Dashboard): Milk Collection from ${entry.customerName}. Balance updated from ${currentBalance.toFixed(2)} to ${(currentBalance - netAmountPayable).toFixed(2)} (Dairy owes more/paid less)`);
+        console.log(`SERVER ACTION (Dashboard): Milk Collection from ${entry.customerName}. Balance updated from ${currentBalance.toFixed(2)} to ${(currentBalance - netAmountPayable).toFixed(2)} (Dairy owes more)`);
       }
 
       if (entry.date) {
@@ -158,8 +160,9 @@ export async function getDashboardSummaryAndChartData(
             } else {
                 const currentBalance = partyBalances.get(entry.customerName) || 0;
                 console.log(`SERVER ACTION (Dashboard): Processing Credit Sale for ${entry.customerName} (Retail). Original Balance from map: ${currentBalance.toFixed(2)}, Sale Amount: ${currentSaleAmount.toFixed(2)}`);
+                // Customer owes more for credit sale -> party's balance (from dairy's perspective) becomes more positive
                 partyBalances.set(entry.customerName, currentBalance + currentSaleAmount);
-                console.log(`SERVER ACTION (Dashboard): Credit Sale to ${entry.customerName} (Retail). Balance updated to ${(currentBalance + currentSaleAmount).toFixed(2)}`);
+                console.log(`SERVER ACTION (Dashboard): Credit Sale to ${entry.customerName} (Retail). Balance updated to ${(currentBalance + currentSaleAmount).toFixed(2)} (Party owes more)`);
             }
         } else {
             console.warn(`SERVER ACTION (Dashboard): Retail sales entry ID ${doc.id} is 'Credit' but has no customerName. Balance not updated from this credit sale.`);
@@ -197,8 +200,9 @@ export async function getDashboardSummaryAndChartData(
                 } else {
                     const currentBalance = partyBalances.get(entry.customerName) || 0;
                     console.log(`SERVER ACTION (Dashboard): Processing Credit Sale for ${entry.customerName} (Bulk). Original Balance from map: ${currentBalance.toFixed(2)}, Sale Amount: ${currentSaleAmount.toFixed(2)}`);
+                    // Customer owes more for credit sale
                     partyBalances.set(entry.customerName, currentBalance + currentSaleAmount); 
-                    console.log(`SERVER ACTION (Dashboard): Credit Sale to ${entry.customerName} (Bulk). Balance updated to ${(currentBalance + currentSaleAmount).toFixed(2)}`);
+                    console.log(`SERVER ACTION (Dashboard): Credit Sale to ${entry.customerName} (Bulk). Balance updated to ${(currentBalance + currentSaleAmount).toFixed(2)} (Party owes more)`);
                 }
             } else {
                  console.warn(`SERVER ACTION (Dashboard): Bulk sales entry ID ${doc.id} is 'Credit' but has no customerName. Balance not updated from this credit sale.`);
@@ -236,40 +240,24 @@ export async function getDashboardSummaryAndChartData(
           return;
       }
 
-      const currentPartyBalance = partyBalances.get(entry.partyName) || 0;
+      const currentPartyBalance = partyBalances.get(entry.partyName) || 0; // Dairy's perspective
       const paymentAmount = entry.amount;
       let newBalance = currentPartyBalance;
       let validPartyType = true;
       let validPaymentType = true;
 
-      if (entry.partyType === "Customer") {
-        if (entry.type === "Received") { 
-          newBalance = currentPartyBalance - paymentAmount; 
-          summary.totalCashIn += paymentAmount; 
-        } else if (entry.type === "Paid") { 
-          newBalance = currentPartyBalance + paymentAmount; 
-        } else { validPaymentType = false; }
-      } else if (entry.partyType === "Supplier") {
-         if (entry.type === "Paid") { 
-            newBalance = currentPartyBalance + paymentAmount; 
-         } else if (entry.type === "Received") { 
-            newBalance = currentPartyBalance - paymentAmount; 
-            summary.totalCashIn += paymentAmount; 
-         } else { validPaymentType = false; }
-      } else if (entry.partyType === "Employee") {
-         if (entry.type === "Paid") { 
-            newBalance = currentPartyBalance + paymentAmount; 
-         } else if (entry.type === "Received") { 
-            newBalance = currentPartyBalance - paymentAmount; 
-            summary.totalCashIn += paymentAmount;
-         } else { validPaymentType = false; }
-      } else { validPartyType = false; }
+      if (entry.type === "Received") { // Dairy received money
+        newBalance = currentPartyBalance - paymentAmount; // Party owes less, or Dairy owes more (advance)
+        summary.totalCashIn += paymentAmount; 
+      } else if (entry.type === "Paid") { // Dairy paid money
+        newBalance = currentPartyBalance + paymentAmount; // Party owes more, or Dairy owes less
+      } else { validPaymentType = false; }
 
-      if (validPartyType && validPaymentType) {
+
+      if (validPaymentType) { // Party type validation isn't strictly needed here if name matches
         partyBalances.set(entry.partyName, newBalance);
-        console.log(`SERVER ACTION (Dashboard): Payment for ${entry.partyName} (${entry.type} ${entry.partyType}). Balance updated from ${currentPartyBalance.toFixed(2)} to ${newBalance.toFixed(2)}`);
+        console.log(`SERVER ACTION (Dashboard): Payment for ${entry.partyName} (${entry.type} ${entry.partyType}). Balance (Dairy's perspective) updated from ${currentPartyBalance.toFixed(2)} to ${newBalance.toFixed(2)}`);
       } else {
-        if (!validPartyType) console.warn(`SERVER ACTION (Dashboard): Payment entry ID ${doc.id} has invalid partyType: "${entry.partyType}". Balance not updated.`);
         if (!validPaymentType) console.warn(`SERVER ACTION (Dashboard): Payment entry ID ${doc.id} for partyType "${entry.partyType}" has invalid payment type: "${entry.type}". Balance not updated.`);
       }
     });
@@ -284,15 +272,15 @@ export async function getDashboardSummaryAndChartData(
     return { summary: defaultSummary, chartSeries: [] };
   }
   
-  let sumOfAllPartyBalances = 0;
-  console.log("SERVER ACTION (Dashboard): Calculating Net Party Dues from final party balances:");
+  let sumOfAllPartyBalances = 0; // Dairy's perspective: +ve means party owes dairy, -ve means dairy owes party
+  console.log("SERVER ACTION (Dashboard): Calculating Net Party Dues from final party balances (Dairy's perspective):");
   partyBalances.forEach((balance, partyName) => {
     const partyDetails = allParties.find(p => p.name === partyName);
     console.log(`SERVER ACTION (Dashboard): Final balance for ${partyName} (Type: ${partyDetails?.type || 'Unknown'}, ID: ${partyDetails?.id || 'N/A'}): ${balance.toFixed(2)}`);
     sumOfAllPartyBalances += balance;
   });
   summary.netPartyDues = parseFloat(sumOfAllPartyBalances.toFixed(2)); 
-  console.log("SERVER ACTION (Dashboard): Sum of all party balances:", sumOfAllPartyBalances.toFixed(2));
+  console.log("SERVER ACTION (Dashboard): Sum of all party balances (Dairy's perspective):", sumOfAllPartyBalances.toFixed(2));
   console.log("SERVER ACTION (Dashboard): Final Calculated Net Party Dues:", summary.netPartyDues);
   
   const chartSeries: ChartDataPoint[] = daysInRange.map(day => {
@@ -319,3 +307,5 @@ export async function getDashboardSummaryAndChartData(
   return { summary, chartSeries };
 }
 
+
+    
