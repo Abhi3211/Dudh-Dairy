@@ -23,7 +23,7 @@ import {
   TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon, Download, Briefcase, FileText, IndianRupee, History } from "lucide-react"; 
+import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon, Download, Briefcase, FileText, IndianRupee, History, AlertCircle } from "lucide-react"; 
 import type { Party, PartyLedgerEntry } from "@/lib/types";
 import {
   AlertDialog,
@@ -41,7 +41,8 @@ import { format, startOfDay, endOfDay } from "date-fns";
 import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore, getPartyTransactions } from "./actions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { usePageTitle } from '@/context/PageTitleContext';
-import { parseEntryDate } from '@/lib/utils'; // Import from utils
+import { parseEntryDate } from '@/lib/utils'; 
+import { useUserSession } from "@/context/UserSessionContext";
 
 
 const partyTypes: Party['type'][] = ["Customer", "Supplier", "Employee"];
@@ -49,6 +50,8 @@ const partyTypes: Party['type'][] = ["Customer", "Supplier", "Employee"];
 export default function PartiesPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Parties & Ledgers";
+  const { firebaseUser, companyProfile, authLoading, profilesLoading } = useUserSession();
+  const companyId = companyProfile?.id;
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -77,9 +80,14 @@ export default function PartiesPage() {
   const [partyToDelete, setPartyToDelete] = useState<Party | null>(null);
 
   const fetchParties = useCallback(async () => {
+    if (!companyId) {
+      setParties([]);
+      setIsLoadingParties(false);
+      return;
+    }
     setIsLoadingParties(true);
     try {
-      const fetchedParties = await getPartiesFromFirestore();
+      const fetchedParties = await getPartiesFromFirestore(companyId);
       setParties(fetchedParties);
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties:", error);
@@ -87,10 +95,11 @@ export default function PartiesPage() {
     } finally {
       setIsLoadingParties(false);
     }
-  },[toast]);
+  },[toast, companyId]);
 
   useEffect(() => {
-    fetchParties();
+    if (authLoading || profilesLoading) return;
+
     if (ledgerFilterStartDate === undefined) {
         setLedgerFilterStartDate(startOfDay(new Date()));
     }
@@ -100,17 +109,23 @@ export default function PartiesPage() {
     if (newPartyOpeningBalanceDate === undefined) {
         setNewPartyOpeningBalanceDate(new Date());
     }
-  }, [fetchParties, ledgerFilterStartDate, ledgerFilterEndDate, newPartyOpeningBalanceDate]);
+    if (companyId) {
+      fetchParties();
+    } else {
+      setParties([]);
+      setIsLoadingParties(false);
+    }
+  }, [fetchParties, ledgerFilterStartDate, ledgerFilterEndDate, newPartyOpeningBalanceDate, companyId, authLoading, profilesLoading]);
 
   const selectedParty = useMemo(() => parties.find(p => p.id === selectedPartyId), [parties, selectedPartyId]);
 
   useEffect(() => {
     const fetchLedger = async () => {
-      if (selectedPartyId && selectedParty) { // Check selectedPartyId as well
+      if (selectedPartyId && selectedParty) { 
         setIsLoadingLedger(true);
-        console.log(`CLIENT: Fetching ledger for party: ${selectedParty.name}, type: ${selectedParty.type}`);
+        console.log(`CLIENT: Fetching ledger for party: ${selectedParty.name}, type: ${selectedParty.type}, company: ${selectedParty.companyId}`);
         try {
-          const transactions = await getPartyTransactions(selectedParty.id); // Pass partyId
+          const transactions = await getPartyTransactions(selectedParty.id); 
           setAllLedgerEntriesForParty(transactions);
           console.log(`CLIENT: Fetched ${transactions.length} ledger entries for ${selectedParty.name}`);
         } catch (error) {
@@ -125,7 +140,7 @@ export default function PartiesPage() {
       }
     };
     fetchLedger();
-  }, [selectedPartyId, selectedParty, toast]); // Depend on selectedPartyId
+  }, [selectedPartyId, selectedParty, toast]); 
 
   const filteredLedgerEntries = useMemo(() => {
     let filtered = allLedgerEntriesForParty;
@@ -153,14 +168,9 @@ export default function PartiesPage() {
   }, [allLedgerEntriesForParty, ledgerFilterStartDate, ledgerFilterEndDate, ledgerShiftFilter]);
 
   const currentOverallBalance = useMemo(() => {
-    // The balance from the last entry in the ledger IS the current overall balance from dairy's perspective
-    // Positive means party owes dairy, negative means dairy owes party
     if (filteredLedgerEntries.length > 0) {
       return filteredLedgerEntries[filteredLedgerEntries.length - 1].balance;
     }
-    // If no ledger entries for the period, but there's an OB, this interpretation depends on new OB convention.
-    // User entered positive OB: Dairy owes party. For dairy's perspective, this is negative.
-    // User entered negative OB: Party owes dairy. For dairy's perspective, this is positive.
     if (selectedParty?.openingBalance) {
         return -selectedParty.openingBalance; 
     }
@@ -170,6 +180,10 @@ export default function PartiesPage() {
 
   const handleAddPartySubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!companyId) {
+      toast({ title: "Error", description: "Company information is missing. Cannot add party.", variant: "destructive" });
+      return;
+    }
     if (!newPartyName.trim()) {
       toast({ title: "Error", description: "Party name cannot be empty.", variant: "destructive" });
       return;
@@ -184,10 +198,11 @@ export default function PartiesPage() {
         return;
     }
 
-    const partyData: Omit<Party, 'id'> = {
+    const partyData: Omit<Party, 'id'> & { companyId: string } = {
+      companyId, // Add companyId here
       name: newPartyName.trim(),
       type: newPartyType,
-      openingBalance: openingBalanceNum, // This is now stored as per the new universal convention
+      openingBalance: openingBalanceNum,
       openingBalanceAsOfDate: openingBalanceNum !== 0 ? newPartyOpeningBalanceDate : undefined,
     };
     
@@ -302,27 +317,55 @@ export default function PartiesPage() {
   }, [ledgerFilterStartDate, ledgerFilterEndDate]);
 
   const openingBalanceConventionText = useMemo(() => {
-    // Universal convention based on user feedback
     return "Positive (+): Dairy owes this party (e.g., an advance from customer, or amount due to supplier). Negative (-): This party owes Dairy (e.g., customer dues).";
   }, []);
 
+  const isFormDisabled = authLoading || profilesLoading || !companyId;
 
   return (
     <div>
       <PageHeader title={pageSpecificTitle} description="Manage parties and view their transaction ledgers." />
+      
+      {authLoading || profilesLoading ? (
+        <Card className="mb-6"><CardContent className="p-6"><Skeleton className="h-8 w-1/2" /></CardContent></Card>
+      ) : !companyId && firebaseUser ? (
+        <Card className="mb-6 border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Company Information Missing</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>Your user profile does not have company information associated with it. Parties cannot be managed or displayed.</p>
+          </CardContent>
+        </Card>
+      ) : !firebaseUser ? (
+         <Card className="mb-6 border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Not Logged In</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>You need to be logged in to manage parties.</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
 
       <div className="mb-6">
         <Label htmlFor="partySelect">Select Party to View Ledger</Label>
-        {isLoadingParties && parties.length === 0 ? ( 
+        {(isLoadingParties || isFormDisabled) && parties.length === 0 && companyId ? ( 
           <Skeleton className="h-10 w-full md:w-1/3" />
         ) : (
-          <Select value={selectedPartyId} onValueChange={setSelectedPartyId} disabled={parties.length === 0 && !isLoadingParties}>
+          <Select 
+            value={selectedPartyId} 
+            onValueChange={setSelectedPartyId} 
+            disabled={(parties.length === 0 && !isLoadingParties) || isFormDisabled}
+          >
             <SelectTrigger id="partySelect" className="w-full md:w-1/3">
               <SelectValue placeholder="Select a party" />
             </SelectTrigger>
             <SelectContent>
-              {parties.length === 0 && !isLoadingParties && <SelectItem value="no-parties" disabled>No parties found. Add one below.</SelectItem>}
-              {isLoadingParties && <SelectItem value="loading" disabled>Loading parties...</SelectItem>}
+              {parties.length === 0 && !isLoadingParties && companyId && <SelectItem value="no-parties" disabled>No parties found for this company. Add one below.</SelectItem>}
+              {!companyId && !authLoading && !profilesLoading && <SelectItem value="no-company" disabled>Login or set up company.</SelectItem>}
+              {isLoadingParties && companyId && <SelectItem value="loading" disabled>Loading parties...</SelectItem>}
               {parties.map(p => (
                 <SelectItem key={p.id} value={p.id}>{p.name} ({p.type})</SelectItem>
               ))}
@@ -331,7 +374,7 @@ export default function PartiesPage() {
         )}
       </div>
 
-      {selectedPartyId && selectedParty && (
+      {selectedPartyId && selectedParty && companyId && (
         <div className="mb-8">
           <Card>
             <CardHeader>
@@ -422,27 +465,29 @@ export default function PartiesPage() {
         </div>
       )}
 
-      {!selectedPartyId && !isLoadingParties && parties.length === 0 && (
-        <p className="text-center text-muted-foreground my-8">No parties found. Add one to get started.</p>
+      {((!selectedPartyId && !isLoadingParties && parties.length === 0) || !companyId) && !authLoading && !profilesLoading && (
+        <p className="text-center text-muted-foreground my-8">
+          {companyId ? "No parties found for this company. Add one to get started." : "Login or complete company setup to manage parties."}
+        </p>
       )}
-       {!selectedPartyId && isLoadingParties && !selectedParty && ( 
+       {(!selectedPartyId && isLoadingParties && companyId) && ( 
         <p className="text-center text-muted-foreground my-8">Loading parties...</p>
       )}
 
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         <Card>
-          <CardHeader><CardTitle>Add New Party</CardTitle><CardDescription>Create a new customer, supplier, or employee.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Add New Party</CardTitle><CardDescription>Create a new customer, supplier, or employee for your company.</CardDescription></CardHeader>
           <CardContent>
             <form onSubmit={handleAddPartySubmit} className="space-y-4">
-              <div><Label htmlFor="newPartyName" className="flex items-center mb-1"><User className="h-4 w-4 mr-2 text-muted-foreground" />Party Name</Label><Input id="newPartyName" value={newPartyName} onChange={(e) => setNewPartyName(e.target.value)} placeholder="Enter party name" required /></div>
-              <div><Label htmlFor="newPartyType" className="flex items-center mb-1"><Briefcase className="h-4 w-4 mr-2 text-muted-foreground" />Party Type</Label><Select value={newPartyType} onValueChange={(value: Party['type']) => setNewPartyType(value)}><SelectTrigger id="newPartyType"><SelectValue placeholder="Select party type" /></SelectTrigger><SelectContent>{partyTypes.map(type => (<SelectItem key={type} value={type}>{type}</SelectItem>))}</SelectContent></Select></div>
+              <div><Label htmlFor="newPartyName" className="flex items-center mb-1"><User className="h-4 w-4 mr-2 text-muted-foreground" />Party Name</Label><Input id="newPartyName" value={newPartyName} onChange={(e) => setNewPartyName(e.target.value)} placeholder="Enter party name" required disabled={isFormDisabled}/></div>
+              <div><Label htmlFor="newPartyType" className="flex items-center mb-1"><Briefcase className="h-4 w-4 mr-2 text-muted-foreground" />Party Type</Label><Select value={newPartyType} onValueChange={(value: Party['type']) => setNewPartyType(value)} disabled={isFormDisabled}><SelectTrigger id="newPartyType"><SelectValue placeholder="Select party type" /></SelectTrigger><SelectContent>{partyTypes.map(type => (<SelectItem key={type} value={type}>{type}</SelectItem>))}</SelectContent></Select></div>
               
               <div>
                 <Label htmlFor="newPartyOpeningBalance" className="flex items-center mb-1">
                   <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Opening Balance (₹)
                 </Label>
-                <Input id="newPartyOpeningBalance" type="number" step="0.01" value={newPartyOpeningBalance} onChange={(e) => setNewPartyOpeningBalance(e.target.value)} placeholder="e.g., 100 or -50" />
+                <Input id="newPartyOpeningBalance" type="number" step="0.01" value={newPartyOpeningBalance} onChange={(e) => setNewPartyOpeningBalance(e.target.value)} placeholder="e.g., 100 or -50" disabled={isFormDisabled}/>
                 <p className="text-xs text-muted-foreground mt-1">{openingBalanceConventionText}</p>
               </div>
               
@@ -454,22 +499,24 @@ export default function PartiesPage() {
                  <p className="text-xs text-muted-foreground mt-1">Required if opening balance is not zero. Defaults to today.</p>
               </div>
 
-              <Button type="submit" className="w-full" disabled={isSubmittingParty}><PlusCircle className="h-4 w-4 mr-2" /> {isSubmittingParty ? 'Adding...' : 'Add Party'}</Button>
+              <Button type="submit" className="w-full" disabled={isSubmittingParty || isFormDisabled}><PlusCircle className="h-4 w-4 mr-2" /> {isSubmittingParty ? 'Adding...' : 'Add Party'}</Button>
             </form>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Manage Parties</CardTitle><CardDescription>View and remove existing parties.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Manage Parties</CardTitle><CardDescription>View and remove existing parties for your company.</CardDescription></CardHeader>
           <CardContent>
-            {isLoadingParties && parties.length === 0 ? (
+            {(isLoadingParties || isFormDisabled) && parties.length === 0 && companyId ? (
               <div>
                 <Skeleton className="h-8 w-full mb-2" />
                 <Skeleton className="h-8 w-full mb-2" />
                 <Skeleton className="h-8 w-full" />
               </div>
-            ) : parties.length === 0 && !isLoadingParties ? (
-              <p className="text-muted-foreground text-center">No parties found. Add one to get started.</p>
+            ) : parties.length === 0 && !isLoadingParties && companyId ? (
+              <p className="text-muted-foreground text-center">No parties found for this company. Add one to get started.</p>
+            ) : !companyId && !authLoading && !profilesLoading ? (
+              <p className="text-muted-foreground text-center">Login or complete company setup to manage parties.</p>
             ) : (
               <div className="max-h-96 overflow-y-auto">
                 <Table>
@@ -480,14 +527,13 @@ export default function PartiesPage() {
                         <TableCell>{party.name}</TableCell>
                         <TableCell>{party.type}</TableCell>
                         <TableCell className={party.openingBalance && party.openingBalance < 0 ? 'text-chart-3' : party.openingBalance && party.openingBalance > 0 ? 'text-chart-4' : ''}>
-                          {/* Displaying the raw entered OB. Positive means Dairy Owes, Negative means Party Owes. */}
                           {party.openingBalance !== undefined && party.openingBalance !== 0 ? party.openingBalance.toFixed(2) : "-"}
                         </TableCell>
                         <TableCell>
                           {party.openingBalanceAsOfDate && party.openingBalance !== 0 ? format(parseEntryDate(party.openingBalanceAsOfDate), 'P') : "-"}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" onClick={() => openDeleteDialog(party)} disabled={isSubmittingParty}>
+                          <Button variant="ghost" size="icon" onClick={() => openDeleteDialog(party)} disabled={isSubmittingParty || isFormDisabled}>
                             <Trash2 className="h-4 w-4 text-destructive" /><span className="sr-only">Delete {party.name}</span>
                           </Button>
                         </TableCell>
@@ -505,7 +551,7 @@ export default function PartiesPage() {
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
           <AlertDialogContent>
             <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle>
-              <AlertDialogDescription>This action cannot be undone. This will permanently delete the party "{partyToDelete?.name}". Related transaction entries will NOT be deleted but will refer to a non-existent party.</AlertDialogDescription>
+              <AlertDialogDescription>This action cannot be undone. This will permanently delete the party "{partyToDelete?.name}" from your company. Related transaction entries will NOT be deleted but will refer to a non-existent party.</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter><AlertDialogCancel onClick={() => {setDeleteDialogOpen(false); setPartyToDelete(null);}}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteParty} className="bg-destructive hover:bg-destructive/90" disabled={isSubmittingParty}>{isSubmittingParty ? 'Deleting...' : 'Delete'}</AlertDialogAction></AlertDialogFooter>
           </AlertDialogContent>
@@ -514,6 +560,3 @@ export default function PartiesPage() {
     </div>
   );
 }
-
-
-    

@@ -76,7 +76,7 @@ export interface PurchaseEntry {
 
 export interface Party {
   id: string;
-  companyId?: string; // Will be set when creating party under a company context
+  companyId: string; 
   name: string;
   type: "Customer" | "Supplier" | "Employee";
   openingBalance?: number; // Positive: Party owes Dairy (Customer/Employee) or Dairy owes Party (Supplier). Negative: Vice-versa.
@@ -85,7 +85,7 @@ export interface Party {
 
 export interface PartyLedgerEntry {
   id: string;
-  companyId?: string;
+  companyId: string;
   date: Date;
   description: string;
   shift?: "Morning" | "Evening";
@@ -180,4 +180,3 @@ export interface FullProfitLossData {
   summary: ProfitLossSummaryData;
   chartSeries: PlChartDataPoint[];
 }
-
