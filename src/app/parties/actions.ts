@@ -15,24 +15,25 @@ export async function getPartiesFromFirestore(): Promise<Party[]> {
     const partySnapshot = await getDocs(q);
     const partyList = partySnapshot.docs.map(docSnapshot => {
       const data = docSnapshot.data();
+      
+      // Refined parsing for openingBalance and openingBalanceAsOfDate
+      const numericOpeningBalance = Number(data.openingBalance || 0);
       let openingBalanceDate: Date | undefined = undefined;
+
       if (data.openingBalanceAsOfDate) {
-        if (data.openingBalanceAsOfDate instanceof Timestamp) {
+        if (data.openingBalanceAsOfDate.toDate && typeof data.openingBalanceAsOfDate.toDate === 'function') {
+          // Firestore Timestamp
           openingBalanceDate = data.openingBalanceAsOfDate.toDate();
         } else if (data.openingBalanceAsOfDate instanceof Date) {
           openingBalanceDate = data.openingBalanceAsOfDate;
         } else {
-          openingBalanceDate = parseEntryDate(data.openingBalanceAsOfDate);
-        }
-      }
-
-      let numericOpeningBalance = 0;
-      if (data.openingBalance !== undefined && data.openingBalance !== null) {
-        const parsed = parseFloat(String(data.openingBalance));
-        if (!isNaN(parsed)) {
-          numericOpeningBalance = parsed;
-        } else {
-          console.warn(`SERVER ACTION (Parties): Could not parse openingBalance "${data.openingBalance}" for party ${data.name} (ID: ${docSnapshot.id}) as a number. Defaulting to 0.`);
+          // Attempt to parse if it's string, number, or other compatible format
+          const parsed = parseEntryDate(data.openingBalanceAsOfDate);
+          if (parsed && !isNaN(parsed.getTime())) {
+            openingBalanceDate = parsed;
+          } else {
+            console.warn(`SERVER ACTION (Parties): Could not parse openingBalanceAsOfDate "${data.openingBalanceAsOfDate}" for party ${data.name} (ID: ${docSnapshot.id}).`);
+          }
         }
       }
 
@@ -45,6 +46,9 @@ export async function getPartiesFromFirestore(): Promise<Party[]> {
       } as Party;
     });
     console.log("SERVER ACTION: Successfully fetched parties. Count:", partyList.length);
+    if (partyList.length > 0) {
+        console.log("SERVER ACTION: Sample fetched party data (first party):", JSON.parse(JSON.stringify(partyList[0])));
+    }
     return partyList;
   } catch (error) {
     console.error("SERVER ACTION: Error fetching parties from Firestore:", error);
@@ -68,7 +72,7 @@ export async function addPartyToFirestore(
     const dataToSave: any = {
       name: partyData.name,
       type: partyData.type,
-      openingBalance: typeof partyData.openingBalance === 'number' ? partyData.openingBalance : 0,
+      openingBalance: Number(partyData.openingBalance || 0), // Ensure it's a number
     };
 
     if (partyData.openingBalanceAsOfDate) {
@@ -125,19 +129,19 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
       console.error(`SERVER ACTION: Party with ID ${partyId} not found.`);
       return [];
     }
-    const partyData = partyDocSnap.data() as Party; // Assume this Party type has numeric openingBalance
+    const partyData = partyDocSnap.data() as Party; 
     const partyName = partyData.name;
     const partyType = partyData.type;
 
     let openingBalanceDateFromPartyDoc: Date | undefined = undefined;
-    if (partyData.openingBalanceAsOfDate) { // This should be a JS Date from getPartiesFromFirestore
+    if (partyData.openingBalanceAsOfDate) { 
         openingBalanceDateFromPartyDoc = parseEntryDate(partyData.openingBalanceAsOfDate);
     }
 
     const numericOpeningBalance = typeof partyData.openingBalance === 'number' ? partyData.openingBalance : 0;
 
     if (numericOpeningBalance !== 0) {
-      const openingDate = openingBalanceDateFromPartyDoc || new Date(0);
+      const openingDate = openingBalanceDateFromPartyDoc || new Date(0); // Default to epoch if no date
 
       let openingDebit = 0;
       let openingCredit = 0;
@@ -164,7 +168,7 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
     // Fetch Milk Collections
     if (partyType === "Customer") {
       const milkCollectionsQuery = query(
-        collection(db, 'milkCollections'), // This will need to change with multi-tenancy
+        collection(db, 'milkCollections'), 
         where('customerName', '==', partyName),
         orderBy('date', 'asc')
       );
@@ -188,7 +192,7 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
     // Fetch Retail Sales
     if (partyType === "Customer") {
       const salesQuery = query(
-        collection(db, 'salesEntries'), // This will need to change
+        collection(db, 'salesEntries'), 
         where('customerName', '==', partyName),
         where('paymentType', '==', 'Credit'),
         orderBy('date', 'asc')
@@ -211,7 +215,7 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
     // Fetch Bulk Sales
     if (partyType === "Customer") {
       const bulkSalesQuery = query(
-        collection(db, 'bulkSalesEntries'), // This will need to change
+        collection(db, 'bulkSalesEntries'), 
         where('customerName', '==', partyName),
         where('paymentType', '==', 'Credit'),
         orderBy('date', 'asc')
@@ -235,7 +239,7 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
     // Fetch Purchases
     if (partyType === "Supplier") {
       const purchasesQuery = query(
-        collection(db, 'purchaseEntries'), // This will need to change
+        collection(db, 'purchaseEntries'), 
         where('supplierName', '==', partyName),
         where('paymentType', '==', 'Credit'),
         orderBy('date', 'asc')
@@ -257,7 +261,7 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
 
     // Fetch Payment Entries
     const paymentsQuery = query(
-      collection(db, 'paymentEntries'), // This will need to change
+      collection(db, 'paymentEntries'), 
       where('partyName', '==', partyName),
       where('partyType', '==', partyType),
       orderBy('date', 'asc')
@@ -316,16 +320,16 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
       if (b.id.startsWith('ob-')) return 1;
 
       const typeOrder = (id: string) => {
-        if (id.startsWith('mc-') || id.startsWith('pu-')) return 1; // Collections/Purchases first (credits to party or debits from dairy)
-        if (id.startsWith('rs-') || id.startsWith('bs-')) return 2; // Sales next (debits to party)
-        // Payment logic: Received from Customer (credit to party balance), Paid to Supplier (debit to party balance)
-        if (id.startsWith('pa-') && (a.credit || 0) > 0 && (partyType === "Customer" || partyType === "Employee")) return 3; // Payment Received from Cust/Emp
-        if (id.startsWith('pa-') && (a.debit || 0) > 0 && partyType === "Supplier") return 3; // Payment Paid to Supplier
+        if (id.startsWith('mc-') || id.startsWith('pu-')) return 1; 
+        if (id.startsWith('rs-') || id.startsWith('bs-')) return 2; 
         
-        if (id.startsWith('pa-') && (a.debit || 0) > 0 && (partyType === "Customer" || partyType === "Employee")) return 4; // Payment Paid to Cust/Emp (e.g. refund)
-        if (id.startsWith('pa-') && (a.credit || 0) > 0 && partyType === "Supplier") return 4; // Payment Received from Supplier (e.g. refund)
+        if (id.startsWith('pa-') && (a.credit || 0) > 0 && (partyType === "Customer" || partyType === "Employee")) return 3; 
+        if (id.startsWith('pa-') && (a.debit || 0) > 0 && partyType === "Supplier") return 3; 
         
-        if (id.startsWith('pa-')) return 5; // Other payments
+        if (id.startsWith('pa-') && (a.debit || 0) > 0 && (partyType === "Customer" || partyType === "Employee")) return 4; 
+        if (id.startsWith('pa-') && (a.credit || 0) > 0 && partyType === "Supplier") return 4; 
+        
+        if (id.startsWith('pa-')) return 5; 
         return 6;
       };
       return typeOrder(a.id) - typeOrder(b.id);
@@ -345,4 +349,3 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
     return [];
   }
 }
-

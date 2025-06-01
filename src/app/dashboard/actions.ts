@@ -2,10 +2,10 @@
 'use server';
 
 import { db } from '@/lib/firebase';
-import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry, PurchaseEntry, Party } from '@/lib/types'; // Added PurchaseEntry, Party
+import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry, PurchaseEntry, Party } from '@/lib/types'; 
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { eachDayOfInterval, format, startOfDay, endOfDay } from 'date-fns';
-import { getPartiesFromFirestore } from '../parties/actions'; // Import to get party details
+import { getPartiesFromFirestore } from '../parties/actions'; 
 
 async function getPashuAaharProductNamesFromPurchases(): Promise<string[]> {
   const pashuAaharNames = new Set<string>();
@@ -63,23 +63,22 @@ export async function getDashboardSummaryAndChartData(
   });
 
   const partyBalances = new Map<string, number>();
-  const allParties = await getPartiesFromFirestore(); // This now returns parties with numeric openingBalance
+  const allParties = await getPartiesFromFirestore(); 
 
   console.log("SERVER ACTION (Dashboard): Initializing party balances. Client End Date for OB check:", clientEndDate.toISOString());
   allParties.forEach(party => {
     let initialBalance = 0;
-    // party.openingBalance is now guaranteed to be a number by getPartiesFromFirestore
     const numericOpeningBalance = party.openingBalance || 0; 
-    const obDate: Date | undefined = party.openingBalanceAsOfDate; // This is now Date | undefined
+    const obDate: Date | undefined = party.openingBalanceAsOfDate;
 
-    console.log(`SERVER ACTION (Dashboard): Processing party ${party.name} (Type: ${party.type}) for OB. Numeric OB Value: ${numericOpeningBalance}, OB Date: ${obDate?.toISOString()}`);
+    console.log(`SERVER ACTION (Dashboard): Processing party ${party.name} (Type: ${party.type}) for OB. Raw OB Value: ${numericOpeningBalance}, OB Date: ${obDate?.toISOString()}`);
 
     if (numericOpeningBalance !== 0 && obDate && obDate <= clientEndDate) {
       console.log(`SERVER ACTION (Dashboard): OB for ${party.name} IS relevant. Condition: (OB Date ${obDate.toISOString()} <= Client End Date ${clientEndDate.toISOString()}) is TRUE.`);
       if (party.type === 'Customer' || party.type === 'Employee') {
-        initialBalance = numericOpeningBalance;
+        initialBalance = numericOpeningBalance; // Positive: Party owes Dairy
       } else if (party.type === 'Supplier') {
-        initialBalance = -numericOpeningBalance; 
+        initialBalance = -numericOpeningBalance; // Positive party.openingBalance means Dairy owes Supplier -> negative on dairy's books
       }
       console.log(`SERVER ACTION (Dashboard): --> Initial balance for ${party.name} set to: ${initialBalance} (Raw Numeric OB: ${numericOpeningBalance})`);
     } else {
@@ -87,10 +86,10 @@ export async function getDashboardSummaryAndChartData(
       if (numericOpeningBalance === 0) reasonParts.push("OB is zero");
       if (!obDate) reasonParts.push("OB Date is undefined");
       if (obDate && !(obDate <= clientEndDate)) reasonParts.push(`OB Date ${obDate.toISOString()} > Client End Date ${clientEndDate.toISOString()}`);
-      const reason = reasonParts.length > 0 ? reasonParts.join("; ") : "Unknown reason or OB is zero/undefined";
+      const reason = reasonParts.length > 0 ? reasonParts.join("; ") : "OB is zero/undefined or not within date range";
       console.log(`SERVER ACTION (Dashboard): OB for ${party.name} NOT relevant or not applied. Reason: ${reason}. Raw Numeric OB: ${numericOpeningBalance}.`);
     }
-    partyBalances.set(party.name, initialBalance); // initialBalance is now definitely a number
+    partyBalances.set(party.name, initialBalance); 
   });
 
 
@@ -109,8 +108,13 @@ export async function getDashboardSummaryAndChartData(
       summary.milkPurchasedLitres += entry.quantityLtr || 0;
       summary.milkPurchasedAmount += entry.totalAmount || 0;
 
-      const currentBalance = partyBalances.get(entry.customerName) || 0; // customerName here is the milk supplier party
-      partyBalances.set(entry.customerName, currentBalance - (entry.netAmountPayable || 0)); // Ensure numeric operation
+      if (!partyBalances.has(entry.customerName)) {
+        console.warn(`SERVER ACTION (Dashboard): Unknown party "${entry.customerName}" in milk collection entry ID ${doc.id}. Balance not updated.`);
+      } else {
+        const currentBalance = partyBalances.get(entry.customerName) || 0;
+        partyBalances.set(entry.customerName, currentBalance - (entry.netAmountPayable || 0)); 
+      }
+
 
       if (entry.date) {
         const entryDateStr = format(entry.date.toDate(), "MMM dd");
@@ -148,10 +152,18 @@ export async function getDashboardSummaryAndChartData(
 
       if (entry.paymentType === "Cash") {
         summary.totalCashIn += currentSaleAmount;
-      } else if (entry.paymentType === "Credit" && entry.customerName) {
+      } else if (entry.paymentType === "Credit") {
         summary.totalCreditOut += currentSaleAmount;
-        const currentBalance = partyBalances.get(entry.customerName) || 0;
-        partyBalances.set(entry.customerName, currentBalance + currentSaleAmount); // Ensure numeric operation
+        if (entry.customerName) {
+            if (!partyBalances.has(entry.customerName)) {
+                console.warn(`SERVER ACTION (Dashboard): Unknown customer "${entry.customerName}" in retail sales entry ID ${doc.id}. Balance not updated for credit sale.`);
+            } else {
+                const currentBalance = partyBalances.get(entry.customerName) || 0;
+                partyBalances.set(entry.customerName, currentBalance + currentSaleAmount);
+            }
+        } else {
+            console.warn(`SERVER ACTION (Dashboard): Retail sales entry ID ${doc.id} is 'Credit' but has no customerName.`);
+        }
       }
       
       if (entry.date) {
@@ -181,10 +193,18 @@ export async function getDashboardSummaryAndChartData(
 
         if (entry.paymentType === "Cash") {
             summary.totalCashIn += currentSaleAmount;
-        } else if (entry.paymentType === "Credit" && entry.customerName) {
+        } else if (entry.paymentType === "Credit") {
             summary.totalCreditOut += currentSaleAmount;
-            const currentBalance = partyBalances.get(entry.customerName) || 0;
-            partyBalances.set(entry.customerName, currentBalance + currentSaleAmount); // Ensure numeric operation
+            if (entry.customerName) {
+                if (!partyBalances.has(entry.customerName)) {
+                    console.warn(`SERVER ACTION (Dashboard): Unknown customer "${entry.customerName}" in bulk sales entry ID ${doc.id}. Balance not updated for credit sale.`);
+                } else {
+                    const currentBalance = partyBalances.get(entry.customerName) || 0;
+                    partyBalances.set(entry.customerName, currentBalance + currentSaleAmount); 
+                }
+            } else {
+                 console.warn(`SERVER ACTION (Dashboard): Bulk sales entry ID ${doc.id} is 'Credit' but has no customerName.`);
+            }
         }
 
         if (entry.date) {
@@ -206,28 +226,63 @@ export async function getDashboardSummaryAndChartData(
 
     paymentEntriesSnapshot.forEach(doc => {
       const entry = doc.data() as Omit<PaymentEntry, 'id' | 'date'> & { date: Timestamp };
-      const currentPartyBalance = partyBalances.get(entry.partyName) || 0;
-      const paymentAmount = entry.amount || 0;
+      console.log(`SERVER ACTION (Dashboard): Processing payment entry ID ${doc.id}: Party "${entry.partyName}", Type "${entry.type}", PartyType "${entry.partyType}", Amount ${entry.amount}`);
       
+      if (!entry.partyName) {
+        console.warn(`SERVER ACTION (Dashboard): Payment entry ID ${doc.id} has no partyName. Skipping balance update.`);
+        return;
+      }
+      if (!partyBalances.has(entry.partyName)) {
+        console.warn(`SERVER ACTION (Dashboard): Unknown party "${entry.partyName}" in payment entry ID ${doc.id}. Skipping balance update.`);
+        return;
+      }
+      if (typeof entry.amount !== 'number' || entry.amount === 0) {
+          console.warn(`SERVER ACTION (Dashboard): Payment entry ID ${doc.id} for party "${entry.partyName}" has missing, zero, or invalid amount: ${entry.amount}. Skipping balance update.`);
+          return;
+      }
+
+      const currentPartyBalance = partyBalances.get(entry.partyName) || 0;
+      const paymentAmount = entry.amount;
+      
+      let validPartyType = true;
+      let validPaymentType = true;
+
       if (entry.partyType === "Customer") {
         if (entry.type === "Received") { 
           partyBalances.set(entry.partyName, currentPartyBalance - paymentAmount); 
           summary.totalCashIn += paymentAmount; 
-        } else if (entry.type === "Paid") { 
+        } else if (entry.type === "Paid") { // e.g. refund to customer
           partyBalances.set(entry.partyName, currentPartyBalance + paymentAmount); 
+        } else {
+            validPaymentType = false;
         }
       } else if (entry.partyType === "Supplier") {
          if (entry.type === "Paid") { 
             partyBalances.set(entry.partyName, currentPartyBalance + paymentAmount); 
-         } else if (entry.type === "Received") { 
+         } else if (entry.type === "Received") { // e.g. refund from supplier
             partyBalances.set(entry.partyName, currentPartyBalance - paymentAmount); 
+            summary.totalCashIn += paymentAmount; // Cash came in
+         } else {
+             validPaymentType = false;
          }
       } else if (entry.partyType === "Employee") {
-         if (entry.type === "Paid") { 
+         if (entry.type === "Paid") { // e.g. salary
             partyBalances.set(entry.partyName, currentPartyBalance + paymentAmount); 
-         } else if (entry.type === "Received") { 
+         } else if (entry.type === "Received") { // e.g. employee paying back loan
             partyBalances.set(entry.partyName, currentPartyBalance - paymentAmount); 
+            summary.totalCashIn += paymentAmount;
+         } else {
+            validPaymentType = false;
          }
+      } else {
+          validPartyType = false;
+      }
+
+      if (!validPartyType) {
+          console.warn(`SERVER ACTION (Dashboard): Payment entry ID ${doc.id} has invalid partyType: "${entry.partyType}". Balance not updated.`);
+      }
+      if (!validPaymentType) {
+          console.warn(`SERVER ACTION (Dashboard): Payment entry ID ${doc.id} for partyType "${entry.partyType}" has invalid payment type: "${entry.type}". Balance not updated.`);
       }
     });
 
@@ -253,9 +308,9 @@ export async function getDashboardSummaryAndChartData(
   
   let calculatedOutstanding = 0;
   console.log("SERVER ACTION (Dashboard): Calculating Total Outstanding Amount from final party balances:");
-  partyBalances.forEach((balance, partyName) => { // balance is now definitely a number
+  partyBalances.forEach((balance, partyName) => { 
     const partyDetails = allParties.find(p => p.name === partyName);
-    console.log(`SERVER ACTION (Dashboard): Final balance for ${partyName} (${partyDetails?.type || 'Unknown Type'}): ${balance.toFixed(2)}`);
+    console.log(`SERVER ACTION (Dashboard): Final balance for ${partyName} (Type: ${partyDetails?.type || 'Unknown Type'}, ID: ${partyDetails?.id || 'N/A'}): ${balance.toFixed(2)}`);
     if (balance > 0) { 
       calculatedOutstanding += balance;
       console.log(`SERVER ACTION (Dashboard): --> Added ${balance.toFixed(2)} to outstanding. Current calculatedOutstanding: ${calculatedOutstanding.toFixed(2)}`);
@@ -289,5 +344,3 @@ export async function getDashboardSummaryAndChartData(
   console.log("SERVER ACTION (Dashboard): Dashboard data processed. Summary:", JSON.parse(JSON.stringify(summary)), "ChartSeries Length:", chartSeries.length);
   return { summary, chartSeries };
 }
-
-    
