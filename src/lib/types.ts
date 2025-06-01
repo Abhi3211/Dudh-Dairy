@@ -19,7 +19,7 @@ export interface Company {
 
 export interface MilkCollectionEntry {
   id: string;
-  // companyId is implied by subcollection path
+  companyId: string;
   date: Date;
   shift: "Morning" | "Evening";
   customerName: string; // This refers to the Party supplying milk
@@ -34,7 +34,7 @@ export interface MilkCollectionEntry {
 
 export interface SaleEntry {
   id: string;
-  companyId?: string;
+  companyId: string; // Made non-optional
   date: Date;
   customerName: string;
   productName: string;
@@ -131,7 +131,7 @@ export interface DailySummary {
   pashuAaharSalesAmount: number;
   totalCashIn: number;
   totalCreditOut: number;
-  netPartyDues: number; 
+  netPartyDues: number;
 }
 
 export interface ChartDataPoint {

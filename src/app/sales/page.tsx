@@ -26,7 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays, MoreHorizontal, Edit, Trash2, Filter, Download } from "lucide-react";
+import { User, Package, IndianRupee, CreditCard, PlusCircle, Tag, CalendarDays, MoreHorizontal, Edit, Trash2, Filter, Download, AlertCircle } from "lucide-react";
 import type { SaleEntry, Party, PurchaseEntry } from "@/lib/types";
 import { format, startOfMonth } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePageTitle } from '@/context/PageTitleContext';
+import { useUserSession } from "@/context/UserSessionContext";
 
 const productCategories: { categoryName: string; unit: SaleEntry['unit'] }[] = [
   { categoryName: "Milk", unit: "Ltr" },
@@ -63,6 +64,8 @@ const productCategories: { categoryName: string; unit: SaleEntry['unit'] }[] = [
 export default function SalesPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Sales Entry";
+  const { firebaseUser, companyProfile, authLoading, profilesLoading } = useUserSession();
+  const companyId = companyProfile?.id;
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -105,9 +108,14 @@ export default function SalesPage() {
   const [tableFilterEndDate, setTableFilterEndDate] = useState<Date | undefined>(undefined);
 
   const fetchSalesHistory = useCallback(async () => {
+    if (!companyId) {
+      setIsLoadingSales(false);
+      setSales([]);
+      return;
+    }
     setIsLoadingSales(true);
     try {
-      const fetchedSales = await getSaleEntriesFromFirestore();
+      const fetchedSales = await getSaleEntriesFromFirestore(companyId);
       const processedSales = fetchedSales.map(s => ({
         ...s,
         date: s.date instanceof Date ? s.date : new Date(s.date)
@@ -119,15 +127,19 @@ export default function SalesPage() {
     } finally {
       setIsLoadingSales(false);
     }
-  }, [toast]);
+  }, [toast, companyId]);
 
   const fetchPagePrerequisites = useCallback(async () => {
+    // companyId check not strictly needed here as these are general lists,
+    // but good to ensure user context is somewhat ready.
+    if (authLoading || profilesLoading) return; 
+
     setIsLoadingPrerequisites(true);
     try {
       const [parties, productNames, purchaseEntriesData] = await Promise.all([
-        getPartiesFromFirestore(),
-        getUniquePurchasedProductNames(), 
-        getPurchaseEntriesFromFirestore()
+        getPartiesFromFirestore(), // Assumes parties are global or filtered by rules later
+        getUniquePurchasedProductNames(), // Global list for now
+        getPurchaseEntriesFromFirestore() // Fetches all, filtering for stock calc done client-side
       ]);
       setAvailableParties(parties);
       setAvailableProductSuggestions(productNames.sort((a, b) => a.localeCompare(b)));
@@ -139,10 +151,12 @@ export default function SalesPage() {
     } finally {
       setIsLoadingPrerequisites(false);
     }
-  }, [toast]);
+  }, [toast, authLoading, profilesLoading]);
 
 
   useEffect(() => {
+    if (authLoading || profilesLoading) return;
+
     if (date === undefined && !editingEntryId) {
       setDate(new Date());
     }
@@ -152,9 +166,11 @@ export default function SalesPage() {
     if (tableFilterEndDate === undefined) {
       setTableFilterEndDate(new Date());
     }
-    fetchSalesHistory();
+    if (companyId) {
+        fetchSalesHistory();
+    }
     fetchPagePrerequisites();
-  }, [fetchSalesHistory, fetchPagePrerequisites, date, editingEntryId, tableFilterStartDate, tableFilterEndDate]);
+  }, [fetchSalesHistory, fetchPagePrerequisites, date, editingEntryId, tableFilterStartDate, tableFilterEndDate, companyId, authLoading, profilesLoading]);
 
   useEffect(() => {
     const stock: Record<string, { quantity: number, unit: string }> = {};
@@ -169,7 +185,7 @@ export default function SalesPage() {
       });
     });
   
-    sales.forEach(sale => {
+    sales.forEach(sale => { // Use current company's sales for stock calc
       stockEvents.push({
         productName: sale.productName.trim(),
         unit: sale.unit,
@@ -192,7 +208,7 @@ export default function SalesPage() {
 
   const partiesForSuggestions = useMemo(() => {
     return availableParties
-      .filter(p => p.type === "Customer")
+      .filter(p => p.type === "Customer") // TODO: Consider company-specific parties
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [availableParties]);
 
@@ -235,7 +251,7 @@ export default function SalesPage() {
   const handleProductSelect = useCallback((currentValue: string) => {
     setSpecificProductName(currentValue);
     setIsProductPopoverOpen(false);
-    productNameInputRef.current?.focus();
+    // productNameInputRef.current?.focus(); // Removed to keep focus on main input
 
     if (currentCategoryName === "Pashu Aahar") {
         const latestPurchase = allPurchaseEntriesForStock
@@ -273,6 +289,7 @@ export default function SalesPage() {
         finalCustomerName = trimmedValue;
       } else {
         setIsSubmitting(true);
+        // TODO: Consider adding companyId to party if parties become company-specific
         const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
         if (result.success) {
           finalCustomerName = trimmedValue;
@@ -308,6 +325,10 @@ export default function SalesPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!companyId) {
+      toast({ title: "Error", description: "Company information is missing. Cannot add sale.", variant: "destructive" });
+      return;
+    }
     if (!date || !customerName.trim() || !quantity || !rate) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Customer, Quantity, Rate).", variant: "destructive" });
       return;
@@ -346,6 +367,7 @@ export default function SalesPage() {
 
     setIsSubmitting(true);
     const saleData: Omit<SaleEntry, 'id'> = {
+      companyId, // Add companyId
       date,
       customerName: customerName.trim(),
       productName: finalProductName,
@@ -376,7 +398,8 @@ export default function SalesPage() {
     if (result.success) {
       resetFormFields();
       await fetchSalesHistory();
-      await fetchPagePrerequisites(); 
+      // fetchPagePrerequisites might not be needed if only sales impact stock display here
+      // but could be kept if party list needs refresh
     }
     setIsSubmitting(false);
   };
@@ -422,7 +445,6 @@ export default function SalesPage() {
     if (result.success) {
       toast({ title: "Success", description: "Sale entry deleted." });
       await fetchSalesHistory();
-      await fetchPagePrerequisites(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to delete entry.", variant: "destructive" });
     }
@@ -526,11 +548,36 @@ export default function SalesPage() {
     return productStock[stockKey]?.quantity ?? 0;
   }, [specificProductName, productStock]);
 
+  const isFormDisabled = authLoading || profilesLoading || !companyId;
+
 
   return (
     <TooltipProvider>
       <div>
         <PageHeader title={pageSpecificTitle} description="Record product sales." />
+         {authLoading || profilesLoading ? (
+          <Card className="mb-6"><CardContent className="p-6"><Skeleton className="h-8 w-1/2" /></CardContent></Card>
+        ) : !companyId && firebaseUser ? (
+          <Card className="mb-6 border-destructive">
+            <CardHeader>
+              <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Company Information Missing</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p>Your user profile does not have company information associated with it. Sales entries cannot be recorded or displayed.</p>
+              <p className="mt-2 text-sm">Please contact support or re-check your account setup if this seems incorrect.</p>
+            </CardContent>
+          </Card>
+        ) : !firebaseUser ? (
+            <Card className="mb-6 border-destructive">
+            <CardHeader>
+              <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Not Logged In</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p>You need to be logged in to record or view sales entries.</p>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card className="lg:col-span-1">
             <CardHeader>
@@ -567,6 +614,7 @@ export default function SalesPage() {
                         autoComplete="off"
                         required
                         className="w-full text-left"
+                        disabled={isFormDisabled}
                       />
                     </PopoverTrigger>
                     <PopoverContent
@@ -580,7 +628,7 @@ export default function SalesPage() {
                         <CommandInput
                           value={customerName}
                           onValueChange={handleCustomerNameInputChange}
-                          className="sr-only"
+                          className="sr-only" 
                           tabIndex={-1}
                           aria-hidden="true"
                         />
@@ -625,7 +673,7 @@ export default function SalesPage() {
 
                 <div>
                   <Label htmlFor="productCategory" className="flex items-center mb-1"><Package className="h-4 w-4 mr-2 text-muted-foreground" />Product Category</Label>
-                  <Select value={selectedCategoryIndex} onValueChange={setSelectedCategoryIndex}>
+                  <Select value={selectedCategoryIndex} onValueChange={setSelectedCategoryIndex} disabled={isFormDisabled}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select product category" />
                     </SelectTrigger>
@@ -662,6 +710,7 @@ export default function SalesPage() {
                           required = {currentCategoryName === "Pashu Aahar" || currentCategoryName === "Other"}
                           autoComplete="off"
                           className="w-full text-left"
+                          disabled={isFormDisabled}
                         />
                       </PopoverTrigger>
                       {currentCategoryName === "Pashu Aahar" && (
@@ -676,7 +725,7 @@ export default function SalesPage() {
                             <CommandInput
                                 value={specificProductName}
                                 onValueChange={handleSpecificProductNameChange}
-                                className="sr-only"
+                                className="sr-only" 
                                 tabIndex={-1}
                                 aria-hidden="true"
                             />
@@ -720,11 +769,11 @@ export default function SalesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="quantity">Quantity ({currentCategoryDetails?.unit || 'Units'})</Label>
-                    <Input id="quantity" type="text" inputMode="decimal" step={currentCategoryDetails?.unit === "Ltr" || currentCategoryDetails?.unit === "Kg" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
+                    <Input id="quantity" type="text" inputMode="decimal" step={currentCategoryDetails?.unit === "Ltr" || currentCategoryDetails?.unit === "Kg" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required disabled={isFormDisabled} />
                   </div>
                   <div>
                     <Label htmlFor="rate" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Rate</Label>
-                    <Input id="rate" type="text" inputMode="decimal" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="e.g., 60" required />
+                    <Input id="rate" type="text" inputMode="decimal" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="e.g., 60" required disabled={isFormDisabled} />
                   </div>
                 </div>
                 <div>
@@ -733,7 +782,7 @@ export default function SalesPage() {
                 </div>
                 <div>
                   <Label htmlFor="paymentType" className="flex items-center mb-1"><CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />Payment Type</Label>
-                  <Select value={paymentType} onValueChange={(value: "Cash" | "Credit") => setPaymentType(value)}>
+                  <Select value={paymentType} onValueChange={(value: "Cash" | "Credit") => setPaymentType(value)} disabled={isFormDisabled}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select payment type" />
                     </SelectTrigger>
@@ -743,12 +792,12 @@ export default function SalesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingPrerequisites}>
+                <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingSales || isLoadingPrerequisites || isFormDisabled}>
                   {editingEntryId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
                   {isSubmitting && !editingEntryId ? 'Adding...' : (isSubmitting && editingEntryId ? 'Updating...' : (editingEntryId ? 'Update Sale' : 'Add Sale'))}
                 </Button>
                 {editingEntryId && (
-                  <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting}>
+                  <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting || isFormDisabled}>
                     Cancel Edit
                   </Button>
                 )}
@@ -763,22 +812,23 @@ export default function SalesPage() {
                   <CardTitle>Recent Sales</CardTitle>
                   <CardDescription className="mt-1">
                     {ledgerDescription}
-                    {isLoadingSales && sales.length === 0 && " Loading sales..."}
-                    {!isLoadingSales && (tableFilterStartDate || tableFilterEndDate) && filteredSalesEntries.length === 0 && ` (No sales for this filter. Checked ${sales.length} total sales)`}
+                    {isLoadingSales && sales.length === 0 && companyId && " Loading sales..."}
+                    {!isLoadingSales && companyId && (tableFilterStartDate || tableFilterEndDate) && filteredSalesEntries.length === 0 && ` (No sales for this filter. Checked ${sales.length} total sales)`}
+                     {!companyId && !authLoading && !profilesLoading && firebaseUser && " (Company ID missing, cannot load sales)"}
                   </CardDescription>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:items-center">
                   <div className="w-full sm:w-auto">
                     <Label htmlFor="tableStartDateFilterSales" className="sr-only">Start Date</Label>
-                    <DatePicker date={tableFilterStartDate} setDate={setTableFilterStartDate} className="w-full sm:w-[170px]" />
+                    <DatePicker date={tableFilterStartDate} setDate={setTableFilterStartDate} className="w-full sm:w-[170px]" disabled={isFormDisabled} />
                   </div>
                   <div className="w-full sm:w-auto">
                     <Label htmlFor="tableEndDateFilterSales" className="sr-only">End Date</Label>
-                    <DatePicker date={tableFilterEndDate} setDate={setTableFilterEndDate} className="w-full sm:w-[170px]" />
+                    <DatePicker date={tableFilterEndDate} setDate={setTableFilterEndDate} className="w-full sm:w-[170px]" disabled={isFormDisabled} />
                   </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button onClick={handleExportCSV} variant="outline" size="icon" className="w-full sm:w-10 mt-2 sm:mt-0 h-10" disabled={filteredSalesEntries.length === 0 || isLoadingSales}>
+                      <Button onClick={handleExportCSV} variant="outline" size="icon" className="w-full sm:w-10 mt-2 sm:mt-0 h-10" disabled={filteredSalesEntries.length === 0 || isLoadingSales || isFormDisabled}>
                           <Download className="h-4 w-4" />
                           <span className="sr-only">Export CSV</span>
                       </Button>
@@ -791,12 +841,14 @@ export default function SalesPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {isLoadingSales && sales.length === 0 && (!tableFilterStartDate && !tableFilterEndDate) ? (
+              {isLoadingSales && companyId ? (
                 <div className="space-y-2">
                   <Skeleton className="h-10 w-full" />
                   <Skeleton className="h-10 w-full" />
                   <Skeleton className="h-10 w-full" />
                 </div>
+              ) : !companyId && firebaseUser && !authLoading && !profilesLoading ? (
+                <p className="text-center text-muted-foreground py-4">Company ID is not available. Sales data cannot be loaded.</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -817,6 +869,7 @@ export default function SalesPage() {
                         <TableCell colSpan={8} className="text-center text-muted-foreground">
                           {(tableFilterStartDate || tableFilterEndDate) ? `No sales for the selected period.` : "Select a date range to view sales."}
                           {(tableFilterStartDate || tableFilterEndDate) && sales.length > 0 && !filteredSalesEntries.length && ` (Checked ${sales.length} total sales)`}
+                          {sales.length === 0 && "No sales recorded yet for this company."}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -832,16 +885,16 @@ export default function SalesPage() {
                           <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isFormDisabled}>
                                   <MoreHorizontal className="h-4 w-4" />
                                   <span className="sr-only">Actions</span>
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={() => handleEdit(sale)}>
+                                <DropdownMenuItem onSelect={() => handleEdit(sale)} disabled={isFormDisabled}>
                                   <Edit className="mr-2 h-4 w-4" /> Edit
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleDeleteClick(sale)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                <DropdownMenuItem onSelect={() => handleDeleteClick(sale)} className="text-destructive focus:text-destructive focus:bg-destructive/10" disabled={isFormDisabled}>
                                   <Trash2 className="mr-2 h-4 w-4" /> Delete
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
