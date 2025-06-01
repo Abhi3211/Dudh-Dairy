@@ -72,6 +72,7 @@ export default function MilkCollectionPage() {
   const [customerNameInput, setCustomerNameInput] = useState<string>("");
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
   const customerNameInputRef = useRef<HTMLInputElement>(null);
+  const justSelectedRef = useRef(false); // Ref to track if selection was just made
 
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
@@ -204,7 +205,10 @@ export default function MilkCollectionPage() {
     if (isCreateNew) {
       if (!trimmedValue) {
         toast({ title: "Error", description: "Customer name cannot be empty.", variant: "destructive" });
-        setIsCustomerPopoverOpen(false);
+        // No explicit setIsCustomerPopoverOpen(false) here, as the popover might not even be open
+        // or we want it to stay open for correction if that's the UX choice.
+        // However, usually, on error, we might want to close it or let the user explicitly close.
+        // For now, let's assume the main path continues to close it.
         return;
       }
 
@@ -213,7 +217,7 @@ export default function MilkCollectionPage() {
       );
       if (existingParty) {
         toast({ title: "Info", description: `Customer "${trimmedValue}" already exists. Selecting existing customer.`, variant: "default" });
-        finalCustomerName = trimmedValue;
+        finalCustomerName = trimmedValue; // Use existing name casing
       } else {
         setIsSubmitting(true); 
         const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
@@ -224,8 +228,8 @@ export default function MilkCollectionPage() {
         } else {
           toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
           setIsSubmitting(false);
-          setIsCustomerPopoverOpen(false); // Close popover on error too
-          return; // Stop further processing
+          setIsCustomerPopoverOpen(false); 
+          return;
         }
         setIsSubmitting(false);
       }
@@ -233,7 +237,8 @@ export default function MilkCollectionPage() {
     
     setCustomerNameInput(finalCustomerName);
     setIsCustomerPopoverOpen(false);
-    // customerNameInputRef.current?.focus(); // Explicit refocus can be jarring, usually not needed.
+    justSelectedRef.current = true; // Indicate a selection was made
+    // customerNameInputRef.current?.focus(); // Explicit refocus can be jarring, usually not needed and can cause issues.
   }, [toast, fetchParties, availableParties]);
 
   const resetFormFields = useCallback(() => {
@@ -483,7 +488,13 @@ export default function MilkCollectionPage() {
                         ref={customerNameInputRef}
                         value={customerNameInput}
                         onChange={(e) => handleCustomerNameInputChange(e.target.value)}
-                        onFocus={() => setIsCustomerPopoverOpen(true)}
+                        onFocus={() => {
+                          if (justSelectedRef.current) {
+                            justSelectedRef.current = false;
+                          } else {
+                            setIsCustomerPopoverOpen(true);
+                          }
+                        }}
                         placeholder="Start typing customer name"
                         autoComplete="off"
                         required
@@ -760,6 +771,5 @@ export default function MilkCollectionPage() {
     </TooltipProvider>
   );
 }
-
 
     
