@@ -41,6 +41,7 @@ import { format, startOfDay, endOfDay } from "date-fns";
 import { getPartiesFromFirestore, addPartyToFirestore, deletePartyFromFirestore, getPartyTransactions } from "./actions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { usePageTitle } from '@/context/PageTitleContext';
+import { parseEntryDate } from '@/lib/utils'; // Import from utils
 
 
 const partyTypes: Party['type'][] = ["Customer", "Supplier", "Employee"];

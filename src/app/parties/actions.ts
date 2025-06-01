@@ -3,8 +3,9 @@
 
 import { db } from '@/lib/firebase';
 import type { Party, PartyLedgerEntry, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PurchaseEntry, PaymentEntry } from '@/lib/types';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, Timestamp, getDoc } from 'firebase/firestore'; // Added getDoc
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, Timestamp, getDoc } from 'firebase/firestore'; 
 import { revalidatePath } from 'next/cache';
+import { parseEntryDate } from '@/lib/utils'; // Import from utils
 
 export async function getPartiesFromFirestore(): Promise<Party[]> {
   console.log("SERVER ACTION: getPartiesFromFirestore called.");
@@ -80,17 +81,6 @@ export async function deletePartyFromFirestore(partyId: string): Promise<{ succe
     return { success: false, error: "An unknown error occurred" };
   }
 }
-
-// Helper to parse date consistently
-const parseEntryDate = (dateField: Timestamp | Date | string | number): Date => {
-  if (dateField instanceof Timestamp) {
-    return dateField.toDate();
-  }
-  if (dateField instanceof Date) {
-    return dateField;
-  }
-  return new Date(dateField);
-};
 
 
 export async function getPartyTransactions(partyId: string): Promise<PartyLedgerEntry[]> {
