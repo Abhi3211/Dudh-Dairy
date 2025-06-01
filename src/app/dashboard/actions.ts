@@ -2,9 +2,10 @@
 'use server';
 
 import { db } from '@/lib/firebase';
-import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry, PurchaseEntry } from '@/lib/types'; // Added PurchaseEntry
+import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry, PurchaseEntry, Party } from '@/lib/types'; // Added PurchaseEntry, Party
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { eachDayOfInterval, format, startOfDay, endOfDay } from 'date-fns';
+import { getPartiesFromFirestore } from '../parties/actions'; // Import to get party details
 
 async function getPashuAaharProductNamesFromPurchases(): Promise<string[]> {
   const pashuAaharNames = new Set<string>();
@@ -54,12 +55,32 @@ export async function getDashboardSummaryAndChartData(
 
   const daysInRange = eachDayOfInterval({ start: clientStartDate, end: clientEndDate });
   const dailyAggregator: Record<string, { purchasedValue: number; soldValue: number }> = {};
-  const partyBalances = new Map<string, number>();
-
+  
   daysInRange.forEach(day => {
     const formattedDate = format(day, "MMM dd");
     dailyAggregator[formattedDate] = { purchasedValue: 0, soldValue: 0 };
   });
+
+  const partyBalances = new Map<string, number>();
+  const allParties = await getPartiesFromFirestore();
+
+  allParties.forEach(party => {
+    let initialBalance = 0;
+    if (party.openingBalance !== undefined && party.openingBalanceAsOfDate && party.openingBalanceAsOfDate <= clientEndDate) { // Consider OB only if its date is within or before period end
+      if (party.type === 'Customer' || party.type === 'Employee') {
+        // Positive OB = Party owes Dairy (Asset for Dairy)
+        // Negative OB = Dairy owes Party (Liability for Dairy)
+        initialBalance = party.openingBalance;
+      } else if (party.type === 'Supplier') {
+        // Positive OB = Dairy owes Supplier (Liability for Dairy from Dairy's perspective)
+        // Negative OB = Supplier owes Dairy (Asset for Dairy from Dairy's perspective)
+        initialBalance = -party.openingBalance; 
+      }
+    }
+    partyBalances.set(party.name, initialBalance);
+    console.log(`SERVER ACTION (Dashboard): Initialized balance for ${party.name} (${party.type}): ${initialBalance} from OB: ${party.openingBalance} as of ${party.openingBalanceAsOfDate}`);
+  });
+
 
   try {
     // Fetch Milk Collections
@@ -76,8 +97,10 @@ export async function getDashboardSummaryAndChartData(
       summary.milkPurchasedLitres += entry.quantityLtr || 0;
       summary.milkPurchasedAmount += entry.totalAmount || 0;
 
-      const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
-      partyBalances.set(entry.customerName, currentPartyBalance - (entry.netAmountPayable || 0));
+      // customerName for milk collection refers to the milk supplier (Party type: Customer for Dudh Dairy's model)
+      const currentBalance = partyBalances.get(entry.customerName) || 0;
+      // Dairy owes for milk, so this party's balance (from dairy's perspective) decreases (becomes more negative).
+      partyBalances.set(entry.customerName, currentBalance - (entry.netAmountPayable || 0));
 
       if (entry.date) {
         const entryDateStr = format(entry.date.toDate(), "MMM dd");
@@ -101,22 +124,24 @@ export async function getDashboardSummaryAndChartData(
       const productNameLower = (entry.productName || "").toLowerCase();
       const currentSaleAmount = entry.totalAmount || 0;
 
-      if (entry.unit === "Ltr" && productNameLower === "milk") { // More specific for milk
+      if (entry.unit === "Ltr" && productNameLower === "milk") { 
         summary.milkSoldLitres += entry.quantity || 0;
         summary.milkSoldAmount += currentSaleAmount;
-      } else if (entry.unit === "Kg" && productNameLower === "ghee") { // More specific for ghee
+      } else if (entry.unit === "Kg" && productNameLower === "ghee") { 
         summary.gheeSalesAmount += currentSaleAmount;
       } else if (entry.unit === "Bags" && knownPashuAaharProductsLower.includes(productNameLower)) {
         summary.pashuAaharSalesAmount += currentSaleAmount;
       }
+      summary.totalRevenue += currentSaleAmount;
 
 
       if (entry.paymentType === "Cash") {
         summary.totalCashIn += currentSaleAmount;
       } else if (entry.paymentType === "Credit") {
         summary.totalCreditOut += currentSaleAmount;
-        const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
-        partyBalances.set(entry.customerName, currentPartyBalance + currentSaleAmount);
+        const currentBalance = partyBalances.get(entry.customerName) || 0;
+        // Customer bought on credit, so they owe dairy more. Balance (from dairy's view) increases.
+        partyBalances.set(entry.customerName, currentBalance + currentSaleAmount);
       }
       
       if (entry.date) {
@@ -142,13 +167,14 @@ export async function getDashboardSummaryAndChartData(
 
         summary.bulkMilkSoldLitres += entry.quantityLtr || 0;
         summary.bulkMilkSoldAmount += currentSaleAmount;
+        summary.totalRevenue += currentSaleAmount;
 
         if (entry.paymentType === "Cash") {
             summary.totalCashIn += currentSaleAmount;
         } else if (entry.paymentType === "Credit") {
             summary.totalCreditOut += currentSaleAmount;
-            const currentPartyBalance = partyBalances.get(entry.customerName) || 0;
-            partyBalances.set(entry.customerName, currentPartyBalance + currentSaleAmount);
+            const currentBalance = partyBalances.get(entry.customerName) || 0;
+            partyBalances.set(entry.customerName, currentBalance + currentSaleAmount);
         }
 
         if (entry.date) {
@@ -170,21 +196,26 @@ export async function getDashboardSummaryAndChartData(
 
     paymentEntriesSnapshot.forEach(doc => {
       const entry = doc.data() as Omit<PaymentEntry, 'id' | 'date'> & { date: Timestamp };
+      const currentPartyBalance = partyBalances.get(entry.partyName) || 0;
       
-      if (entry.partyType === "Customer") { // Payments involving customers affect their balance
-        const currentPartyBalance = partyBalances.get(entry.partyName) || 0;
-        if (entry.type === "Received") { 
-          partyBalances.set(entry.partyName, currentPartyBalance - entry.amount);
+      if (entry.partyType === "Customer") {
+        if (entry.type === "Received") { // Customer paid dairy
+          partyBalances.set(entry.partyName, currentPartyBalance - entry.amount); // Customer owes less
           summary.totalCashIn += entry.amount; 
-        } else if (entry.type === "Paid") { 
-          partyBalances.set(entry.partyName, currentPartyBalance + entry.amount);
+        } else if (entry.type === "Paid") { // Dairy paid/refunded customer
+          partyBalances.set(entry.partyName, currentPartyBalance + entry.amount); // Customer owes more, or dairy's debt to customer reduces
         }
-      } else if (entry.partyType === "Supplier") { // Payments involving suppliers affect their balance
-         const currentPartyBalance = partyBalances.get(entry.partyName) || 0;
-         if (entry.type === "Paid") { // Dairy paid the supplier
-            partyBalances.set(entry.partyName, currentPartyBalance + entry.amount); // Reduces what dairy owes supplier
-         } else if (entry.type === "Received") { // Supplier paid the dairy (e.g. refund)
-            partyBalances.set(entry.partyName, currentPartyBalance - entry.amount); // Increases what dairy owes supplier
+      } else if (entry.partyType === "Supplier") {
+         if (entry.type === "Paid") { // Dairy paid supplier
+            partyBalances.set(entry.partyName, currentPartyBalance + entry.amount); // Dairy owes less (balance from dairy's view becomes less negative/more positive)
+         } else if (entry.type === "Received") { // Supplier paid/refunded dairy
+            partyBalances.set(entry.partyName, currentPartyBalance - entry.amount); // Dairy owes more, or supplier's debt to dairy reduces
+         }
+      } else if (entry.partyType === "Employee") {
+         if (entry.type === "Paid") { // Dairy paid employee
+            partyBalances.set(entry.partyName, currentPartyBalance + entry.amount); // Dairy's liability to employee reduces, or employee's debt to dairy reduces
+         } else if (entry.type === "Received") { // Employee paid dairy
+            partyBalances.set(entry.partyName, currentPartyBalance - entry.amount); // Employee owes less
          }
       }
     });
@@ -210,13 +241,15 @@ export async function getDashboardSummaryAndChartData(
   
   let calculatedOutstanding = 0;
   partyBalances.forEach((balance, partyName) => {
-    console.log(`SERVER ACTION: Party Balance for ${partyName}: ${balance}`);
+    const partyDetails = allParties.find(p => p.name === partyName);
+    console.log(`SERVER ACTION (Dashboard): Final balance for ${partyName} (${partyDetails?.type || 'Unknown Type'}): ${balance.toFixed(2)}`);
+    // Total Outstanding Amount on dashboard is total of what others owe the dairy
     if (balance > 0) { 
       calculatedOutstanding += balance;
     }
   });
   summary.totalOutstandingAmount = parseFloat(calculatedOutstanding.toFixed(2));
-  console.log("SERVER ACTION: Calculated outstanding (sum of positive party balances):", summary.totalOutstandingAmount);
+  console.log("SERVER ACTION: Calculated Total Outstanding Amount (Receivables):", summary.totalOutstandingAmount);
   
   const chartSeries: ChartDataPoint[] = daysInRange.map(day => {
     const formattedDate = format(day, "MMM dd");
