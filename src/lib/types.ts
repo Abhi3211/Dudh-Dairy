@@ -34,7 +34,7 @@ export interface MilkCollectionEntry {
 
 export interface SaleEntry {
   id: string;
-  companyId: string; // Made non-optional
+  companyId: string;
   date: Date;
   customerName: string;
   productName: string;
@@ -47,7 +47,7 @@ export interface SaleEntry {
 
 export interface BulkSaleEntry {
   id: string;
-  companyId?: string;
+  companyId: string;
   date: Date;
   shift: "Morning" | "Evening";
   customerName: string;
@@ -61,7 +61,7 @@ export interface BulkSaleEntry {
 
 export interface PurchaseEntry {
   id: string;
-  companyId?: string;
+  companyId: string; // Made non-optional
   date: Date;
   category: string;
   productName: string;

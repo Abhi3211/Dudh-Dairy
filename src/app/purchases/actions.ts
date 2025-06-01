@@ -6,13 +6,17 @@ import type { PurchaseEntry } from '@/lib/types';
 import { collection, addDoc, getDocs, query, orderBy, Timestamp, doc, updateDoc, deleteDoc, where, writeBatch } from 'firebase/firestore';
 
 export async function addPurchaseEntryToFirestore(
-  entryData: Omit<PurchaseEntry, 'id'>
+  entryData: Omit<PurchaseEntry, 'id'> & { companyId: string }
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addPurchaseEntryToFirestore called with data:", JSON.parse(JSON.stringify(entryData)));
+  if (!entryData.companyId) {
+    console.error("SERVER ACTION: companyId is missing in addPurchaseEntryToFirestore.");
+    return { success: false, error: "Company ID is required to add a purchase entry." };
+  }
   try {
     const docRef = await addDoc(collection(db, 'purchaseEntries'), {
       ...entryData,
-      date: Timestamp.fromDate(entryData.date), // Ensure date is a Timestamp
+      date: Timestamp.fromDate(entryData.date), 
     });
     console.log("SERVER ACTION: Purchase entry successfully added to Firestore with ID:", docRef.id);
     return { success: true, id: docRef.id };
@@ -25,11 +29,19 @@ export async function addPurchaseEntryToFirestore(
   }
 }
 
-export async function getPurchaseEntriesFromFirestore(): Promise<PurchaseEntry[]> {
-  console.log("SERVER ACTION: Attempting to fetch purchase entries from Firestore.");
+export async function getPurchaseEntriesFromFirestore(companyId: string): Promise<PurchaseEntry[]> {
+  console.log(`SERVER ACTION: Attempting to fetch purchase entries from Firestore for companyId: ${companyId}.`);
+  if (!companyId) {
+    console.warn("SERVER ACTION: getPurchaseEntriesFromFirestore called without a companyId. Returning empty array.");
+    return [];
+  }
   try {
     const entriesCollection = collection(db, 'purchaseEntries');
-    const q = query(entriesCollection, orderBy('date', 'desc'));
+    const q = query(
+      entriesCollection, 
+      where('companyId', '==', companyId),
+      orderBy('date', 'desc')
+    );
     const entrySnapshot = await getDocs(q);
     const entryList = entrySnapshot.docs.map(docSnapshot => {
       const data = docSnapshot.data();
@@ -43,6 +55,7 @@ export async function getPurchaseEntriesFromFirestore(): Promise<PurchaseEntry[]
       }
       return {
         id: docSnapshot.id,
+        companyId: data.companyId,
         date: entryDate,
         category: data.category || "Unknown",
         productName: data.productName || "Unknown Product",
@@ -55,24 +68,28 @@ export async function getPurchaseEntriesFromFirestore(): Promise<PurchaseEntry[]
         paymentType: data.paymentType || "Credit",
       } as PurchaseEntry;
     });
-    console.log("SERVER ACTION: Successfully fetched purchase entries, count:", entryList.length);
+    console.log(`SERVER ACTION: Successfully fetched ${entryList.length} purchase entries for companyId ${companyId}.`);
     return entryList;
   } catch (error) {
-    console.error("SERVER ACTION: Error fetching purchase entries from Firestore:", error);
+    console.error(`SERVER ACTION: Error fetching purchase entries from Firestore for companyId ${companyId}:`, error);
     return [];
   }
 }
 
 export async function updatePurchaseEntryInFirestore(
   entryId: string,
-  entryData: Omit<PurchaseEntry, 'id'>
+  entryData: Omit<PurchaseEntry, 'id'> & { companyId: string }
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`SERVER ACTION: updatePurchaseEntryInFirestore called for ID: ${entryId} with data:`, JSON.parse(JSON.stringify(entryData)));
+  if (!entryData.companyId) {
+    console.error("SERVER ACTION: companyId is missing in updatePurchaseEntryInFirestore.");
+    return { success: false, error: "Company ID is required to update a purchase entry." };
+  }
   try {
     const entryRef = doc(db, 'purchaseEntries', entryId);
     await updateDoc(entryRef, {
       ...entryData,
-      date: Timestamp.fromDate(entryData.date), // Ensure date is a Timestamp
+      date: Timestamp.fromDate(entryData.date), 
     });
     console.log(`SERVER ACTION: Purchase entry with ID: ${entryId} successfully updated.`);
     return { success: true };
@@ -103,15 +120,21 @@ export async function deletePurchaseEntryFromFirestore(
   }
 }
 
-export async function getUniquePurchasedProductNames(category?: string): Promise<string[]> {
-  console.log(`SERVER ACTION: getUniquePurchasedProductNames called. Category: ${category}`);
+export async function getUniquePurchasedProductNames(companyId?: string, category?: string): Promise<string[]> {
+  console.log(`SERVER ACTION: getUniquePurchasedProductNames called. CompanyID: ${companyId}, Category: ${category}`);
   const productNames = new Set<string>();
   try {
     const entriesCollection = collection(db, 'purchaseEntries');
-    let q = query(entriesCollection);
-    if (category) {
-      q = query(entriesCollection, where('category', '==', category));
+    let conditions = [];
+    if (companyId) {
+      conditions.push(where('companyId', '==', companyId));
     }
+    if (category) {
+      conditions.push(where('category', '==', category));
+    }
+    
+    const q = conditions.length > 0 ? query(entriesCollection, ...conditions) : query(entriesCollection);
+    
     const entrySnapshot = await getDocs(q);
     if (!entrySnapshot.empty) {
       entrySnapshot.docs.forEach(docSnapshot => {
@@ -122,7 +145,7 @@ export async function getUniquePurchasedProductNames(category?: string): Promise
       });
     }
     const uniqueNamesArray = Array.from(productNames).sort((a, b) => a.localeCompare(b));
-    console.log(`SERVER ACTION: Found ${uniqueNamesArray.length} unique purchased product names. Category: ${category}`);
+    console.log(`SERVER ACTION: Found ${uniqueNamesArray.length} unique purchased product names. CompanyID: ${companyId}, Category: ${category}`);
     return uniqueNamesArray;
   } catch (error) {
     console.error("SERVER ACTION: Error fetching unique purchased product names:", error);
@@ -130,12 +153,13 @@ export async function getUniquePurchasedProductNames(category?: string): Promise
   }
 }
 
-export async function getUniqueCategoriesFromFirestore(): Promise<string[]> {
-  console.log(`SERVER ACTION: getUniqueCategoriesFromFirestore called.`);
+export async function getUniqueCategoriesFromFirestore(companyId?: string): Promise<string[]> {
+  console.log(`SERVER ACTION: getUniqueCategoriesFromFirestore called. CompanyID: ${companyId}`);
   const categoryNames = new Set<string>();
   try {
     const entriesCollection = collection(db, 'purchaseEntries');
-    const q = query(entriesCollection); // No specific where clause, get all
+    const q = companyId ? query(entriesCollection, where('companyId', '==', companyId)) : query(entriesCollection);
+    
     const entrySnapshot = await getDocs(q);
     if (!entrySnapshot.empty) {
       entrySnapshot.docs.forEach(docSnapshot => {
@@ -146,7 +170,7 @@ export async function getUniqueCategoriesFromFirestore(): Promise<string[]> {
       });
     }
     const uniqueNamesArray = Array.from(categoryNames).sort((a, b) => a.localeCompare(b));
-    console.log(`SERVER ACTION: Found ${uniqueNamesArray.length} unique category names.`);
+    console.log(`SERVER ACTION: Found ${uniqueNamesArray.length} unique category names for CompanyID: ${companyId}.`);
     return uniqueNamesArray;
   } catch (error) {
     console.error("SERVER ACTION: Error fetching unique category names:", error);
@@ -157,8 +181,11 @@ export async function getUniqueCategoriesFromFirestore(): Promise<string[]> {
 // If you had data in 'pashuAaharTransactions' and want to migrate it to 'purchaseEntries'
 // This is a one-time utility function. Do not call it repeatedly.
 // Ensure 'category' and 'unit' are set appropriately for Pashu Aahar.
-export async function migratePashuAaharToPurchases(): Promise<{ success: boolean; count: number; error?: string }> {
-  console.log("SERVER ACTION: Starting migration of pashuAaharTransactions to purchaseEntries.");
+export async function migratePashuAaharToPurchases(companyIdToAssign: string): Promise<{ success: boolean; count: number; error?: string }> {
+  console.log(`SERVER ACTION: Starting migration of pashuAaharTransactions to purchaseEntries for companyId: ${companyIdToAssign}.`);
+  if (!companyIdToAssign) {
+    return { success: false, count: 0, error: "companyIdToAssign is required for migration." };
+  }
   const oldCollectionRef = collection(db, 'pashuAaharTransactions');
   const newCollectionRef = collection(db, 'purchaseEntries');
   let migratedCount = 0;
@@ -174,24 +201,25 @@ export async function migratePashuAaharToPurchases(): Promise<{ success: boolean
     snapshot.forEach(docSnapshot => {
       const oldData = docSnapshot.data();
       const newEntryData: Omit<PurchaseEntry, 'id'> = {
+        companyId: companyIdToAssign, // Assign the provided companyId
         date: oldData.date instanceof Timestamp ? oldData.date.toDate() : new Date(oldData.date),
-        category: "Pashu Aahar", // Assuming all old entries were Pashu Aahar
+        category: "Pashu Aahar", 
         productName: oldData.productName || "Unknown Pashu Aahar",
         supplierName: oldData.supplierOrCustomerName || "",
         quantity: typeof oldData.quantityBags === 'number' ? oldData.quantityBags : 0,
-        unit: "Bags", // Assuming all old entries were in Bags
+        unit: "Bags", 
         pricePerUnit: typeof oldData.pricePerBag === 'number' ? oldData.pricePerBag : 0,
         defaultSalePricePerUnit: typeof oldData.salePricePerBag === 'number' ? oldData.salePricePerBag : undefined,
         totalAmount: typeof oldData.totalAmount === 'number' ? oldData.totalAmount : 0,
         paymentType: oldData.paymentType || "Credit",
       };
-      const newDocRef = doc(newCollectionRef); // Create a new doc reference in the target collection
+      const newDocRef = doc(newCollectionRef); 
       batch.set(newDocRef, { ...newEntryData, date: Timestamp.fromDate(newEntryData.date) });
       migratedCount++;
     });
 
     await batch.commit();
-    console.log(`SERVER ACTION: Successfully migrated ${migratedCount} documents from pashuAaharTransactions to purchaseEntries.`);
+    console.log(`SERVER ACTION: Successfully migrated ${migratedCount} documents from pashuAaharTransactions to purchaseEntries with companyId ${companyIdToAssign}.`);
     return { success: true, count: migratedCount };
   } catch (error) {
     console.error("SERVER ACTION: Error migrating pashuAaharTransactions:", error);

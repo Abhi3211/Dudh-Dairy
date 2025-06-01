@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Warehouse, IndianRupee, User, PlusCircle, Tag, CalendarIcon, MoreHorizontal, Edit, Trash2, CreditCard, ListFilter, PackageSearch } from "lucide-react";
+import { Warehouse, IndianRupee, User, PlusCircle, Tag, CalendarIcon, MoreHorizontal, Edit, Trash2, CreditCard, ListFilter, PackageSearch, AlertCircle } from "lucide-react";
 import type { PurchaseEntry, Party, SaleEntry } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -58,11 +58,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { usePageTitle } from '@/context/PageTitleContext';
+import { useUserSession } from "@/context/UserSessionContext";
 
 
 export default function PurchasesPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Record Purchases";
+  const { firebaseUser, companyProfile, authLoading, profilesLoading } = useUserSession();
+  const companyId = companyProfile?.id;
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -80,11 +83,13 @@ export default function PurchasesPage() {
   const [isCategoryPopoverOpen, setIsCategoryPopoverOpen] = useState(false);
   const categoryNameInputRef = useRef<HTMLInputElement>(null);
   const [existingCategorySuggestions, setExistingCategorySuggestions] = useState<string[]>([]);
+  const justCategorySelectedRef = useRef(false);
   
   const [productName, setProductName] = useState("");
   const [isProductPopoverOpen, setIsProductPopoverOpen] = useState(false);
   const productNameInputRef = useRef<HTMLInputElement>(null);
   const [productNameSuggestions, setProductNameSuggestions] = useState<string[]>([]);
+  const justProductSelectedRef = useRef(false);
 
   const [supplierNameInput, setSupplierNameInput] = useState<string>("");
   const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
@@ -108,6 +113,17 @@ export default function PurchasesPage() {
   const [transactionToDelete, setTransactionToDelete] = useState<PurchaseEntry | null>(null);
 
   const fetchPageData = useCallback(async () => {
+    if (!companyId) {
+      setIsLoadingData(false);
+      setIsLoadingParties(false);
+      setPurchaseEntries([]);
+      setAllSales([]);
+      setAvailableParties([]);
+      setProductNameSuggestions([]);
+      setExistingCategorySuggestions([]);
+      return;
+    }
+
     setIsLoadingData(true);
     setIsLoadingParties(true);
     try {
@@ -118,11 +134,11 @@ export default function PurchasesPage() {
         fetchedProductNames,
         fetchedCategoryNames
       ] = await Promise.all([
-        getPurchaseEntriesFromFirestore(),
-        getSaleEntriesFromFirestore(),
-        getPartiesFromFirestore(),
-        getUniquePurchasedProductNames(),
-        getUniqueCategoriesFromFirestore()
+        getPurchaseEntriesFromFirestore(companyId),
+        getSaleEntriesFromFirestore(companyId), // Fetch sales for current company for stock calculation
+        getPartiesFromFirestore(), // Parties might be global or need companyId filtering in future
+        getUniquePurchasedProductNames(companyId),
+        getUniqueCategoriesFromFirestore(companyId)
       ]);
 
       const processedPurchases = fetchedPurchases.map(tx => ({
@@ -142,14 +158,21 @@ export default function PurchasesPage() {
       setIsLoadingData(false);
       setIsLoadingParties(false);
     }
-  }, [toast]);
+  }, [toast, companyId]);
 
   useEffect(() => {
+    if (authLoading || profilesLoading) return;
+    
     if (!editingTransactionId && date === undefined) {
       setDate(new Date());
     }
-    fetchPageData();
-  }, [fetchPageData, editingTransactionId, date]);
+    if (companyId) {
+        fetchPageData();
+    } else {
+        setIsLoadingData(false);
+        setIsLoadingParties(false);
+    }
+  }, [fetchPageData, editingTransactionId, date, companyId, authLoading, profilesLoading]);
   
 
   useEffect(() => {
@@ -216,18 +239,11 @@ export default function PurchasesPage() {
 
   const handleCategoryNameInputChange = useCallback((value: string) => {
     setCategoryNameInput(value);
-    if (value.trim() && (existingCategorySuggestions.length > 0 || !isLoadingData)) {
-        setIsCategoryPopoverOpen(true);
-    } else {
-        setIsCategoryPopoverOpen(false);
-    }
-  }, [existingCategorySuggestions, isLoadingData]);
+  }, []);
 
-  const handleCategorySelect = useCallback((currentValue: string) => {
-    const isCreatingNew = currentValue.startsWith("__CREATE_CATEGORY__");
+  const handleCategorySelect = useCallback((currentValue: string, isCreateNew = false) => {
     let actualValue = currentValue;
-
-    if (isCreatingNew) {
+    if (isCreateNew) {
         actualValue = categoryNameInput.trim(); 
         if (!actualValue) {
             toast({ title: "Error", description: "Category name cannot be empty.", variant: "destructive" });
@@ -241,24 +257,17 @@ export default function PurchasesPage() {
     }
     setCategoryNameInput(actualValue);
     setIsCategoryPopoverOpen(false);
-    // categoryNameInputRef.current?.focus(); // Usually not needed
+    justCategorySelectedRef.current = true;
   }, [categoryNameInput, existingCategorySuggestions, toast]);
 
 
   const handleProductNameInputChange = useCallback((value: string) => {
     setProductName(value);
-    if (value.trim() && (productNameSuggestions.length > 0 || !isLoadingData)) {
-      setIsProductPopoverOpen(true);
-    } else {
-      setIsProductPopoverOpen(false);
-    }
-  }, [productNameSuggestions, isLoadingData]);
+  }, []);
 
-  const handleProductSelect = useCallback((currentValue: string) => {
-    const isCreatingNew = currentValue.startsWith("__CREATE_PRODUCT__");
+  const handleProductSelect = useCallback((currentValue: string, isCreateNew = false) => {
     let actualValue = currentValue;
-
-    if (isCreatingNew) {
+    if (isCreateNew) {
         actualValue = productName.trim(); 
         if (!actualValue) {
             toast({ title: "Error", description: "Product name cannot be empty.", variant: "destructive" });
@@ -272,7 +281,7 @@ export default function PurchasesPage() {
     }
     setProductName(actualValue);
     setIsProductPopoverOpen(false);
-    // productNameInputRef.current?.focus(); // Usually not needed
+    justProductSelectedRef.current = true;
   }, [productName, productNameSuggestions, toast]);
 
 
@@ -280,19 +289,15 @@ export default function PurchasesPage() {
     setSupplierNameInput(value);
   }, []);
 
-  const handleSupplierSelect = useCallback(async (currentValue: string) => {
-    const trimmedValue = currentValue.trim();
-    const isCreatingNew = currentValue.startsWith("__CREATE_SUPPLIER__");
-    let actualValue = currentValue;
-    let finalSupplierName = trimmedValue;
+  const handleSupplierSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
+    let finalSupplierName = currentValue.trim();
 
-    if (isCreatingNew) {
-        actualValue = supplierNameInput.trim();
-        if (!actualValue) {
+    if (isCreateNew) {
+        finalSupplierName = supplierNameInput.trim();
+        if (!finalSupplierName) {
             toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
             return;
         }
-        finalSupplierName = actualValue;
         const existingParty = availableParties.find(
           p => p.name.toLowerCase() === finalSupplierName.toLowerCase() && p.type === "Supplier"
         );
@@ -300,6 +305,7 @@ export default function PurchasesPage() {
             toast({ title: "Info", description: `Supplier "${finalSupplierName}" already exists. Selecting existing.`, variant: "default"});
         } else {
             setIsSubmitting(true); 
+            // TODO: Consider adding companyId if parties become company-specific
             const result = await addPartyToFirestore({ name: finalSupplierName, type: "Supplier" });
             if (result.success && result.id) {
                 toast({ title: "Success", description: `Supplier "${finalSupplierName}" added.` });
@@ -312,8 +318,6 @@ export default function PurchasesPage() {
             }
             setIsSubmitting(false);
         }
-    } else {
-      finalSupplierName = trimmedValue;
     }
     setSupplierNameInput(finalSupplierName);
     setIsSupplierPopoverOpen(false);
@@ -323,6 +327,10 @@ export default function PurchasesPage() {
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!companyId) {
+      toast({ title: "Error", description: "Company information is missing. Cannot add purchase.", variant: "destructive" });
+      return;
+    }
     if (!date || !categoryNameInput.trim() || !productName.trim() || !supplierNameInput.trim() || !quantity || !unit.trim() || !pricePerUnit || !paymentType) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Category, Product, Supplier, Quantity, Unit, Price/Unit, Payment Type).", variant: "destructive" });
       return;
@@ -343,7 +351,8 @@ export default function PurchasesPage() {
     }
     
     setIsSubmitting(true);
-    const purchaseData: Omit<PurchaseEntry, 'id'> = {
+    const purchaseData: Omit<PurchaseEntry, 'id'> & { companyId: string } = {
+      companyId,
       date,
       category: categoryNameInput.trim(),
       productName: productName.trim(),
@@ -403,10 +412,35 @@ export default function PurchasesPage() {
     setTransactionToDelete(null);
     setIsSubmitting(false);
   };
+  
+  const isFormDisabled = authLoading || profilesLoading || !companyId;
 
   return (
     <div>
       <PageHeader title={pageSpecificTitle} description="Track stock levels and record purchases of various items." />
+      
+      {authLoading || profilesLoading ? (
+          <Card className="mb-6"><CardContent className="p-6"><Skeleton className="h-8 w-1/2" /></CardContent></Card>
+      ) : !companyId && firebaseUser ? (
+        <Card className="mb-6 border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Company Information Missing</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>Your user profile does not have company information associated with it. Purchases cannot be recorded or displayed.</p>
+          </CardContent>
+        </Card>
+      ) : !firebaseUser ? (
+         <Card className="mb-6 border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Not Logged In</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>You need to be logged in to record or view purchases.</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
 
       <Card className="mb-6">
         <CardHeader>
@@ -415,14 +449,16 @@ export default function PurchasesPage() {
             <Warehouse className="h-6 w-6 text-primary" />
           </div>
           <CardDescription className="text-sm text-muted-foreground">
-            Breakdown of available stock (purchases minus sales).
+            Breakdown of available stock (purchases minus sales for this company).
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
-          {isLoadingData && Object.keys(currentStockByProduct).length === 0 ? (
+          {(isLoadingData || isLoadingParties) && Object.keys(currentStockByProduct).length === 0 && companyId ? (
             <Skeleton className="h-20 w-full" />
-          ) : Object.keys(currentStockByProduct).length === 0 && !isLoadingData ? (
+          ) : Object.keys(currentStockByProduct).length === 0 && !isLoadingData && companyId ? (
             <p className="text-sm text-muted-foreground">No stock data available. Record a purchase to begin.</p>
+          ) : !companyId && !authLoading && !profilesLoading ? (
+             <p className="text-sm text-muted-foreground">Login or complete company setup to view stock.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {Object.entries(currentStockByProduct)
@@ -476,7 +512,9 @@ export default function PurchasesPage() {
                       value={categoryNameInput}
                       onChange={(e) => handleCategoryNameInputChange(e.target.value)}
                       onFocus={() => {
-                          if (categoryNameInput.trim() || existingCategorySuggestions.length > 0 || !isLoadingData) {
+                          if (justCategorySelectedRef.current) {
+                              justCategorySelectedRef.current = false;
+                          } else {
                               setIsCategoryPopoverOpen(true);
                           }
                       }}
@@ -484,25 +522,22 @@ export default function PurchasesPage() {
                       autoComplete="off"
                       required
                       className="w-full text-left"
+                      disabled={isFormDisabled}
                     />
                   </PopoverTrigger>
                   <PopoverContent
                     className="w-[--radix-popover-trigger-width] p-0"
-                    side="bottom"
-                    align="start"
-                    sideOffset={4}
                     onOpenAutoFocus={(e) => e.preventDefault()}
+                    side="bottom" align="start" sideOffset={0}
                   >
                     <Command>
-                      <CommandInput
+                      <Input
                         value={categoryNameInput}
-                        onValueChange={handleCategoryNameInputChange}
-                        className="sr-only"
-                        tabIndex={-1}
-                        aria-hidden="true"
+                        onChange={(e) => handleCategoryNameInputChange(e.target.value)}
+                        className="sr-only" tabIndex={-1} aria-hidden="true"
                       />
                       <CommandList>
-                        {isLoadingData && existingCategorySuggestions.length === 0 ? (
+                        {(isLoadingData || isLoadingParties) && existingCategorySuggestions.length === 0 ? (
                             <CommandItem disabled>Loading categories...</CommandItem>
                         ) : (
                           <>
@@ -514,7 +549,7 @@ export default function PurchasesPage() {
                                 <CommandItem
                                   key={`__CREATE_CATEGORY__${categoryNameInput.trim()}`}
                                   value={`__CREATE_CATEGORY__${categoryNameInput.trim()}`}
-                                  onSelect={() => handleCategorySelect(`__CREATE_CATEGORY__${categoryNameInput.trim()}`)}
+                                  onSelect={() => handleCategorySelect(categoryNameInput.trim(), true)}
                                 >
                                   <PlusCircle className="mr-2 h-4 w-4" />
                                   Add new category: "{categoryNameInput.trim()}"
@@ -550,33 +585,32 @@ export default function PurchasesPage() {
                       value={productName}
                       onChange={(e) => handleProductNameInputChange(e.target.value)}
                       onFocus={() => {
-                        if (productName.trim() || productNameSuggestions.length > 0 || !isLoadingData) {
-                          setIsProductPopoverOpen(true);
+                        if (justProductSelectedRef.current) {
+                            justProductSelectedRef.current = false;
+                        } else {
+                            setIsProductPopoverOpen(true);
                         }
                       }}
                       placeholder="Type or select product"
                       autoComplete="off"
                       required
                       className="w-full text-left"
+                      disabled={isFormDisabled}
                     />
                   </PopoverTrigger>
                   <PopoverContent
                     className="w-[--radix-popover-trigger-width] p-0"
-                    side="bottom"
-                    align="start"
-                    sideOffset={4}
                     onOpenAutoFocus={(e) => e.preventDefault()}
+                     side="bottom" align="start" sideOffset={0}
                   >
                     <Command>
-                      <CommandInput
+                      <Input
                         value={productName}
-                        onValueChange={handleProductNameInputChange}
-                        className="sr-only"
-                        tabIndex={-1}
-                        aria-hidden="true"
+                        onChange={(e) => handleProductNameInputChange(e.target.value)}
+                        className="sr-only" tabIndex={-1} aria-hidden="true"
                       />
                       <CommandList>
-                        {isLoadingData && productNameSuggestions.length === 0 ? (
+                        {(isLoadingData || isLoadingParties) && productNameSuggestions.length === 0 ? (
                           <CommandItem disabled>Loading products...</CommandItem>
                         ) : (
                           <>
@@ -588,7 +622,7 @@ export default function PurchasesPage() {
                                 <CommandItem
                                   key={`__CREATE_PRODUCT__${productName.trim()}`}
                                   value={`__CREATE_PRODUCT__${productName.trim()}`}
-                                  onSelect={() => handleProductSelect(`__CREATE_PRODUCT__${productName.trim()}`)}
+                                  onSelect={() => handleProductSelect(productName.trim(), true)}
                                 >
                                   <PlusCircle className="mr-2 h-4 w-4" />
                                   Add new product: "{productName.trim()}"
@@ -636,22 +670,19 @@ export default function PurchasesPage() {
                       autoComplete="off"
                       required
                       className="w-full text-left"
+                      disabled={isFormDisabled}
                     />
                   </PopoverTrigger>
                   <PopoverContent
                     className="w-[--radix-popover-trigger-width] p-0"
-                    side="bottom"
-                    align="start"
-                    sideOffset={4}
                     onOpenAutoFocus={(e) => e.preventDefault()}
+                     side="bottom" align="start" sideOffset={0}
                   >
                     <Command>
-                      <CommandInput
+                       <Input
                         value={supplierNameInput}
-                        onValueChange={handleSupplierNameInputChange}
-                        className="sr-only"
-                        tabIndex={-1}
-                        aria-hidden="true"
+                        onChange={(e) => handleSupplierNameInputChange(e.target.value)}
+                        className="sr-only" tabIndex={-1} aria-hidden="true"
                       />
                       <CommandList>
                         {isLoadingParties ? (
@@ -663,7 +694,7 @@ export default function PurchasesPage() {
                                 <CommandItem
                                   key={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`}
                                   value={`__CREATE_SUPPLIER__${supplierNameInput.trim()}`}
-                                  onSelect={() => handleSupplierSelect(`__CREATE_SUPPLIER__${supplierNameInput.trim()}`)}
+                                  onSelect={() => handleSupplierSelect(supplierNameInput.trim(), true)}
                                 >
                                   <PlusCircle className="mr-2 h-4 w-4" />
                                   Add new supplier: "{supplierNameInput.trim()}"
@@ -695,27 +726,27 @@ export default function PurchasesPage() {
               <div className="grid grid-cols-2 gap-4">
                  <div>
                   <Label htmlFor="purchaseQuantity" className="flex items-center mb-1"><Warehouse className="h-4 w-4 mr-2 text-muted-foreground" />Quantity</Label>
-                  <Input id="purchaseQuantity" type="text" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 10" required />
+                  <Input id="purchaseQuantity" type="text" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 10" required disabled={isFormDisabled} />
                 </div>
                 <div>
                   <Label htmlFor="unit" className="flex items-center mb-1"> Unit</Label>
-                  <Input id="unit" type="text" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="e.g., Bags, Kg, Ltr" required />
+                  <Input id="unit" type="text" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="e.g., Bags, Kg, Ltr" required disabled={isFormDisabled} />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="purchasePrice" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Price/Unit (₹)</Label>
-                  <Input id="purchasePrice" type="text" inputMode="decimal" value={pricePerUnit} onChange={(e) => setPricePerUnit(e.target.value)} placeholder="e.g., 300" required />
+                  <Input id="purchasePrice" type="text" inputMode="decimal" value={pricePerUnit} onChange={(e) => setPricePerUnit(e.target.value)} placeholder="e.g., 300" required disabled={isFormDisabled}/>
                 </div>
                 <div>
                     <Label htmlFor="defaultSalePricePerUnit" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Sale Price/Unit <span className="text-xs text-muted-foreground ml-1">(Optional)</span></Label>
-                    <Input id="defaultSalePricePerUnit" type="text" inputMode="decimal" value={defaultSalePricePerUnitInput} onChange={(e) => setDefaultSalePricePerUnitInput(e.target.value)} placeholder="e.g., 350" />
+                    <Input id="defaultSalePricePerUnit" type="text" inputMode="decimal" value={defaultSalePricePerUnitInput} onChange={(e) => setDefaultSalePricePerUnitInput(e.target.value)} placeholder="e.g., 350" disabled={isFormDisabled} />
                 </div>
               </div>
               <div>
                 <Label htmlFor="paymentType" className="flex items-center mb-1"><CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />Payment Type</Label>
-                <Select value={paymentType} onValueChange={(value: "Cash" | "Credit") => setPaymentType(value)}>
+                <Select value={paymentType} onValueChange={(value: "Cash" | "Credit") => setPaymentType(value)} disabled={isFormDisabled}>
                 <SelectTrigger id="paymentType">
                     <SelectValue placeholder="Select payment type" />
                 </SelectTrigger>
@@ -727,12 +758,12 @@ export default function PurchasesPage() {
               </div>
 
 
-              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingData || isLoadingParties}>
+              <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingData || isLoadingParties || isFormDisabled}>
                 {editingTransactionId ? <Edit className="h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
                 {isSubmitting && !editingTransactionId ? 'Recording...' : (isSubmitting && editingTransactionId ? 'Updating...' : (editingTransactionId ? 'Update Purchase' : 'Record Purchase'))}
               </Button>
               {editingTransactionId && (
-                <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting}>
+                <Button type="button" variant="outline" className="w-full mt-2" onClick={resetFormFields} disabled={isSubmitting || isFormDisabled}>
                   Cancel Edit
                 </Button>
               )}
@@ -743,15 +774,17 @@ export default function PurchasesPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Purchase History</CardTitle>
-            <CardDescription>List of all recorded purchases.</CardDescription>
+            <CardDescription>List of all recorded purchases for this company.</CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoadingData && purchaseEntries.length === 0 ? (
+            {(isLoadingData || isLoadingParties) && purchaseEntries.length === 0 && companyId ? (
               <div className="space-y-2">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
               </div>
+            ) : !companyId && !authLoading && !profilesLoading ? (
+                <p className="text-center text-muted-foreground py-4">Login or complete company setup to view purchase history.</p>
             ) : (
               <Table>
                 <TableHeader>
@@ -770,9 +803,9 @@ export default function PurchasesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {purchaseEntries.length === 0 && !isLoadingData ? (
+                  {purchaseEntries.length === 0 && !(isLoadingData || isLoadingParties) ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center text-muted-foreground">No purchases recorded yet.</TableCell>
+                      <TableCell colSpan={11} className="text-center text-muted-foreground">No purchases recorded yet for this company.</TableCell>
                     </TableRow>
                   ) : (
                     purchaseEntries.map((entry) => (
@@ -790,16 +823,16 @@ export default function PurchasesPage() {
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isFormDisabled}>
                                 <MoreHorizontal className="h-4 w-4" />
                                 <span className="sr-only">Actions</span>
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => handleEdit(entry)}>
+                              <DropdownMenuItem onSelect={() => handleEdit(entry)} disabled={isFormDisabled}>
                                 <Edit className="mr-2 h-4 w-4" /> Edit
                               </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => handleDeleteClick(entry)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                              <DropdownMenuItem onSelect={() => handleDeleteClick(entry)} className="text-destructive focus:text-destructive focus:bg-destructive/10" disabled={isFormDisabled}>
                                 <Trash2 className="mr-2 h-4 w-4" /> Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
@@ -845,3 +878,4 @@ export default function PurchasesPage() {
     </div>
   );
 }
+
