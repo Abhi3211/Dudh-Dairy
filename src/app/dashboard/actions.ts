@@ -5,7 +5,7 @@ import { db } from '@/lib/firebase';
 import type { DailySummary, ChartDataPoint, DashboardData, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PaymentEntry, PurchaseEntry, Party } from '@/lib/types'; 
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { eachDayOfInterval, format, startOfDay, endOfDay } from 'date-fns';
-import { getPartiesFromFirestore } from '../parties/actions'; 
+import { getPartiesFromFirestore } from '../parties/actions'; // Correctly import getPartiesFromFirestore
 
 async function getPashuAaharProductNamesFromPurchases(): Promise<string[]> {
   const pashuAaharNames = new Set<string>();
@@ -51,7 +51,7 @@ export async function getDashboardSummaryAndChartData(
     totalCashIn: 0,
     totalCreditOut: 0,
     totalOutstandingAmount: 0,
-    totalRevenue: 0, 
+    
   };
 
   const daysInRange = eachDayOfInterval({ start: clientStartDate, end: clientEndDate });
@@ -63,7 +63,7 @@ export async function getDashboardSummaryAndChartData(
   });
 
   const partyBalances = new Map<string, number>();
-  const allParties = await getPartiesFromFirestore(); 
+  const allParties = await getPartiesFromFirestore(); // **CRITICAL FIX: Fetch all parties here**
   console.log(`SERVER ACTION (Dashboard): Fetched ${allParties.length} parties for balance initialization.`);
 
 
@@ -142,8 +142,7 @@ export async function getDashboardSummaryAndChartData(
       const productNameLower = (entry.productName || "").toLowerCase();
       const currentSaleAmount = entry.totalAmount || 0;
 
-      summary.totalRevenue += currentSaleAmount;
-
+      
       if (entry.unit === "Ltr" && productNameLower === "milk") { 
         summary.milkSoldLitres += entry.quantity || 0;
         summary.milkSoldAmount += currentSaleAmount;
@@ -195,7 +194,7 @@ export async function getDashboardSummaryAndChartData(
 
         summary.bulkMilkSoldLitres += entry.quantityLtr || 0;
         summary.bulkMilkSoldAmount += currentSaleAmount;
-        summary.totalRevenue += currentSaleAmount;
+        
 
         if (entry.paymentType === "Cash") {
             summary.totalCashIn += currentSaleAmount;
@@ -311,7 +310,7 @@ export async function getDashboardSummaryAndChartData(
         totalCashIn: 0,
         totalCreditOut: 0,
         totalOutstandingAmount: 0,
-        totalRevenue: 0,
+        
     };
     return { summary: defaultSummary, chartSeries: [] };
   }
@@ -348,11 +347,13 @@ export async function getDashboardSummaryAndChartData(
   summary.pashuAaharSalesAmount = parseFloat(summary.pashuAaharSalesAmount.toFixed(2));
   summary.totalCashIn = parseFloat(summary.totalCashIn.toFixed(2));
   summary.totalCreditOut = parseFloat(summary.totalCreditOut.toFixed(2));
-  summary.totalRevenue = parseFloat(summary.totalRevenue.toFixed(2));
+  
 
 
   console.log("SERVER ACTION (Dashboard): Dashboard data processed. Summary:", JSON.parse(JSON.stringify(summary)), "ChartSeries Length:", chartSeries.length);
   return { summary, chartSeries };
 }
+
+    
 
     
