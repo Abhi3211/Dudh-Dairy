@@ -37,7 +37,7 @@ import {
   getUniquePashuAaharProductNamesFromFirestore
 } from "./actions";
 import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions";
-import { getSaleEntriesFromFirestore } from "../sales/actions";
+import { getSaleEntriesFromFirestore } from "../sales/actions"; 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import {
@@ -83,6 +83,7 @@ export default function PashuAaharPage() {
   const [supplierNameInput, setSupplierNameInput] = useState<string>("");
   const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
   const supplierNameInputRef = useRef<HTMLInputElement>(null);
+  const justSupplierSelectedRef = useRef(false);
 
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true);
@@ -226,45 +227,55 @@ export default function PashuAaharPage() {
     }
     setProductName(actualValue);
     setIsProductPopoverOpen(false);
-    productNameInputRef.current?.focus();
+    // productNameInputRef.current?.focus(); // Usually not needed
   }, [productName, knownPashuAaharProductsList, toast]);
 
 
   const handleSupplierNameInputChange = useCallback((value: string) => {
     setSupplierNameInput(value);
-    if (value.trim() && (availableSuppliers.length > 0 || !isLoadingParties)) {
-      setIsSupplierPopoverOpen(true);
-    } else {
-      setIsSupplierPopoverOpen(false);
-    }
-  }, [availableSuppliers, isLoadingParties]);
+  }, []);
 
   const handleSupplierSelect = useCallback(async (currentValue: string) => {
     const trimmedValue = currentValue.trim();
     const isCreatingNew = currentValue.startsWith("__CREATE_SUPPLIER__");
     let actualValue = currentValue;
+    let finalSupplierName = trimmedValue;
+
 
     if (isCreatingNew) {
         actualValue = supplierNameInput.trim();
         if (!actualValue) {
             toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
-            setIsSupplierPopoverOpen(false);
             return;
         }
-        setIsSubmitting(true); // General submitting state for adding party
-        const result = await addPartyToFirestore({ name: actualValue, type: "Supplier" });
-        if (result.success && result.id) {
-            toast({ title: "Success", description: `Supplier "${actualValue}" added.` });
-            await fetchPashuAaharPageData(); // Re-fetch to update supplier list
+        finalSupplierName = actualValue;
+
+        const existingParty = availableParties.find(
+          p => p.name.toLowerCase() === finalSupplierName.toLowerCase() && p.type === "Supplier"
+        );
+        if (existingParty) {
+            toast({ title: "Info", description: `Supplier "${finalSupplierName}" already exists. Selecting existing.`, variant: "default"});
         } else {
-            toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
+            setIsSubmitting(true); 
+            const result = await addPartyToFirestore({ name: finalSupplierName, type: "Supplier" });
+            if (result.success && result.id) {
+                toast({ title: "Success", description: `Supplier "${finalSupplierName}" added.` });
+                await fetchPashuAaharPageData(); 
+            } else {
+                toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
+                setIsSubmitting(false);
+                setIsSupplierPopoverOpen(false);
+                return;
+            }
+            setIsSubmitting(false);
         }
-        setIsSubmitting(false);
+    } else {
+        finalSupplierName = trimmedValue;
     }
-    setSupplierNameInput(actualValue);
+    setSupplierNameInput(finalSupplierName);
     setIsSupplierPopoverOpen(false);
-    supplierNameInputRef.current?.focus();
-  }, [supplierNameInput, toast, fetchPashuAaharPageData]);
+    justSupplierSelectedRef.current = true;
+  }, [supplierNameInput, toast, fetchPashuAaharPageData, availableParties]);
 
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
@@ -436,9 +447,11 @@ export default function PashuAaharPage() {
                   >
                     <Command>
                       <CommandInput
-                        placeholder="Search or add new product..."
                         value={productName}
                         onValueChange={handleProductNameInputChange}
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden="true"
                       />
                       <CommandList>
                         {isLoadingData && knownPashuAaharProductsList.length === 0 ? (
@@ -491,8 +504,10 @@ export default function PashuAaharPage() {
                       value={supplierNameInput}
                       onChange={(e) => handleSupplierNameInputChange(e.target.value)}
                       onFocus={() => {
-                        if (supplierNameInput.trim() || availableSuppliers.length > 0 || isLoadingParties) {
-                          setIsSupplierPopoverOpen(true);
+                        if (justSupplierSelectedRef.current) {
+                            justSupplierSelectedRef.current = false;
+                        } else {
+                            setIsSupplierPopoverOpen(true);
                         }
                       }}
                       placeholder="Start typing supplier name"
@@ -510,9 +525,11 @@ export default function PashuAaharPage() {
                   >
                     <Command>
                       <CommandInput
-                        placeholder="Search or add new supplier..."
                         value={supplierNameInput}
                         onValueChange={handleSupplierNameInputChange}
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden="true"
                       />
                       <CommandList>
                         {isLoadingParties ? (
@@ -705,5 +722,3 @@ export default function PashuAaharPage() {
   );
 }
 
-
-    

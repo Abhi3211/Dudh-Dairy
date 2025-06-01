@@ -89,6 +89,8 @@ export default function PurchasesPage() {
   const [supplierNameInput, setSupplierNameInput] = useState<string>("");
   const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
   const supplierNameInputRef = useRef<HTMLInputElement>(null);
+  const justSupplierSelectedRef = useRef(false);
+
 
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingParties, setIsLoadingParties] = useState(true);
@@ -175,7 +177,7 @@ export default function PurchasesPage() {
     stockEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     stockEvents.forEach(event => {
-      const key = `${event.productName}#${event.unit}`; // Use product#unit as key
+      const key = `${event.productName}#${event.unit}`; 
       const current = stockCalc[key] || { quantity: 0, unit: event.unit };
       current.quantity += event.quantityChange;
       stockCalc[key] = current;
@@ -239,7 +241,7 @@ export default function PurchasesPage() {
     }
     setCategoryNameInput(actualValue);
     setIsCategoryPopoverOpen(false);
-    categoryNameInputRef.current?.focus();
+    // categoryNameInputRef.current?.focus(); // Usually not needed
   }, [categoryNameInput, existingCategorySuggestions, toast]);
 
 
@@ -270,45 +272,53 @@ export default function PurchasesPage() {
     }
     setProductName(actualValue);
     setIsProductPopoverOpen(false);
-    productNameInputRef.current?.focus();
+    // productNameInputRef.current?.focus(); // Usually not needed
   }, [productName, productNameSuggestions, toast]);
 
 
   const handleSupplierNameInputChange = useCallback((value: string) => {
     setSupplierNameInput(value);
-    if (value.trim() && (availableSuppliers.length > 0 || !isLoadingParties)) {
-      setIsSupplierPopoverOpen(true);
-    } else {
-      setIsSupplierPopoverOpen(false);
-    }
-  }, [availableSuppliers, isLoadingParties]);
+  }, []);
 
   const handleSupplierSelect = useCallback(async (currentValue: string) => {
     const trimmedValue = currentValue.trim();
     const isCreatingNew = currentValue.startsWith("__CREATE_SUPPLIER__");
     let actualValue = currentValue;
+    let finalSupplierName = trimmedValue;
 
     if (isCreatingNew) {
         actualValue = supplierNameInput.trim();
         if (!actualValue) {
             toast({ title: "Error", description: "Supplier name cannot be empty.", variant: "destructive" });
-            setIsSupplierPopoverOpen(false);
             return;
         }
-        setIsSubmitting(true); 
-        const result = await addPartyToFirestore({ name: actualValue, type: "Supplier" });
-        if (result.success && result.id) {
-            toast({ title: "Success", description: `Supplier "${actualValue}" added.` });
-            await fetchPageData(); 
+        finalSupplierName = actualValue;
+        const existingParty = availableParties.find(
+          p => p.name.toLowerCase() === finalSupplierName.toLowerCase() && p.type === "Supplier"
+        );
+        if (existingParty) {
+            toast({ title: "Info", description: `Supplier "${finalSupplierName}" already exists. Selecting existing.`, variant: "default"});
         } else {
-            toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
+            setIsSubmitting(true); 
+            const result = await addPartyToFirestore({ name: finalSupplierName, type: "Supplier" });
+            if (result.success && result.id) {
+                toast({ title: "Success", description: `Supplier "${finalSupplierName}" added.` });
+                await fetchPageData(); 
+            } else {
+                toast({ title: "Error", description: result.error || "Failed to add supplier.", variant: "destructive" });
+                setIsSubmitting(false);
+                setIsSupplierPopoverOpen(false);
+                return;
+            }
+            setIsSubmitting(false);
         }
-        setIsSubmitting(false);
+    } else {
+      finalSupplierName = trimmedValue;
     }
-    setSupplierNameInput(actualValue);
+    setSupplierNameInput(finalSupplierName);
     setIsSupplierPopoverOpen(false);
-    supplierNameInputRef.current?.focus();
-  }, [supplierNameInput, toast, fetchPageData]);
+    justSupplierSelectedRef.current = true;
+  }, [supplierNameInput, toast, fetchPageData, availableParties]);
 
 
   const handlePurchaseSubmit = async (e: FormEvent) => {
@@ -357,7 +367,7 @@ export default function PurchasesPage() {
 
     if (result.success) {
       resetFormFields();
-      await fetchPageData(); // Refetch all data
+      await fetchPageData(); 
     }
     setIsSubmitting(false);
   };
@@ -387,7 +397,7 @@ export default function PurchasesPage() {
     const result = await deletePurchaseEntryFromFirestore(transactionToDelete.id);
     toast({ title: result.success ? "Success" : "Error", description: result.success ? "Purchase deleted." : (result.error || "Failed to delete purchase."), variant: result.success ? "default" : "destructive" });
     if (result.success) {
-      await fetchPageData(); // Refetch all data
+      await fetchPageData(); 
     }
     setShowDeleteDialog(false);
     setTransactionToDelete(null);
@@ -416,7 +426,7 @@ export default function PurchasesPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {Object.entries(currentStockByProduct)
-                .sort(([keyA], [keyB]) => keyA.localeCompare(keyB)) // Sort by product name#unit
+                .sort(([keyA], [keyB]) => keyA.localeCompare(keyB)) 
                 .map(([productUnitKey, stockInfo]) => {
                   const [prodName, unitKey] = productUnitKey.split('#');
                   return (
@@ -485,9 +495,11 @@ export default function PurchasesPage() {
                   >
                     <Command>
                       <CommandInput
-                        placeholder="Search or add new category..."
                         value={categoryNameInput}
                         onValueChange={handleCategoryNameInputChange}
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden="true"
                       />
                       <CommandList>
                         {isLoadingData && existingCategorySuggestions.length === 0 ? (
@@ -557,9 +569,11 @@ export default function PurchasesPage() {
                   >
                     <Command>
                       <CommandInput
-                        placeholder="Search or add new product..."
                         value={productName}
                         onValueChange={handleProductNameInputChange}
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden="true"
                       />
                       <CommandList>
                         {isLoadingData && productNameSuggestions.length === 0 ? (
@@ -612,8 +626,10 @@ export default function PurchasesPage() {
                       value={supplierNameInput}
                       onChange={(e) => handleSupplierNameInputChange(e.target.value)}
                       onFocus={() => {
-                        if (supplierNameInput.trim() || availableSuppliers.length > 0 || isLoadingParties) {
-                          setIsSupplierPopoverOpen(true);
+                        if (justSupplierSelectedRef.current) {
+                            justSupplierSelectedRef.current = false;
+                        } else {
+                            setIsSupplierPopoverOpen(true);
                         }
                       }}
                       placeholder="Start typing supplier name"
@@ -631,9 +647,11 @@ export default function PurchasesPage() {
                   >
                     <Command>
                       <CommandInput
-                        placeholder="Search or add new supplier..."
                         value={supplierNameInput}
                         onValueChange={handleSupplierNameInputChange}
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden="true"
                       />
                       <CommandList>
                         {isLoadingParties ? (
@@ -827,5 +845,3 @@ export default function PurchasesPage() {
     </div>
   );
 }
-
-    

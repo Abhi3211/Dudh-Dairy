@@ -83,6 +83,8 @@ export default function SalesPage() {
 
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
   const customerNameInputRef = useRef<HTMLInputElement>(null);
+  const justCustomerSelectedRef = useRef(false);
+
 
   const [availableParties, setAvailableParties] = useState<Party[]>([]);
   const [isLoadingPrerequisites, setIsLoadingPrerequisites] = useState(true);
@@ -124,7 +126,7 @@ export default function SalesPage() {
     try {
       const [parties, productNames, purchaseEntriesData] = await Promise.all([
         getPartiesFromFirestore(),
-        getUniquePurchasedProductNames(), // Fetches all unique product names initially
+        getUniquePurchasedProductNames(), 
         getPurchaseEntriesFromFirestore()
       ]);
       setAvailableParties(parties);
@@ -205,15 +207,13 @@ export default function SalesPage() {
 
   useEffect(() => {
     if (currentCategoryName === "Pashu Aahar") {
-      setSpecificProductName(""); // Clear when switching to Pashu Aahar
-      setRate(""); // Clear rate as well, will be set on product selection
-      // Do not open popover here, user will trigger it by focus/typing
+      setSpecificProductName(""); 
+      setRate(""); 
     } else {
       setSpecificProductName(currentCategoryName === "Other" ? "" : (currentCategoryName || ""));
       setIsProductPopoverOpen(false);
     }
   
-    // Auto-set rate for predefined categories EXCEPT Pashu Aahar (rate set on product select)
     if (currentCategoryName === "Milk") setRate("60");
     else if (currentCategoryName === "Ghee") setRate("700");
     else if (currentCategoryName !== "Pashu Aahar") setRate("");
@@ -253,19 +253,15 @@ export default function SalesPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerName(value);
-    if (value.trim() && partiesForSuggestions.length > 0) {
-      setIsCustomerPopoverOpen(true);
-    } else {
-      setIsCustomerPopoverOpen(false);
-    }
-  }, [partiesForSuggestions]);
+  }, []);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
+    let finalCustomerName = trimmedValue;
+
     if (isCreateNew) {
       if (!trimmedValue) {
         toast({ title: "Error", description: "Customer name cannot be empty.", variant: "destructive" });
-        setIsCustomerPopoverOpen(false);
         return;
       }
 
@@ -274,27 +270,26 @@ export default function SalesPage() {
       );
       if (existingParty) {
         toast({ title: "Info", description: `Customer "${trimmedValue}" already exists. Selecting existing customer.`, variant: "default" });
-        setCustomerName(trimmedValue);
-        setIsCustomerPopoverOpen(false);
-        customerNameInputRef.current?.focus();
-        return;
-      }
-      
-      setIsSubmitting(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
-      if (result.success) {
-        setCustomerName(trimmedValue);
-        toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
-        await fetchPagePrerequisites();
+        finalCustomerName = trimmedValue;
       } else {
-        toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
+        setIsSubmitting(true);
+        const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" });
+        if (result.success) {
+          finalCustomerName = trimmedValue;
+          toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
+          await fetchPagePrerequisites();
+        } else {
+          toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
+          setIsSubmitting(false);
+          setIsCustomerPopoverOpen(false);
+          return;
+        }
+        setIsSubmitting(false);
       }
-      setIsSubmitting(false);
-    } else {
-      setCustomerName(trimmedValue);
     }
+    setCustomerName(finalCustomerName);
     setIsCustomerPopoverOpen(false);
-    customerNameInputRef.current?.focus();
+    justCustomerSelectedRef.current = true;
   }, [toast, fetchPagePrerequisites, availableParties]);
 
 
@@ -562,7 +557,9 @@ export default function SalesPage() {
                         value={customerName}
                         onChange={(e) => handleCustomerNameInputChange(e.target.value)}
                         onFocus={() => {
-                          if (customerName.trim() || partiesForSuggestions.length > 0) {
+                          if (justCustomerSelectedRef.current) {
+                            justCustomerSelectedRef.current = false;
+                          } else {
                             setIsCustomerPopoverOpen(true);
                           }
                         }}
@@ -581,9 +578,11 @@ export default function SalesPage() {
                     >
                       <Command>
                         <CommandInput
-                          placeholder="Search or add new customer..."
                           value={customerName}
                           onValueChange={handleCustomerNameInputChange}
+                          className="sr-only"
+                          tabIndex={-1}
+                          aria-hidden="true"
                         />
                         <CommandList>
                           {isLoadingPrerequisites && availableParties.length === 0 ? (
@@ -675,9 +674,11 @@ export default function SalesPage() {
                         >
                             <Command>
                             <CommandInput
-                                placeholder="Search Pashu Aahar..."
                                 value={specificProductName}
                                 onValueChange={handleSpecificProductNameChange}
+                                className="sr-only"
+                                tabIndex={-1}
+                                aria-hidden="true"
                             />
                             <CommandList>
                                 {isLoadingPrerequisites && availableProductSuggestions.length === 0 ? (
@@ -719,7 +720,7 @@ export default function SalesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="quantity">Quantity ({currentCategoryDetails?.unit || 'Units'})</Label>
-                    <Input id="quantity" type="text" inputMode="decimal" step={currentCategoryDetails?.unit === "Ltr" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
+                    <Input id="quantity" type="text" inputMode="decimal" step={currentCategoryDetails?.unit === "Ltr" || currentCategoryDetails?.unit === "Kg" ? "0.1" : "1"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g., 2.5 or 2" required />
                   </div>
                   <div>
                     <Label htmlFor="rate" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Rate</Label>

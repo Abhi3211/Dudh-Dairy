@@ -60,6 +60,7 @@ export default function ExpensesPage() {
   const [selectedPartyForSalary, setSelectedPartyForSalary] = useState<Party | null>(null);
   const [isPartyPopoverOpenForSalary, setIsPartyPopoverOpenForSalary] = useState(false);
   const partyNameInputRefForSalary = useRef<HTMLInputElement>(null);
+  const justPartySelectedRef = useRef(false);
   
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -123,18 +124,14 @@ export default function ExpensesPage() {
 
   const handlePartyNameInputChangeForSalary = useCallback((value: string) => {
     setPartyNameInputForSalary(value);
-    setSelectedPartyForSalary(null); // Clear selected party if typing
-    if (value.trim()) {
-      setIsPartyPopoverOpenForSalary(true);
-    } else {
-      setIsPartyPopoverOpenForSalary(false);
-    }
+    setSelectedPartyForSalary(null); 
   }, []);
 
   const handlePartySelectForSalary = useCallback(async (partyValue: string, isCreateNew = false) => {
     let partyNameToSet = partyValue;
     let partyIdToSet: string | undefined = undefined;
-    let partyTypeToSet: Party['type'] = "Employee"; // Default to Employee for salary
+    let partyTypeToSet: Party['type'] = "Employee"; 
+    let partyToSelect: Party | null = null;
 
     if (isCreateNew) {
       const newPartyName = partyNameInputForSalary.trim();
@@ -145,47 +142,42 @@ export default function ExpensesPage() {
       }
       partyNameToSet = newPartyName;
       
-      // For salary, default to creating as Employee. User can change type in Parties page if needed.
-      // Or, we could add a type selector if "Supplier" is a common salary recipient.
-      // For now, let's keep it simpler and default to "Employee".
-      // A more advanced solution might offer a choice here.
       const existingParty = availableParties.find(
         p => p.name.toLowerCase() === newPartyName.toLowerCase() && (p.type === "Employee" || p.type === "Supplier")
       );
       if (existingParty) {
         toast({ title: "Info", description: `Party "${newPartyName}" (${existingParty.type}) already exists. Selecting existing.`, variant: "default" });
-        setSelectedPartyForSalary(existingParty);
-        setPartyNameInputForSalary(existingParty.name);
-        setIsPartyPopoverOpenForSalary(false);
-        partyNameInputRefForSalary.current?.focus();
-        return;
-      }
-
-      setIsSubmittingExpense(true); // Use general submitting flag
-      const result = await addPartyToFirestore({ name: newPartyName, type: partyTypeToSet });
-      if (result.success && result.id) {
-        toast({ title: "Success", description: `Party "${newPartyName}" (${partyTypeToSet}) added.` });
-        partyIdToSet = result.id;
-        await fetchParties(); // Refresh party list
-        setSelectedPartyForSalary({ id: result.id, name: newPartyName, type: partyTypeToSet });
+        partyToSelect = existingParty;
       } else {
-        toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
+        setIsSubmittingExpense(true); 
+        const result = await addPartyToFirestore({ name: newPartyName, type: partyTypeToSet });
+        if (result.success && result.id) {
+          toast({ title: "Success", description: `Party "${newPartyName}" (${partyTypeToSet}) added.` });
+          partyIdToSet = result.id;
+          partyToSelect = { id: result.id, name: newPartyName, type: partyTypeToSet };
+          await fetchParties(); 
+        } else {
+          toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
+          setIsSubmittingExpense(false);
+          setIsPartyPopoverOpenForSalary(false);
+          return;
+        }
         setIsSubmittingExpense(false);
-        setIsPartyPopoverOpenForSalary(false);
-        return;
       }
-      setIsSubmittingExpense(false);
     } else {
       const selected = partiesForSalarySuggestions.find(p => p.name === partyValue);
       if (selected) {
-        partyIdToSet = selected.id;
-        partyTypeToSet = selected.type;
-        setSelectedPartyForSalary(selected);
+        partyToSelect = selected;
+        partyNameToSet = selected.name;
       }
+    }
+
+    if (partyToSelect) {
+        setSelectedPartyForSalary(partyToSelect);
     }
     setPartyNameInputForSalary(partyNameToSet);
     setIsPartyPopoverOpenForSalary(false);
-    partyNameInputRefForSalary.current?.focus();
+    justPartySelectedRef.current = true;
   }, [partyNameInputForSalary, toast, fetchParties, availableParties, partiesForSalarySuggestions]);
 
 
@@ -206,14 +198,17 @@ export default function ExpensesPage() {
       if (selectedPartyForSalary) {
         partyDetails = { partyId: selectedPartyForSalary.id, partyName: selectedPartyForSalary.name };
       } else if (partyNameInputForSalary.trim()) {
-        // If a name is typed but not formally selected from existing/newly created,
-        // we could try to find it or just save the name.
-        // For simplicity with the combobox, we should ensure selection or creation sets selectedPartyForSalary.
-        // Let's enforce that a party must be selected/created.
-        toast({ title: "Error", description: "Please select or add a party for the salary expense.", variant: "destructive" });
-        return;
+        // Check if typed name matches an existing party exactly if not formally selected via popover
+        const matchedParty = partiesForSalarySuggestions.find(p => p.name.toLowerCase() === partyNameInputForSalary.trim().toLowerCase());
+        if(matchedParty) {
+            partyDetails = { partyId: matchedParty.id, partyName: matchedParty.name };
+        } else {
+            // If no exact match, and not selected, it implies user typed a new name without confirming "add new"
+            toast({ title: "Error", description: `Party "${partyNameInputForSalary.trim()}" not found. Please select from suggestions or add as a new party.`, variant: "destructive" });
+            return;
+        }
       } else {
-         toast({ title: "Error", description: "Please select a party for salary expense.", variant: "destructive" });
+         toast({ title: "Error", description: "Please select or add a party for the salary expense.", variant: "destructive" });
          return;
       }
     }
@@ -232,7 +227,7 @@ export default function ExpensesPage() {
     if (result.success) {
       toast({ title: "Success", description: "Expense recorded."});
       resetFormFields();
-      await fetchExpenses(); // Refresh the list
+      await fetchExpenses(); 
     } else {
       toast({ title: "Error", description: result.error || "Failed to record expense.", variant: "destructive" });
     }
@@ -295,7 +290,9 @@ export default function ExpensesPage() {
                         value={partyNameInputForSalary}
                         onChange={(e) => handlePartyNameInputChangeForSalary(e.target.value)}
                         onFocus={() => {
-                          if (partyNameInputForSalary.trim() || filteredPartySuggestionsForSalary.length > 0) {
+                          if (justPartySelectedRef.current) {
+                            justPartySelectedRef.current = false;
+                          } else {
                             setIsPartyPopoverOpenForSalary(true);
                           }
                         }}
@@ -313,9 +310,11 @@ export default function ExpensesPage() {
                     >
                       <Command>
                         <CommandInput
-                          placeholder="Search or add new party..."
                           value={partyNameInputForSalary}
                           onValueChange={handlePartyNameInputChangeForSalary}
+                          className="sr-only"
+                          tabIndex={-1}
+                          aria-hidden="true"
                         />
                         <CommandList>
                           {isLoadingParties ? (
@@ -441,5 +440,3 @@ export default function ExpensesPage() {
     </div>
   );
 }
-
-    

@@ -65,7 +65,8 @@ export default function PaymentsPage() {
   const [isLoadingParties, setIsLoadingParties] = useState(true);
   const [isPartyPopoverOpen, setIsPartyPopoverOpen] = useState(false);
   const partyNameInputRef = useRef<HTMLInputElement>(null);
-  const [isSubmittingParty, setIsSubmittingParty] = useState(false); // For adding new party
+  const justPartySelectedRef = useRef(false);
+  const [isSubmittingParty, setIsSubmittingParty] = useState(false); 
 
   const fetchParties = useCallback(async () => {
     setIsLoadingParties(true);
@@ -114,12 +115,7 @@ export default function PaymentsPage() {
 
   const handlePartyNameInputChange = useCallback((value: string) => {
     setPartyNameInput(value);
-    if (value.trim() && (availableParties.length > 0 || !isLoadingParties)) { // Ensure popover opens even if loading finishes with no parties
-      setIsPartyPopoverOpen(true);
-    } else {
-      setIsPartyPopoverOpen(false);
-    }
-  }, [availableParties, isLoadingParties]);
+  }, []);
 
   const handlePartySelect = useCallback(async (currentValue: string) => {
     const isCreatingNew = currentValue.startsWith("__CREATE__");
@@ -147,7 +143,7 @@ export default function PaymentsPage() {
           partyNameToSet = newPartyName;
           newPartyCreated = true;
           toast({ title: "Success", description: `Party "${newPartyName}" (${partyType}) added.` });
-          await fetchParties(); // Re-fetch parties to include the new one
+          await fetchParties(); 
         } else {
           toast({ title: "Error", description: result.error || `Failed to add party "${newPartyName}".`, variant: "destructive" });
           setIsSubmittingParty(false);
@@ -159,14 +155,14 @@ export default function PaymentsPage() {
     }
     
     setPartyNameInput(partyNameToSet);
-    if (!newPartyCreated) { // Only auto-select type if an existing party was chosen
+    if (!newPartyCreated) { 
         const selectedPartyDetails = availableParties.find(p => p.name.toLowerCase() === partyNameToSet.toLowerCase());
         if (selectedPartyDetails) {
         setPartyType(selectedPartyDetails.type); 
         }
     }
     setIsPartyPopoverOpen(false);
-    partyNameInputRef.current?.focus();
+    justPartySelectedRef.current = true;
   }, [partyNameInput, partyType, availableParties, toast, fetchParties]);
 
   const resetFormFields = useCallback(() => {
@@ -250,7 +246,9 @@ export default function PaymentsPage() {
                       value={partyNameInput}
                       onChange={(e) => handlePartyNameInputChange(e.target.value)}
                       onFocus={() => {
-                        if (partyNameInput.trim() || availableParties.length > 0 || isLoadingParties) {
+                        if (justPartySelectedRef.current) {
+                            justPartySelectedRef.current = false;
+                        } else {
                            setIsPartyPopoverOpen(true);
                         }
                       }}
@@ -269,9 +267,11 @@ export default function PaymentsPage() {
                   >
                     <Command>
                       <CommandInput 
-                        placeholder="Search or add new party..." 
                         value={partyNameInput} 
                         onValueChange={handlePartyNameInputChange}
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden="true"
                       />
                       <CommandList>
                         {isLoadingParties ? (
@@ -395,5 +395,3 @@ export default function PaymentsPage() {
     </div>
   );
 }
-
-    

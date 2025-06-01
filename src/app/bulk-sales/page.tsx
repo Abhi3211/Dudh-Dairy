@@ -71,6 +71,8 @@ export default function BulkSalesPage() {
   const [customerNameInput, setCustomerNameInput] = useState<string>("");
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
   const customerNameInputRef = useRef<HTMLInputElement>(null);
+  const justSelectedRef = useRef(false);
+
 
   const [quantityLtr, setQuantityLtr] = useState<string>("");
   const [fatPercentage, setFatPercentage] = useState<string>("");
@@ -183,43 +185,47 @@ export default function BulkSalesPage() {
 
   const handleCustomerNameInputChange = useCallback((value: string) => {
     setCustomerNameInput(value);
-    if (value.trim()){
-        setIsCustomerPopoverOpen(true);
-    } else {
-        setIsCustomerPopoverOpen(false);
-    }
   }, []);
 
   const handleCustomerSelect = useCallback(async (currentValue: string, isCreateNew = false) => {
     const trimmedValue = currentValue.trim();
+    let finalCustomerName = trimmedValue;
+
     if (isCreateNew) {
       if (!trimmedValue) {
         toast({ title: "Error", description: "Customer name cannot be empty.", variant: "destructive" });
-        setIsCustomerPopoverOpen(false);
         return;
       }
-      setIsSubmitting(true);
-      const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
-      if (result.success && result.id) {
-        setCustomerNameInput(trimmedValue);
-        toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
-        await fetchParties(); 
+       const existingParty = availableParties.find(
+        p => p.name.toLowerCase() === trimmedValue.toLowerCase() && p.type === "Customer"
+      );
+      if (existingParty) {
+        toast({ title: "Info", description: `Customer "${trimmedValue}" already exists. Selecting existing customer.`, variant: "default" });
+        finalCustomerName = trimmedValue; 
       } else {
-        toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
+        setIsSubmitting(true);
+        const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
+        if (result.success && result.id) {
+          finalCustomerName = trimmedValue;
+          toast({ title: "Success", description: `Customer "${trimmedValue}" added.` });
+          await fetchParties(); 
+        } else {
+          toast({ title: "Error", description: result.error || "Failed to add customer.", variant: "destructive" });
+          setIsSubmitting(false);
+          setIsCustomerPopoverOpen(false);
+          return;
+        }
+        setIsSubmitting(false);
       }
-      setIsSubmitting(false);
-    } else {
-      setCustomerNameInput(trimmedValue);
     }
+    setCustomerNameInput(finalCustomerName);
     setIsCustomerPopoverOpen(false);
-    customerNameInputRef.current?.focus();
-  }, [toast, fetchParties]);
+    justSelectedRef.current = true;
+  }, [toast, fetchParties, availableParties]);
 
   const resetFormFields = useCallback(() => {
     if (!editingEntryId) {
         setDate(new Date()); 
-        // Shift persists
-        // Rate factor persists
     }
     setPaymentType("Credit"); 
     setCustomerNameInput(""); 
@@ -453,8 +459,10 @@ export default function BulkSalesPage() {
                         value={customerNameInput}
                         onChange={(e) => handleCustomerNameInputChange(e.target.value)}
                         onFocus={() => {
-                          if (customerNameInput.trim() && filteredCustomerSuggestions.length > 0) {
-                              setIsCustomerPopoverOpen(true);
+                          if (justSelectedRef.current) {
+                            justSelectedRef.current = false;
+                          } else {
+                            setIsCustomerPopoverOpen(true);
                           }
                         }}
                         placeholder="Start typing customer name"
@@ -471,41 +479,44 @@ export default function BulkSalesPage() {
                       onOpenAutoFocus={(e) => e.preventDefault()}
                     >
                       <Command>
-                        <CommandInput 
-                          placeholder="Search or add new customer..." 
-                          value={customerNameInput} 
+                        <CommandInput
+                          value={customerNameInput}
                           onValueChange={handleCustomerNameInputChange}
+                          className="sr-only"
+                          tabIndex={-1}
+                          aria-hidden="true"
                         />
                         <CommandList>
                           {isLoadingParties ? (
                             <CommandItem disabled>Loading customers...</CommandItem>
                           ) : (
                             <>
-                              {customerNameInput.trim() && !allKnownCustomerNamesForBulkSale.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
-                                <CommandItem
-                                  key={`__CREATE__${customerNameInput.trim()}`}
-                                  value={`__CREATE__${customerNameInput.trim()}`}
-                                  onSelect={() => handleCustomerSelect(customerNameInput.trim(), true)}
-                                >
-                                  <PlusCircle className="mr-2 h-4 w-4" />
-                                  Add new customer: "{customerNameInput.trim()}"
-                                </CommandItem>
-                              )}
-                              {filteredCustomerSuggestions.map((name) => (
-                                <CommandItem
-                                  key={name}
-                                  value={name}
-                                  onSelect={() => handleCustomerSelect(name)}
-                                >
-                                  {name}
-                                </CommandItem>
-                              ))}
-                              {filteredCustomerSuggestions.length === 0 && customerNameInput.trim() && allKnownCustomerNamesForBulkSale.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
-                                  <CommandEmpty>No existing customers match. Select "Add new..." above.</CommandEmpty>
-                              )}
-                              {allKnownCustomerNamesForBulkSale.length === 0 && !customerNameInput.trim() && (
-                                  <CommandEmpty>No customers found. Type to add a new one.</CommandEmpty>
-                              )}
+                              <CommandGroup>
+                                {customerNameInput.trim() && !allKnownCustomerNamesForBulkSale.some(name => name.toLowerCase() === customerNameInput.trim().toLowerCase()) && (
+                                  <CommandItem
+                                    key={`__CREATE__${customerNameInput.trim()}`}
+                                    value={`__CREATE__${customerNameInput.trim()}`}
+                                    onSelect={() => handleCustomerSelect(customerNameInput.trim(), true)}
+                                  >
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Add new customer: "{customerNameInput.trim()}"
+                                  </CommandItem>
+                                )}
+                                {filteredCustomerSuggestions.map((name) => (
+                                  <CommandItem
+                                    key={name}
+                                    value={name}
+                                    onSelect={() => handleCustomerSelect(name)}
+                                  >
+                                    {name}
+                                  </CommandItem>
+                                ))}
+                                <CommandEmpty>
+                                  {allKnownCustomerNamesForBulkSale.length === 0 && !customerNameInput.trim() 
+                                    ? "No customers found. Type to add a new one." 
+                                    : "No existing customers match. Select 'Add new...' above or clear input."}
+                                </CommandEmpty>
+                              </CommandGroup>
                             </>
                           )}
                         </CommandList>
@@ -733,7 +744,3 @@ export default function BulkSalesPage() {
     </TooltipProvider>
   );
 }
-
-    
-
-    
