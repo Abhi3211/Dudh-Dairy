@@ -61,7 +61,7 @@ export interface BulkSaleEntry {
 
 export interface PurchaseEntry {
   id: string;
-  companyId: string; // Made non-optional
+  companyId: string;
   date: Date;
   category: string;
   productName: string;
@@ -99,7 +99,7 @@ export interface PartyLedgerEntry {
 
 export interface PaymentEntry {
   id:string;
-  companyId?: string;
+  companyId: string;
   date: Date;
   type: "Received" | "Paid";
   partyName: string;
@@ -111,7 +111,7 @@ export interface PaymentEntry {
 
 export interface ExpenseEntry {
   id: string;
-  companyId?: string;
+  companyId: string;
   date: Date;
   category: "Salary" | "Miscellaneous";
   description: string;

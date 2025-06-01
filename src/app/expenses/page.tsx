@@ -24,7 +24,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
-import { IndianRupee, ListChecks, FileText, PlusCircle, CalendarDays, Users } from "lucide-react";
+import { IndianRupee, ListChecks, FileText, PlusCircle, CalendarDays, Users, AlertCircle } from "lucide-react";
 import type { ExpenseEntry, Party } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -34,12 +34,15 @@ import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { useUserSession } from "@/context/UserSessionContext";
 
 const expenseCategories: ExpenseEntry['category'][] = ["Salary", "Miscellaneous"];
 
 export default function ExpensesPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Expenses";
+  const { firebaseUser, companyProfile, authLoading, profilesLoading } = useUserSession();
+  const companyId = companyProfile?.id;
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -66,17 +69,23 @@ export default function ExpensesPage() {
   const [amount, setAmount] = useState("");
 
   const fetchExpenses = useCallback(async () => {
+    if (!companyId) {
+      setExpenses([]);
+      setIsLoadingExpenses(false);
+      return;
+    }
     setIsLoadingExpenses(true);
     try {
-      const fetchedExpenses = await getExpenseEntriesFromFirestore();
-      setExpenses(fetchedExpenses);
+      const fetchedExpenses = await getExpenseEntriesFromFirestore(companyId);
+      setExpenses(fetchedExpenses.map(e => ({...e, date: e.date instanceof Date ? e.date : new Date(e.date)}))
+      .sort((a,b) => b.date.getTime() - a.date.getTime()));
     } catch (error) {
       console.error("CLIENT: Failed to fetch expenses:", error);
       toast({ title: "Error", description: "Could not fetch expense entries.", variant: "destructive" });
     } finally {
       setIsLoadingExpenses(false);
     }
-  }, [toast]);
+  }, [toast, companyId]);
 
   const fetchParties = useCallback(async () => {
     setIsLoadingParties(true);
@@ -93,12 +102,15 @@ export default function ExpensesPage() {
 
 
   useEffect(() => {
+    if (authLoading || profilesLoading) return;
     if (date === undefined) {
         setDate(new Date());
     }
-    fetchExpenses();
-    fetchParties();
-  }, [date, fetchExpenses, fetchParties]);
+    if (companyId) {
+      fetchExpenses();
+    }
+    fetchParties(); // Parties are global for now
+  }, [date, companyId, authLoading, profilesLoading, fetchExpenses, fetchParties]);
 
   useEffect(() => {
     if (category !== "Salary") {
@@ -118,7 +130,7 @@ export default function ExpensesPage() {
 
   const partiesForSalarySuggestions = useMemo(() => {
     return availableParties
-      .filter(p => p.type === "Employee" || p.type === "Supplier")
+      .filter(p => p.type === "Employee" || p.type === "Supplier") // Could be company-specific if parties had companyId
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [availableParties]);
 
@@ -129,8 +141,6 @@ export default function ExpensesPage() {
 
   const handlePartySelectForSalary = useCallback(async (partyValue: string, isCreateNew = false) => {
     let partyNameToSet = partyValue;
-    let partyIdToSet: string | undefined = undefined;
-    let partyTypeToSet: Party['type'] = "Employee"; 
     let partyToSelect: Party | null = null;
 
     if (isCreateNew) {
@@ -150,11 +160,11 @@ export default function ExpensesPage() {
         partyToSelect = existingParty;
       } else {
         setIsSubmittingExpense(true); 
-        const result = await addPartyToFirestore({ name: newPartyName, type: partyTypeToSet });
+        // TODO: If parties become company-specific, add companyId here
+        const result = await addPartyToFirestore({ name: newPartyName, type: "Employee" }); // Defaulting new to Employee
         if (result.success && result.id) {
-          toast({ title: "Success", description: `Party "${newPartyName}" (${partyTypeToSet}) added.` });
-          partyIdToSet = result.id;
-          partyToSelect = { id: result.id, name: newPartyName, type: partyTypeToSet };
+          toast({ title: "Success", description: `Party "${newPartyName}" (Employee) added.` });
+          partyToSelect = { id: result.id, name: newPartyName, type: "Employee" };
           await fetchParties(); 
         } else {
           toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
@@ -183,6 +193,10 @@ export default function ExpensesPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!companyId) {
+      toast({ title: "Error", description: "Company information is missing. Cannot record expense.", variant: "destructive" });
+      return;
+    }
     if (!date || !description.trim() || !amount) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Description, Amount).", variant: "destructive" });
       return;
@@ -198,12 +212,10 @@ export default function ExpensesPage() {
       if (selectedPartyForSalary) {
         partyDetails = { partyId: selectedPartyForSalary.id, partyName: selectedPartyForSalary.name };
       } else if (partyNameInputForSalary.trim()) {
-        // Check if typed name matches an existing party exactly if not formally selected via popover
         const matchedParty = partiesForSalarySuggestions.find(p => p.name.toLowerCase() === partyNameInputForSalary.trim().toLowerCase());
         if(matchedParty) {
             partyDetails = { partyId: matchedParty.id, partyName: matchedParty.name };
         } else {
-            // If no exact match, and not selected, it implies user typed a new name without confirming "add new"
             toast({ title: "Error", description: `Party "${partyNameInputForSalary.trim()}" not found. Please select from suggestions or add as a new party.`, variant: "destructive" });
             return;
         }
@@ -214,7 +226,8 @@ export default function ExpensesPage() {
     }
 
     setIsSubmittingExpense(true);
-    const newExpenseData: Omit<ExpenseEntry, 'id'> = {
+    const newExpenseData: Omit<ExpenseEntry, 'id'> & { companyId: string } = {
+      companyId,
       date,
       category,
       description: description.trim(),
@@ -241,6 +254,7 @@ export default function ExpensesPage() {
     );
   }, [partyNameInputForSalary, partiesForSalarySuggestions]);
 
+  const isFormDisabled = authLoading || profilesLoading || !companyId;
 
   return (
     <div>
@@ -248,6 +262,28 @@ export default function ExpensesPage() {
         title={pageSpecificTitle}
         description="Track and manage your business expenses."
       />
+       {authLoading || profilesLoading ? (
+          <Card className="mb-6"><CardContent className="p-6"><Skeleton className="h-8 w-1/2" /></CardContent></Card>
+      ) : !companyId && firebaseUser ? (
+        <Card className="mb-6 border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Company Information Missing</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>Your user profile does not have company information associated with it. Expenses cannot be recorded or displayed.</p>
+          </CardContent>
+        </Card>
+      ) : !firebaseUser ? (
+         <Card className="mb-6 border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Not Logged In</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>You need to be logged in to record or view expenses.</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">
           <CardHeader>
@@ -265,7 +301,7 @@ export default function ExpensesPage() {
                 <Label htmlFor="expenseCategory" className="flex items-center mb-1">
                     <ListChecks className="h-4 w-4 mr-2 text-muted-foreground" /> Category
                 </Label>
-                <Select value={category} onValueChange={(value: ExpenseEntry['category']) => setCategory(value)}>
+                <Select value={category} onValueChange={(value: ExpenseEntry['category']) => setCategory(value)} disabled={isFormDisabled}>
                   <SelectTrigger id="expenseCategory">
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
@@ -299,6 +335,7 @@ export default function ExpensesPage() {
                         placeholder="Type or select party"
                         autoComplete="off"
                         className="w-full text-left"
+                        disabled={isFormDisabled}
                       />
                     </PopoverTrigger>
                     <PopoverContent
@@ -309,9 +346,9 @@ export default function ExpensesPage() {
                       onOpenAutoFocus={(e) => e.preventDefault()}
                     >
                       <Command>
-                        <CommandInput
+                        <Input
                           value={partyNameInputForSalary}
-                          onValueChange={handlePartyNameInputChangeForSalary}
+                          onChange={(e) => handlePartyNameInputChangeForSalary(e.target.value)}
                           className="sr-only"
                           tabIndex={-1}
                           aria-hidden="true"
@@ -368,6 +405,7 @@ export default function ExpensesPage() {
                   onChange={(e) => setDescription(e.target.value)} 
                   placeholder="Enter expense details" 
                   required 
+                  disabled={isFormDisabled}
                 />
               </div>
               <div>
@@ -382,9 +420,10 @@ export default function ExpensesPage() {
                   onChange={(e) => setAmount(e.target.value)} 
                   placeholder="Enter amount" 
                   required 
+                  disabled={isFormDisabled}
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isSubmittingExpense || isLoadingParties}>
+              <Button type="submit" className="w-full" disabled={isSubmittingExpense || isLoadingParties || isFormDisabled}>
                 <PlusCircle className="h-4 w-4 mr-2" /> 
                 {isSubmittingExpense ? 'Adding...' : 'Add Expense'}
               </Button>
@@ -395,15 +434,17 @@ export default function ExpensesPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Expense History</CardTitle>
-            <CardDescription>List of all recorded expenses from Firestore.</CardDescription>
+            <CardDescription>List of all recorded expenses for your company.</CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoadingExpenses ? (
+            {(isLoadingExpenses || isLoadingParties) && companyId ? (
               <div className="space-y-2">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
               </div>
+            ) : !companyId && firebaseUser && !authLoading && !profilesLoading ? (
+                <p className="text-center text-muted-foreground py-4">Company ID is not available. Expense data cannot be loaded.</p>
             ) : (
               <Table>
                 <TableHeader>
@@ -418,12 +459,14 @@ export default function ExpensesPage() {
                 <TableBody>
                   {expenses.length === 0 ? (
                       <TableRow>
-                          <TableCell colSpan={5} className="text-center text-muted-foreground">No expenses recorded yet.</TableCell>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground">
+                            {companyId ? "No expenses recorded yet for this company." : "Login or complete company setup to view expenses."}
+                          </TableCell>
                       </TableRow>
                   ) : (
                       expenses.map((exp) => (
                       <TableRow key={exp.id}>
-                          <TableCell>{format(exp.date, 'P')}</TableCell>
+                          <TableCell>{exp.date instanceof Date && !isNaN(exp.date.getTime()) ? format(exp.date, 'P') : 'Invalid Date'}</TableCell>
                           <TableCell>{exp.category}</TableCell>
                           <TableCell>{exp.description}</TableCell>
                           <TableCell>{exp.partyName || "-"}</TableCell>

@@ -3,12 +3,16 @@
 
 import { db } from '@/lib/firebase';
 import type { PaymentEntry } from '@/lib/types';
-import { collection, addDoc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, Timestamp, where } from 'firebase/firestore';
 
 export async function addPaymentEntryToFirestore(
-  entryData: Omit<PaymentEntry, 'id'>
+  entryData: Omit<PaymentEntry, 'id'> & { companyId: string }
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addPaymentEntryToFirestore called with data:", JSON.parse(JSON.stringify(entryData)));
+  if (!entryData.companyId) {
+    console.error("SERVER ACTION: companyId is missing in addPaymentEntryToFirestore.");
+    return { success: false, error: "Company ID is required to add a payment entry." };
+  }
   try {
     const docRef = await addDoc(collection(db, 'paymentEntries'), {
       ...entryData,
@@ -25,13 +29,21 @@ export async function addPaymentEntryToFirestore(
   }
 }
 
-export async function getPaymentEntriesFromFirestore(): Promise<PaymentEntry[]> {
-  console.log("SERVER ACTION: getPaymentEntriesFromFirestore called.");
+export async function getPaymentEntriesFromFirestore(companyId: string): Promise<PaymentEntry[]> {
+  console.log(`SERVER ACTION: getPaymentEntriesFromFirestore called for companyId: ${companyId}.`);
+  if (!companyId) {
+    console.warn("SERVER ACTION: getPaymentEntriesFromFirestore called without a companyId. Returning empty array.");
+    return [];
+  }
   try {
     const entriesCollection = collection(db, 'paymentEntries');
-    const q = query(entriesCollection, orderBy('date', 'desc'));
+    const q = query(
+      entriesCollection,
+      where('companyId', '==', companyId),
+      orderBy('date', 'desc')
+    );
     const entrySnapshot = await getDocs(q);
-    console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} payment documents from Firestore.`);
+    console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} payment documents from Firestore for companyId ${companyId}.`);
 
     if (entrySnapshot.empty) {
       console.log("SERVER ACTION: No documents found in 'paymentEntries'. Returning empty array.");
@@ -53,6 +65,7 @@ export async function getPaymentEntriesFromFirestore(): Promise<PaymentEntry[]> 
 
       return {
         id: docSnapshot.id,
+        companyId: data.companyId,
         date: entryDate,
         type: data.type || "Received",
         partyName: data.partyName || "Unknown Party",

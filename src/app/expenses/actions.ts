@@ -3,12 +3,16 @@
 
 import { db } from '@/lib/firebase';
 import type { ExpenseEntry } from '@/lib/types';
-import { collection, addDoc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, Timestamp, where } from 'firebase/firestore';
 
 export async function addExpenseEntryToFirestore(
-  entryData: Omit<ExpenseEntry, 'id'>
+  entryData: Omit<ExpenseEntry, 'id'> & { companyId: string }
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addExpenseEntryToFirestore called with data:", JSON.parse(JSON.stringify(entryData)));
+  if (!entryData.companyId) {
+    console.error("SERVER ACTION: companyId is missing in addExpenseEntryToFirestore.");
+    return { success: false, error: "Company ID is required to add an expense entry." };
+  }
   try {
     const docRef = await addDoc(collection(db, 'expenseEntries'), {
       ...entryData,
@@ -25,13 +29,21 @@ export async function addExpenseEntryToFirestore(
   }
 }
 
-export async function getExpenseEntriesFromFirestore(): Promise<ExpenseEntry[]> {
-  console.log("SERVER ACTION: getExpenseEntriesFromFirestore called.");
+export async function getExpenseEntriesFromFirestore(companyId: string): Promise<ExpenseEntry[]> {
+  console.log(`SERVER ACTION: getExpenseEntriesFromFirestore called for companyId: ${companyId}.`);
+  if (!companyId) {
+    console.warn("SERVER ACTION: getExpenseEntriesFromFirestore called without a companyId. Returning empty array.");
+    return [];
+  }
   try {
     const entriesCollection = collection(db, 'expenseEntries');
-    const q = query(entriesCollection, orderBy('date', 'desc'));
+    const q = query(
+      entriesCollection,
+      where('companyId', '==', companyId),
+      orderBy('date', 'desc')
+    );
     const entrySnapshot = await getDocs(q);
-    console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} expense documents from Firestore.`);
+    console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} expense documents from Firestore for companyId ${companyId}.`);
 
     if (entrySnapshot.empty) {
       console.log("SERVER ACTION: No documents found in 'expenseEntries'. Returning empty array.");
@@ -53,6 +65,7 @@ export async function getExpenseEntriesFromFirestore(): Promise<ExpenseEntry[]> 
 
       return {
         id: docSnapshot.id,
+        companyId: data.companyId,
         date: entryDate,
         category: data.category || "Miscellaneous",
         description: data.description || "No description",

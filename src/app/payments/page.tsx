@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription }from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { IndianRupee, ArrowRightLeft, User, Banknote, StickyNote, PlusCircle, CalendarDays } from "lucide-react";
+import { IndianRupee, ArrowRightLeft, User, Banknote, StickyNote, PlusCircle, CalendarDays, AlertCircle } from "lucide-react";
 import type { PaymentEntry, Party } from "@/lib/types";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -34,6 +34,7 @@ import { getPartiesFromFirestore, addPartyToFirestore } from "../parties/actions
 import { addPaymentEntryToFirestore, getPaymentEntriesFromFirestore } from "./actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from '@/context/PageTitleContext';
+import { useUserSession } from "@/context/UserSessionContext";
 
 const partyTypesForForm: Party['type'][] = ["Customer", "Supplier", "Employee"];
 const paymentModes: PaymentEntry['mode'][] = ["Cash", "Bank", "UPI"];
@@ -41,6 +42,8 @@ const paymentModes: PaymentEntry['mode'][] = ["Cash", "Bank", "UPI"];
 export default function PaymentsPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Record Payments";
+  const { firebaseUser, companyProfile, authLoading, profilesLoading } = useUserSession();
+  const companyId = companyProfile?.id;
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -82,9 +85,14 @@ export default function PaymentsPage() {
   }, [toast]);
 
   const fetchPayments = useCallback(async () => {
+    if (!companyId) {
+      setIsLoadingPayments(false);
+      setPayments([]);
+      return;
+    }
     setIsLoadingPayments(true);
     try {
-      const fetchedPayments = await getPaymentEntriesFromFirestore();
+      const fetchedPayments = await getPaymentEntriesFromFirestore(companyId);
       const processedPayments = fetchedPayments.map(p => ({
         ...p,
         date: p.date instanceof Date ? p.date : new Date(p.date)
@@ -96,15 +104,19 @@ export default function PaymentsPage() {
     } finally {
       setIsLoadingPayments(false);
     }
-  }, [toast]);
+  }, [toast, companyId]);
 
   useEffect(() => {
+    if (authLoading || profilesLoading) return;
+
     if (date === undefined) {
       setDate(new Date());
     }
-    fetchParties();
-    fetchPayments();
-  }, [date, fetchParties, fetchPayments]);
+    if (companyId) {
+      fetchPayments();
+    }
+    fetchParties(); // Parties can be fetched regardless of companyId for now
+  }, [date, companyId, authLoading, profilesLoading, fetchPayments, fetchParties]);
 
   const filteredPartySuggestions = useMemo(() => {
     if (!partyNameInput.trim()) return availableParties;
@@ -138,6 +150,7 @@ export default function PaymentsPage() {
         partyNameToSet = newPartyName;
       } else {
         setIsSubmittingParty(true);
+        // TODO: Consider if companyId should be passed to addPartyToFirestore if parties become company-specific
         const result = await addPartyToFirestore({ name: newPartyName, type: partyType });
         if (result.success && result.id) {
           partyNameToSet = newPartyName;
@@ -178,6 +191,10 @@ export default function PaymentsPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!companyId) {
+      toast({ title: "Error", description: "Company information is missing. Cannot record payment.", variant: "destructive" });
+      return;
+    }
     if (!date || !partyNameInput.trim() || !amount) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Party Name, Amount).", variant: "destructive" });
       return;
@@ -189,7 +206,8 @@ export default function PaymentsPage() {
     }
 
     setIsSubmittingPayment(true);
-    const paymentData: Omit<PaymentEntry, 'id'> = {
+    const paymentData: Omit<PaymentEntry, 'id'> & { companyId: string } = {
+      companyId,
       date,
       type,
       partyName: partyNameInput.trim(),
@@ -211,9 +229,33 @@ export default function PaymentsPage() {
     setIsSubmittingPayment(false);
   };
 
+  const isFormDisabled = authLoading || profilesLoading || !companyId;
+
   return (
     <div>
       <PageHeader title={pageSpecificTitle} description="Log all incoming and outgoing payments." />
+       {authLoading || profilesLoading ? (
+          <Card className="mb-6"><CardContent className="p-6"><Skeleton className="h-8 w-1/2" /></CardContent></Card>
+      ) : !companyId && firebaseUser ? (
+        <Card className="mb-6 border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Company Information Missing</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>Your user profile does not have company information associated with it. Payments cannot be recorded or displayed.</p>
+          </CardContent>
+        </Card>
+      ) : !firebaseUser ? (
+         <Card className="mb-6 border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive flex items-center"><AlertCircle className="mr-2 h-5 w-5" /> Not Logged In</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>You need to be logged in to record or view payments.</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">
           <CardHeader><CardTitle>New Payment</CardTitle></CardHeader>
@@ -225,7 +267,7 @@ export default function PaymentsPage() {
               </div>
               <div>
                 <Label htmlFor="paymentType" className="flex items-center mb-1"><ArrowRightLeft className="h-4 w-4 mr-2 text-muted-foreground" />Type</Label>
-                <Select value={type} onValueChange={(value: "Received" | "Paid") => setType(value)}>
+                <Select value={type} onValueChange={(value: "Received" | "Paid") => setType(value)} disabled={isFormDisabled}>
                   <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Received">Received</SelectItem>
@@ -256,6 +298,7 @@ export default function PaymentsPage() {
                       autoComplete="off"
                       required
                       className="w-full text-left"
+                      disabled={isFormDisabled}
                     />
                   </PopoverTrigger>
                   <PopoverContent 
@@ -266,11 +309,11 @@ export default function PaymentsPage() {
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
                     <Command>
-                      <CommandInput 
-                        value={partyNameInput} 
-                        onValueChange={handlePartyNameInputChange}
-                        className="sr-only"
-                        tabIndex={-1}
+                      <Input
+                        value={partyNameInput}
+                        onChange={(e) => handlePartyNameInputChange(e.target.value)}
+                        className="sr-only" 
+                        tabIndex={-1} 
                         aria-hidden="true"
                       />
                       <CommandList>
@@ -312,7 +355,7 @@ export default function PaymentsPage() {
 
               <div>
                 <Label htmlFor="partyType">Party Type</Label>
-                 <Select value={partyType} onValueChange={(value: Party['type']) => setPartyType(value)}>
+                 <Select value={partyType} onValueChange={(value: Party['type']) => setPartyType(value)} disabled={isFormDisabled}>
                   <SelectTrigger><SelectValue placeholder="Select party type" /></SelectTrigger>
                   <SelectContent>
                     {partyTypesForForm.map(pt => <SelectItem key={pt} value={pt}>{pt}</SelectItem>)}
@@ -321,11 +364,11 @@ export default function PaymentsPage() {
               </div>
               <div>
                 <Label htmlFor="amount" className="flex items-center mb-1"><IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" />Amount</Label>
-                <Input id="amount" type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter amount" required />
+                <Input id="amount" type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter amount" required disabled={isFormDisabled} />
               </div>
               <div>
                 <Label htmlFor="paymentMode" className="flex items-center mb-1"><Banknote className="h-4 w-4 mr-2 text-muted-foreground" />Mode</Label>
-                 <Select value={mode} onValueChange={(value: PaymentEntry['mode']) => setMode(value)}>
+                 <Select value={mode} onValueChange={(value: PaymentEntry['mode']) => setMode(value)} disabled={isFormDisabled}>
                   <SelectTrigger><SelectValue placeholder="Select mode" /></SelectTrigger>
                   <SelectContent>
                     {paymentModes.map(pm => <SelectItem key={pm} value={pm}>{pm}</SelectItem>)}
@@ -334,9 +377,9 @@ export default function PaymentsPage() {
               </div>
               <div>
                 <Label htmlFor="notes" className="flex items-center mb-1"><StickyNote className="h-4 w-4 mr-2 text-muted-foreground" />Notes</Label>
-                <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
+                <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" disabled={isFormDisabled} />
               </div>
-              <Button type="submit" className="w-full" disabled={isLoadingParties || isSubmittingParty || isSubmittingPayment}>
+              <Button type="submit" className="w-full" disabled={isLoadingParties || isSubmittingParty || isSubmittingPayment || isFormDisabled}>
                 <PlusCircle className="h-4 w-4 mr-2" />
                 {isSubmittingPayment ? 'Recording...' : 'Record Payment'}
               </Button>
@@ -345,14 +388,16 @@ export default function PaymentsPage() {
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Recent Payments</CardTitle><CardDescription>List of payments sorted by most recent.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Recent Payments</CardTitle><CardDescription>List of payments sorted by most recent for your company.</CardDescription></CardHeader>
           <CardContent>
-            {isLoadingPayments ? (
+            {(isLoadingPayments || isLoadingParties) && companyId ? (
               <div className="space-y-2">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
               </div>
+            ) : !companyId && firebaseUser && !authLoading && !profilesLoading ? (
+                <p className="text-center text-muted-foreground py-4">Company ID is not available. Payments data cannot be loaded.</p>
             ) : (
               <Table>
                 <TableHeader>
@@ -368,7 +413,9 @@ export default function PaymentsPage() {
                 <TableBody>
                   {payments.length === 0 ? (
                       <TableRow>
-                          <TableCell colSpan={6} className="text-center text-muted-foreground">No payments recorded yet.</TableCell>
+                          <TableCell colSpan={6} className="text-center text-muted-foreground">
+                            {companyId ? "No payments recorded yet for this company." : "Login or complete company setup to view payments."}
+                          </TableCell>
                       </TableRow>
                   ) : (
                       payments.map((p) => (
