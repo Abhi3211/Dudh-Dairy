@@ -152,7 +152,7 @@ export default function DashboardPage() {
 
   const summaryItems = useMemo(() => {
     if (!summary) return [];
-    return [
+    const items = [
       { title: "Milk Purchased (Ltr)", value: summary.milkPurchasedLitres.toFixed(1), icon: Milk, unit: "Ltr" },
       { title: "Milk Purchased (Value)", value: summary.milkPurchasedAmount.toFixed(2), icon: IndianRupee, unit: "₹" },
       { title: "Retail Milk Sold (Ltr)", value: summary.milkSoldLitres.toFixed(1), icon: Milk, unit: "Ltr" },
@@ -163,8 +163,9 @@ export default function DashboardPage() {
       { title: "Pashu Aahar Sales", value: summary.pashuAaharSalesAmount.toFixed(2), icon: Package, unit: "₹" },
       { title: "Total Cash In", value: summary.totalCashIn.toFixed(2), icon: TrendingUp, unit: "₹" },
       { title: "Total Credit Out", value: summary.totalCreditOut.toFixed(2), icon: TrendingDown, unit: "₹" },
-      { title: "Total Party Advance", value: summary.totalPartyAdvance.toFixed(2), icon: HandCoins, unit: "₹" },
+      { title: "Net Party Dues", value: summary.netPartyDues.toFixed(2), icon: HandCoins, unit: "₹" , highlight: summary.netPartyDues < 0},
     ];
+    return items;
   }, [summary]);
 
   if (authLoading) {
@@ -215,7 +216,7 @@ export default function DashboardPage() {
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-6">
-          {Array(11).fill(0).map((_, index) => ( // Now 11 cards
+          {Array(11).fill(0).map((_, index) => ( 
             <Card key={index}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <Skeleton className="h-4 w-3/5" /> <Skeleton className="h-5 w-5 rounded-full" />
@@ -227,13 +228,13 @@ export default function DashboardPage() {
       ) : summary ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-6">
           {summaryItems.map((item) => (
-            <Card key={item.title} className={item.highlight ? "border-primary shadow-lg" : "shadow-sm"}>
+            <Card key={item.title} className={item.highlight ? "border-destructive shadow-lg" : "shadow-sm"}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">{item.title}</CardTitle>
-                <item.icon className={`h-5 w-5 ${item.highlight ? 'text-primary' : 'text-muted-foreground'}`} />
+                <item.icon className={`h-5 w-5 ${item.highlight ? 'text-destructive' : 'text-muted-foreground'}`} />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-foreground">
+                <div className={`text-2xl font-bold ${item.highlight ? 'text-destructive' : 'text-foreground'}`}>
                   {item.unit === "₹" && `${item.unit} `}{item.value}{item.unit !== "₹" && ` ${item.unit}`}
                 </div>
               </CardContent>
@@ -280,3 +281,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

@@ -44,7 +44,7 @@ export async function getDashboardSummaryAndChartData(
     bulkMilkSoldLitres: 0, bulkMilkSoldAmount: 0,
     gheeSalesAmount: 0, pashuAaharSalesAmount: 0,
     totalCashIn: 0, totalCreditOut: 0,
-    totalPartyAdvance: 0, // New field initialized
+    netPartyDues: 0, 
   };
 
   const daysInRange = eachDayOfInterval({ start: clientStartDate, end: clientEndDate });
@@ -59,8 +59,8 @@ export async function getDashboardSummaryAndChartData(
   const partyBalances = new Map<string, number>();
 
   allParties.forEach(party => {
-    const numericOpeningBalance = party.openingBalance || 0; // Ensured numeric in getPartiesFromFirestore
-    const obDate: Date | undefined = party.openingBalanceAsOfDate; // Ensured Date or undefined
+    const numericOpeningBalance = party.openingBalance || 0; 
+    const obDate: Date | undefined = party.openingBalanceAsOfDate; 
 
     console.log(`SERVER ACTION (Dashboard): Processing OB for Party: ${party.name} (Type: ${party.type}, ID: ${party.id}). Raw Numeric OB: ${numericOpeningBalance}, OB Date: ${obDate?.toISOString()}`);
     
@@ -69,14 +69,13 @@ export async function getDashboardSummaryAndChartData(
 
     if (numericOpeningBalance !== 0) {
       if (obDate) {
-        // Opening balance is relevant if its 'as of' date is on or before the dashboard period's end date.
         if (isBefore(obDate, clientEndDate) || isEqual(startOfDay(obDate), startOfDay(clientEndDate))) {
           applyOB = true;
           console.log(`SERVER ACTION (Dashboard): OB for ${party.name} IS relevant for period end. Date condition: (OB Date ${obDate.toISOString()} <= Period End Date ${clientEndDate.toISOString()}) is TRUE.`);
         } else {
           console.log(`SERVER ACTION (Dashboard): OB for ${party.name} NOT relevant for period end. Date condition: (OB Date ${obDate.toISOString()} > Period End Date ${clientEndDate.toISOString()}) is FALSE.`);
         }
-      } else { // obDate is undefined, but numericOpeningBalance is non-zero (historical balance)
+      } else { 
         applyOB = true;
         console.log(`SERVER ACTION (Dashboard): OB for ${party.name} IS relevant for period end. OB Date is undefined, applying as pre-existing historical balance.`);
       }
@@ -85,13 +84,13 @@ export async function getDashboardSummaryAndChartData(
 
     if (applyOB) {
       if (party.type === 'Customer' || party.type === 'Employee') {
-        initialBalanceForParty = numericOpeningBalance; // Positive = party owes dairy
+        initialBalanceForParty = numericOpeningBalance; 
       } else if (party.type === 'Supplier') {
-        initialBalanceForParty = -numericOpeningBalance; // Positive OB (dairy owes supplier) becomes negative in map
+        initialBalanceForParty = -numericOpeningBalance; 
       }
       console.log(`SERVER ACTION (Dashboard): --> Initial balance for ${party.name} (from OB) set to: ${initialBalanceForParty.toFixed(2)} (Based on Raw Numeric OB: ${numericOpeningBalance})`);
     } else {
-      if (numericOpeningBalance !== 0) { // Only log if there was an OB that wasn't applied
+      if (numericOpeningBalance !== 0) { 
          console.log(`SERVER ACTION (Dashboard): OB for ${party.name} of ${numericOpeningBalance} NOT applied as initial for this period. Initial balance remains ${initialBalanceForParty.toFixed(2)}.`);
       }
     }
@@ -245,22 +244,22 @@ export async function getDashboardSummaryAndChartData(
 
       if (entry.partyType === "Customer") {
         if (entry.type === "Received") { 
-          newBalance = currentPartyBalance - paymentAmount; // Customer paid, so their due to dairy decreases
+          newBalance = currentPartyBalance - paymentAmount; 
           summary.totalCashIn += paymentAmount; 
-        } else if (entry.type === "Paid") { // Dairy paid customer (e.g. refund)
-          newBalance = currentPartyBalance + paymentAmount; // Customer's due to dairy effectively increases, or dairy's liability to them decreases
+        } else if (entry.type === "Paid") { 
+          newBalance = currentPartyBalance + paymentAmount; 
         } else { validPaymentType = false; }
       } else if (entry.partyType === "Supplier") {
-         if (entry.type === "Paid") { // Dairy paid supplier
-            newBalance = currentPartyBalance + paymentAmount; // Dairy's liability to supplier decreases (balance becomes less negative or more positive)
-         } else if (entry.type === "Received") { // Supplier paid dairy (e.g. refund)
-            newBalance = currentPartyBalance - paymentAmount; // Dairy's liability to supplier increases
+         if (entry.type === "Paid") { 
+            newBalance = currentPartyBalance + paymentAmount; 
+         } else if (entry.type === "Received") { 
+            newBalance = currentPartyBalance - paymentAmount; 
             summary.totalCashIn += paymentAmount; 
          } else { validPaymentType = false; }
       } else if (entry.partyType === "Employee") {
-         if (entry.type === "Paid") { // Dairy paid employee
-            newBalance = currentPartyBalance + paymentAmount; // Dairy's liability to employee decreases
-         } else if (entry.type === "Received") { // Employee paid dairy
+         if (entry.type === "Paid") { 
+            newBalance = currentPartyBalance + paymentAmount; 
+         } else if (entry.type === "Received") { 
             newBalance = currentPartyBalance - paymentAmount; 
             summary.totalCashIn += paymentAmount;
          } else { validPaymentType = false; }
@@ -277,25 +276,24 @@ export async function getDashboardSummaryAndChartData(
 
   } catch (error) {
     console.error("SERVER ACTION (Dashboard): Error fetching dashboard transaction data from Firestore:", error);
-    // Return summary with all zeros in case of error
     const defaultSummary: DailySummary = {
         milkPurchasedLitres: 0, milkPurchasedAmount: 0, milkSoldLitres: 0, milkSoldAmount: 0,
         bulkMilkSoldLitres: 0, bulkMilkSoldAmount: 0, gheeSalesAmount: 0, pashuAaharSalesAmount: 0,
-        totalCashIn: 0, totalCreditOut: 0, totalPartyAdvance: 0,
+        totalCashIn: 0, totalCreditOut: 0, netPartyDues: 0,
     };
     return { summary: defaultSummary, chartSeries: [] };
   }
   
   let sumOfAllPartyBalances = 0;
-  console.log("SERVER ACTION (Dashboard): Calculating Total Party Advance from final party balances:");
+  console.log("SERVER ACTION (Dashboard): Calculating Net Party Dues from final party balances:");
   partyBalances.forEach((balance, partyName) => {
     const partyDetails = allParties.find(p => p.name === partyName);
     console.log(`SERVER ACTION (Dashboard): Final balance for ${partyName} (Type: ${partyDetails?.type || 'Unknown'}, ID: ${partyDetails?.id || 'N/A'}): ${balance.toFixed(2)}`);
     sumOfAllPartyBalances += balance;
   });
-  summary.totalPartyAdvance = parseFloat((-sumOfAllPartyBalances).toFixed(2)); // Negative sum of balances
+  summary.netPartyDues = parseFloat(sumOfAllPartyBalances.toFixed(2)); 
   console.log("SERVER ACTION (Dashboard): Sum of all party balances:", sumOfAllPartyBalances.toFixed(2));
-  console.log("SERVER ACTION (Dashboard): Final Calculated Total Party Advance:", summary.totalPartyAdvance);
+  console.log("SERVER ACTION (Dashboard): Final Calculated Net Party Dues:", summary.netPartyDues);
   
   const chartSeries: ChartDataPoint[] = daysInRange.map(day => {
     const formattedDate = format(day, "MMM dd");
@@ -320,3 +318,4 @@ export async function getDashboardSummaryAndChartData(
   console.log("SERVER ACTION (Dashboard): Dashboard data processed. Summary:", JSON.parse(JSON.stringify(summary)), "ChartSeries Length:", chartSeries.length);
   return { summary, chartSeries };
 }
+

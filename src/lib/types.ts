@@ -131,7 +131,7 @@ export interface DailySummary {
   pashuAaharSalesAmount: number;
   totalCashIn: number;
   totalCreditOut: number;
-  totalPartyAdvance: number; // New field
+  netPartyDues: number; 
 }
 
 export interface ChartDataPoint {
@@ -180,3 +180,4 @@ export interface FullProfitLossData {
   summary: ProfitLossSummaryData;
   chartSeries: PlChartDataPoint[];
 }
+
