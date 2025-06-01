@@ -3,7 +3,7 @@
 
 import { db } from '@/lib/firebase';
 import type { Party, PartyLedgerEntry, MilkCollectionEntry, SaleEntry, BulkSaleEntry, PurchaseEntry, PaymentEntry } from '@/lib/types';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, Timestamp, getDoc } from 'firebase/firestore'; // Added getDoc
 import { revalidatePath } from 'next/cache';
 
 export async function getPartiesFromFirestore(): Promise<Party[]> {
@@ -21,7 +21,9 @@ export async function getPartiesFromFirestore(): Promise<Party[]> {
   }
 }
 
-export async function addPartyToFirestore(partyData: Omit<Party, 'id'>): Promise<{ success: boolean; id?: string; error?: string }> {
+export async function addPartyToFirestore(
+  partyData: Omit<Party, 'id'>
+): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addPartyToFirestore called with data:", partyData);
   try {
     // Check if party with the same name and type already exists
@@ -33,10 +35,22 @@ export async function addPartyToFirestore(partyData: Omit<Party, 'id'>): Promise
       return { success: false, error: `Party "${partyData.name}" (${partyData.type}) already exists.` };
     }
 
-    const docRef = await addDoc(collection(db, 'parties'), partyData);
+    const dataToSave: any = { ...partyData };
+    if (partyData.openingBalanceAsOfDate) {
+      dataToSave.openingBalanceAsOfDate = Timestamp.fromDate(partyData.openingBalanceAsOfDate);
+    } else if (partyData.openingBalance !== undefined && partyData.openingBalance !== 0) {
+      // If balance is set but date isn't, default date to now (effectively party creation date for balance)
+      dataToSave.openingBalanceAsOfDate = Timestamp.now();
+    }
+    if (partyData.openingBalance === undefined) {
+        dataToSave.openingBalance = 0; // Ensure it's not undefined
+    }
+
+
+    const docRef = await addDoc(collection(db, 'parties'), dataToSave);
     console.log("SERVER ACTION: Party document successfully added to Firestore with ID:", docRef.id);
     revalidatePath('/parties');
-    revalidatePath('/milk-collection'); // Revalidate related pages
+    revalidatePath('/milk-collection'); 
     revalidatePath('/sales');
     revalidatePath('/bulk-sales');
     revalidatePath('/purchases');
@@ -79,29 +93,74 @@ const parseEntryDate = (dateField: Timestamp | Date | string | number): Date => 
 };
 
 
-export async function getPartyTransactions(partyName: string, partyType: Party['type']): Promise<PartyLedgerEntry[]> {
-  console.log(`SERVER ACTION: getPartyTransactions called for partyName: ${partyName}, type: ${partyType}`);
+export async function getPartyTransactions(partyId: string): Promise<PartyLedgerEntry[]> {
+  console.log(`SERVER ACTION: getPartyTransactions called for partyId: ${partyId}`);
   const ledgerEntries: PartyLedgerEntry[] = [];
 
   try {
-    // Fetch Milk Collections (Party is a milk supplier)
-    if (partyType === "Customer") { // Assuming 'Customer' type in Parties collection can also be a milk supplier
+    // Fetch the Party document to get name, type, and opening balance
+    const partyDocRef = doc(db, 'parties', partyId);
+    const partyDocSnap = await getDoc(partyDocRef);
+
+    if (!partyDocSnap.exists()) {
+      console.error(`SERVER ACTION: Party with ID ${partyId} not found.`);
+      return [];
+    }
+    const partyData = partyDocSnap.data() as Party;
+    const partyName = partyData.name;
+    const partyType = partyData.type;
+
+    // Add Opening Balance Entry if it exists and is non-zero
+    if (partyData.openingBalance !== undefined && partyData.openingBalance !== 0) {
+      const openingDate = partyData.openingBalanceAsOfDate 
+        ? parseEntryDate(partyData.openingBalanceAsOfDate)
+        : new Date(0); // Default to earliest possible date if not set
+
+      let openingDebit = 0;
+      let openingCredit = 0;
+
+      // Convention:
+      // Customer/Employee: Positive OB = Party Owes Dairy (Debit); Negative OB = Dairy Owes Party (Credit)
+      // Supplier: Positive OB = Dairy Owes Party (Credit); Negative OB = Party Owes Dairy (Debit)
+      if (partyType === "Customer" || partyType === "Employee") {
+        if (partyData.openingBalance > 0) openingDebit = partyData.openingBalance;
+        else openingCredit = Math.abs(partyData.openingBalance);
+      } else if (partyType === "Supplier") {
+        if (partyData.openingBalance > 0) openingCredit = partyData.openingBalance;
+        else openingDebit = Math.abs(partyData.openingBalance);
+      }
+      
+      ledgerEntries.push({
+        id: `ob-${partyId}`, // Unique ID for opening balance entry
+        date: openingDate,
+        description: "Opening Balance",
+        debit: openingDebit,
+        credit: openingCredit,
+        balance: 0, // Will be calculated in the running balance
+      });
+    }
+
+
+    // Fetch Milk Collections (Party is a milk supplier, which we map to 'Customer' type in Parties)
+    if (partyType === "Customer") { 
       const milkCollectionsQuery = query(
-        collection(db, 'milkCollections'),
+        collection(db, 'milkCollections'), // Assuming this will be changed to a subcollection later
         where('customerName', '==', partyName),
+        // where('companyId', '==', companyId) // TODO: Add companyId filter when milkCollections is multi-tenant
         orderBy('date', 'asc')
       );
       const milkCollectionsSnapshot = await getDocs(milkCollectionsQuery);
       milkCollectionsSnapshot.forEach(docSnapshot => {
         const data = docSnapshot.data() as MilkCollectionEntry;
         const entryDate = parseEntryDate(data.date);
+        // For a milk supplier (Party Type: Customer), milk collection means dairy owes them.
         ledgerEntries.push({
           id: `mc-${docSnapshot.id}`,
           date: entryDate,
           description: `Milk Supplied (${data.quantityLtr} Ltr, ${data.fatPercentage}% FAT, Rate ${data.ratePerLtr.toFixed(2)})`,
           shift: data.shift,
           milkQuantityLtr: data.quantityLtr,
-          credit: data.netAmountPayable, // Dairy owes the party
+          credit: data.netAmountPayable, 
           debit: 0,
           balance: 0,
         });
@@ -114,17 +173,19 @@ export async function getPartyTransactions(partyName: string, partyType: Party['
         collection(db, 'salesEntries'),
         where('customerName', '==', partyName),
         where('paymentType', '==', 'Credit'),
+        // where('companyId', '==', companyId) // TODO: Add companyId filter when salesEntries is multi-tenant
         orderBy('date', 'asc')
       );
       const salesSnapshot = await getDocs(salesQuery);
       salesSnapshot.forEach(docSnapshot => {
         const data = docSnapshot.data() as SaleEntry;
         const entryDate = parseEntryDate(data.date);
+        // For a retail customer, a credit sale means they owe the dairy.
         ledgerEntries.push({
           id: `rs-${docSnapshot.id}`,
           date: entryDate,
           description: `Retail Sale: ${data.productName} (${data.quantity} ${data.unit})`,
-          debit: data.totalAmount, // Party owes the dairy
+          debit: data.totalAmount, 
           credit: 0,
           balance: 0,
         });
@@ -137,18 +198,20 @@ export async function getPartyTransactions(partyName: string, partyType: Party['
         collection(db, 'bulkSalesEntries'),
         where('customerName', '==', partyName),
         where('paymentType', '==', 'Credit'),
+        // where('companyId', '==', companyId) // TODO: Add companyId filter
         orderBy('date', 'asc')
       );
       const bulkSalesSnapshot = await getDocs(bulkSalesQuery);
       bulkSalesSnapshot.forEach(docSnapshot => {
         const data = docSnapshot.data() as BulkSaleEntry;
         const entryDate = parseEntryDate(data.date);
+        // For a bulk sale customer, a credit sale means they owe the dairy.
         ledgerEntries.push({
           id: `bs-${docSnapshot.id}`,
           date: entryDate,
           description: `Bulk Milk Sale (${data.quantityLtr} Ltr)`,
           shift: data.shift,
-          debit: data.totalAmount, // Party owes the dairy
+          debit: data.totalAmount, 
           credit: 0,
           balance: 0,
         });
@@ -161,17 +224,19 @@ export async function getPartyTransactions(partyName: string, partyType: Party['
         collection(db, 'purchaseEntries'),
         where('supplierName', '==', partyName),
         where('paymentType', '==', 'Credit'),
+        // where('companyId', '==', companyId) // TODO: Add companyId filter
         orderBy('date', 'asc')
       );
       const purchasesSnapshot = await getDocs(purchasesQuery);
       purchasesSnapshot.forEach(docSnapshot => {
         const data = docSnapshot.data() as PurchaseEntry;
         const entryDate = parseEntryDate(data.date);
+        // For a supplier, a credit purchase means dairy owes them.
         ledgerEntries.push({
           id: `pu-${docSnapshot.id}`,
           date: entryDate,
           description: `Purchase: ${data.productName} (${data.quantity} ${data.unit})`,
-          credit: data.totalAmount, // Dairy owes the party
+          credit: data.totalAmount, 
           debit: 0,
           balance: 0,
         });
@@ -182,7 +247,8 @@ export async function getPartyTransactions(partyName: string, partyType: Party['
     const paymentsQuery = query(
       collection(db, 'paymentEntries'),
       where('partyName', '==', partyName),
-      where('partyType', '==', partyType), // Ensure payment is for the correct party type context
+      where('partyType', '==', partyType), 
+      // where('companyId', '==', companyId) // TODO: Add companyId filter
       orderBy('date', 'asc')
     );
     const paymentsSnapshot = await getDocs(paymentsQuery);
@@ -194,28 +260,32 @@ export async function getPartyTransactions(partyName: string, partyType: Party['
       let description = "";
 
       if (partyType === "Customer") {
-        if (data.type === "Received") { // Customer paid dairy
+        if (data.type === "Received") { // Customer paid dairy (reduces what customer owes)
           credit = data.amount;
           description = `Payment Received (${data.mode})`;
-        } else if (data.type === "Paid") { // Dairy paid customer (e.g., refund)
+        } else if (data.type === "Paid") { // Dairy paid customer (e.g., refund, increases what customer owes or reduces dairy's liability)
           debit = data.amount;
           description = `Payment Paid/Refund (${data.mode})`;
         }
       } else if (partyType === "Supplier") {
-        if (data.type === "Paid") { // Dairy paid supplier
+        if (data.type === "Paid") { // Dairy paid supplier (reduces what dairy owes)
           debit = data.amount;
           description = `Payment Paid (${data.mode})`;
-        } else if (data.type === "Received") { // Dairy received from supplier (e.g., refund)
+        } else if (data.type === "Received") { // Dairy received from supplier (e.g., refund, increases what dairy owes or reduces supplier's liability)
           credit = data.amount;
           description = `Payment Received/Refund (${data.mode})`;
         }
+      } else if (partyType === "Employee") {
+        if (data.type === "Paid") { // Dairy paid employee (e.g. salary, reduces what dairy owes or is a direct expense if no prior liability)
+            debit = data.amount;
+            description = `Salary/Payment Paid (${data.mode})`;
+        } else if (data.type === "Received") { // Employee paid dairy (e.g. loan repayment, reduces what employee owes)
+            credit = data.amount;
+            description = `Payment Received from Employee (${data.mode})`;
+        }
       }
-      // For 'Employee' type, payments 'Paid' would be debits (reducing what's owed to them if advances were credits)
-      // or direct debits representing salary payments. 'Received' would be credits (e.g. employee repaying advance).
-      // Current ledger focuses on Customer/Supplier. Employee ledger might need different perspective.
-      // For now, employee payments don't create entries in this ledger unless extended.
 
-      if (description) { // Only add if payment type makes sense for this party ledger
+      if (description) { 
         ledgerEntries.push({
           id: `pa-${docSnapshot.id}`,
           date: entryDate,
@@ -227,56 +297,42 @@ export async function getPartyTransactions(partyName: string, partyType: Party['
       }
     });
 
-    // Sort all combined entries by date (primary) and then by a rough transaction type order for same-day
+    // Sort all combined entries by date (primary) and then by a rough transaction type order
     ledgerEntries.sort((a, b) => {
       const dateDiff = a.date.getTime() - b.date.getTime();
       if (dateDiff !== 0) return dateDiff;
-      // Define a sort order for transaction types if dates are the same
+      
+      // Ensure Opening Balance is always first on its effective date
+      if (a.id.startsWith('ob-')) return -1;
+      if (b.id.startsWith('ob-')) return 1;
+
+      // Define a sort order for other transaction types if dates are the same
       const typeOrder = (id: string) => {
-        if (id.startsWith('mc-')) return 1; // milk collection (credit to party)
-        if (id.startsWith('pu-')) return 2; // purchase (credit to party)
-        if (id.startsWith('rs-') || id.startsWith('bs-')) return 3; // sales (debit to party)
-        if (id.startsWith('pa-') && (a.credit || 0) > 0) return 4; // payment received by dairy (credit to party)
-        if (id.startsWith('pa-') && (a.debit || 0) > 0) return 5; // payment paid by dairy (debit to party)
+        if (id.startsWith('mc-') || id.startsWith('pu-')) return 1; // Purchases/Collections (credits to party from dairy's POV for liability)
+        if (id.startsWith('rs-') || id.startsWith('bs-')) return 2; // Sales (debits to party)
+        if (id.startsWith('pa-') && (a.credit || 0) > 0 && partyType === "Customer") return 3; // Payment Received from Customer
+        if (id.startsWith('pa-') && (a.debit || 0) > 0 && partyType === "Supplier") return 3; // Payment Paid to Supplier
+        if (id.startsWith('pa-') && (a.debit || 0) > 0 && partyType === "Customer") return 4; // Payment Paid to Customer (Refund)
+        if (id.startsWith('pa-') && (a.credit || 0) > 0 && partyType === "Supplier") return 4; // Payment Received from Supplier (Refund)
+         if (id.startsWith('pa-')) return 5; // Other payments
         return 6;
       };
       return typeOrder(a.id) - typeOrder(b.id);
     });
     
     // Calculate running balance
+    // Balance interpretation: Positive = Party owes Dairy; Negative = Dairy owes Party.
     let runningBalance = 0;
     const finalLedgerEntries = ledgerEntries.map(entry => {
       runningBalance += (entry.debit || 0) - (entry.credit || 0);
-      // If party is a supplier, a positive balance means dairy owes them.
-      // If party is a customer, a positive balance means customer owes dairy.
-      // The interpretation of "positive means owes us" vs "positive means we owe" depends on perspective.
-      // For this ledger, let's make it consistent:
-      // Debit increases balance (Party owes more, or we owe less)
-      // Credit decreases balance (Party owes less, or we owe more)
-      // So, for a supplier, a purchase makes our debt to them increase (credit), so balance decreases (becomes more negative).
-      // A payment to supplier (debit) makes our debt decrease (balance increases, becomes less negative or positive).
-      
-      // Re-evaluating balance logic for clarity:
-      // Let positive balance mean: Party owes Dairy.
-      // Let negative balance mean: Dairy owes Party.
-
-      // Milk Collection (from Customer as supplier of milk): netAmountPayable is credit to party -> balance decreases (more negative)
-      // Retail/Bulk Sale (to Customer, on credit): totalAmount is debit to party -> balance increases (more positive)
-      // Purchase (from Supplier, on credit): totalAmount is credit to party -> balance decreases (more negative as Dairy owes Supplier)
-      // Payment Received (from Customer): credit to party -> balance decreases (less positive)
-      // Payment Paid (to Supplier): debit to party -> balance increases (less negative, as Dairy paid off some debt)
-
       return { ...entry, balance: runningBalance };
     });
 
-    console.log(`SERVER ACTION: Processed ${finalLedgerEntries.length} ledger entries for ${partyName}. Last balance: ${runningBalance}`);
+    console.log(`SERVER ACTION: Processed ${finalLedgerEntries.length} ledger entries for ${partyName} (${partyType}). Last balance: ${runningBalance}`);
     return finalLedgerEntries;
 
   } catch (error) {
-    console.error(`SERVER ACTION: Error fetching transactions for party ${partyName}:`, error);
+    console.error(`SERVER ACTION: Error fetching transactions for party ${partyName} (${partyType}):`, error);
     return []; 
   }
 }
-
-
-    

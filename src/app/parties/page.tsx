@@ -23,7 +23,7 @@ import {
   TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon, Download, Briefcase, FileText } from "lucide-react"; 
+import { User, PlusCircle, Trash2, Filter, CalendarDays, Sun, Moon, Download, Briefcase, FileText, IndianRupee, History } from "lucide-react"; 
 import type { Party, PartyLedgerEntry } from "@/lib/types";
 import {
   AlertDialog,
@@ -68,6 +68,9 @@ export default function PartiesPage() {
 
   const [newPartyName, setNewPartyName] = useState("");
   const [newPartyType, setNewPartyType] = useState<Party['type']>("Customer");
+  const [newPartyOpeningBalance, setNewPartyOpeningBalance] = useState<string>("");
+  const [newPartyOpeningBalanceDate, setNewPartyOpeningBalanceDate] = useState<Date | undefined>(undefined);
+
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [partyToDelete, setPartyToDelete] = useState<Party | null>(null);
@@ -87,24 +90,26 @@ export default function PartiesPage() {
 
   useEffect(() => {
     fetchParties();
-    // Set default ledger filter dates if not already set
     if (ledgerFilterStartDate === undefined) {
         setLedgerFilterStartDate(startOfDay(new Date()));
     }
     if (ledgerFilterEndDate === undefined) {
         setLedgerFilterEndDate(endOfDay(new Date()));
     }
-  }, [fetchParties, ledgerFilterStartDate, ledgerFilterEndDate]);
+    if (newPartyOpeningBalanceDate === undefined) {
+        setNewPartyOpeningBalanceDate(new Date());
+    }
+  }, [fetchParties, ledgerFilterStartDate, ledgerFilterEndDate, newPartyOpeningBalanceDate]);
 
   const selectedParty = useMemo(() => parties.find(p => p.id === selectedPartyId), [parties, selectedPartyId]);
 
   useEffect(() => {
     const fetchLedger = async () => {
-      if (selectedParty) {
+      if (selectedPartyId && selectedParty) { // Check selectedPartyId as well
         setIsLoadingLedger(true);
         console.log(`CLIENT: Fetching ledger for party: ${selectedParty.name}, type: ${selectedParty.type}`);
         try {
-          const transactions = await getPartyTransactions(selectedParty.name, selectedParty.type); 
+          const transactions = await getPartyTransactions(selectedParty.id); // Pass partyId
           setAllLedgerEntriesForParty(transactions);
           console.log(`CLIENT: Fetched ${transactions.length} ledger entries for ${selectedParty.name}`);
         } catch (error) {
@@ -119,7 +124,7 @@ export default function PartiesPage() {
       }
     };
     fetchLedger();
-  }, [selectedParty, toast]);
+  }, [selectedPartyId, selectedParty, toast]); // Depend on selectedPartyId
 
   const filteredLedgerEntries = useMemo(() => {
     let filtered = allLedgerEntriesForParty;
@@ -129,10 +134,10 @@ export default function PartiesPage() {
             if (!entry.date || !(entry.date instanceof Date) || isNaN(entry.date.getTime())) {
                 return false;
             }
-            const entryDate = startOfDay(entry.date); // Normalize to start of day for comparison
+            const entryDate = startOfDay(entry.date); 
             
             const start = ledgerFilterStartDate ? startOfDay(ledgerFilterStartDate) : null;
-            const end = ledgerFilterEndDate ? endOfDay(ledgerFilterEndDate) : null; // Use end of day for end date
+            const end = ledgerFilterEndDate ? endOfDay(ledgerFilterEndDate) : null; 
 
             if (start && entryDate < start) return false;
             if (end && entryDate > end) return false;
@@ -143,13 +148,12 @@ export default function PartiesPage() {
     if (ledgerShiftFilter !== "All") {
         filtered = filtered.filter(entry => !entry.shift || entry.shift === ledgerShiftFilter);
     }
-    console.log("CLIENT: Parties page - Resulting filteredLedgerEntries count:", filtered.length);
     return filtered;
   }, [allLedgerEntriesForParty, ledgerFilterStartDate, ledgerFilterEndDate, ledgerShiftFilter]);
 
   const currentOverallBalance = useMemo(() => {
-    return allLedgerEntriesForParty.length > 0 ? allLedgerEntriesForParty[allLedgerEntriesForParty.length - 1].balance : 0;
-  }, [allLedgerEntriesForParty]);
+    return allLedgerEntriesForParty.length > 0 ? allLedgerEntriesForParty[allLedgerEntriesForParty.length - 1].balance : (selectedParty?.openingBalance || 0);
+  }, [allLedgerEntriesForParty, selectedParty]);
 
 
   const handleAddPartySubmit = async (e: FormEvent) => {
@@ -158,9 +162,21 @@ export default function PartiesPage() {
       toast({ title: "Error", description: "Party name cannot be empty.", variant: "destructive" });
       return;
     }
+    const openingBalanceNum = newPartyOpeningBalance ? parseFloat(newPartyOpeningBalance) : 0;
+    if (newPartyOpeningBalance && isNaN(openingBalanceNum)) {
+        toast({ title: "Error", description: "Opening balance must be a valid number.", variant: "destructive" });
+        return;
+    }
+    if (openingBalanceNum !== 0 && !newPartyOpeningBalanceDate) {
+        toast({ title: "Error", description: "Opening balance date is required if opening balance is not zero.", variant: "destructive" });
+        return;
+    }
+
     const partyData: Omit<Party, 'id'> = {
       name: newPartyName.trim(),
       type: newPartyType,
+      openingBalance: openingBalanceNum,
+      openingBalanceAsOfDate: openingBalanceNum !== 0 ? newPartyOpeningBalanceDate : undefined,
     };
     
     setIsSubmittingParty(true);
@@ -170,6 +186,8 @@ export default function PartiesPage() {
       await fetchParties(); 
       setNewPartyName("");
       setNewPartyType("Customer");
+      setNewPartyOpeningBalance("");
+      setNewPartyOpeningBalanceDate(new Date());
       toast({ title: "Success", description: `Party "${partyData.name}" added.` });
     } else {
       toast({ title: "Error", description: result.error || "Failed to add party.", variant: "destructive" });
@@ -271,6 +289,16 @@ export default function PartiesPage() {
     return "for all dates";
   }, [ledgerFilterStartDate, ledgerFilterEndDate]);
 
+  const openingBalanceConventionText = useMemo(() => {
+    if (newPartyType === "Customer" || newPartyType === "Employee") {
+      return "Positive: Party owes Dairy. Negative: Dairy owes Party.";
+    } else if (newPartyType === "Supplier") {
+      return "Positive: Dairy owes Party. Negative: Party owes Dairy.";
+    }
+    return "";
+  }, [newPartyType]);
+
+
   return (
     <div>
       <PageHeader title={pageSpecificTitle} description="Manage parties and view their transaction ledgers." />
@@ -304,14 +332,19 @@ export default function PartiesPage() {
                     <CardTitle>Transaction History for {selectedParty.name} <span className="text-sm font-normal text-muted-foreground">({selectedParty.type})</span></CardTitle>
                     <CardDescription className="mt-1">
                         Current Overall Balance: <span className={`font-semibold ${currentOverallBalance === 0 ? '' : currentOverallBalance > 0 ? 'text-chart-4' : 'text-chart-3'}`}>₹{Math.abs(currentOverallBalance).toFixed(2)}</span>
-                        {currentOverallBalance > 0 && " (Party Owes Dairy)"}
-                        {currentOverallBalance < 0 && " (Dairy Owes Party)"}
+                        {currentOverallBalance > 0 && selectedParty.type === "Customer" && " (Owes to Dairy)"}
+                        {currentOverallBalance < 0 && selectedParty.type === "Customer" && " (Dairy Owes)"}
+                        {currentOverallBalance > 0 && selectedParty.type === "Supplier" && " (Dairy Owes)"}
+                        {currentOverallBalance < 0 && selectedParty.type === "Supplier" && " (Owes to Dairy)"}
+                        {currentOverallBalance > 0 && selectedParty.type === "Employee" && " (Owes to Dairy)"}
+                        {currentOverallBalance < 0 && selectedParty.type === "Employee" && " (Dairy Owes)"}
                         {currentOverallBalance === 0 && " (Settled)"}
                         <br />
                         Showing transactions {ledgerDateRangeDescription}
                         {ledgerShiftFilter !== 'All' ? ` (${ledgerShiftFilter} shift)` : ''}.
                         {isLoadingLedger && " Loading ledger..."}
                         {!isLoadingLedger && (ledgerFilterStartDate || ledgerFilterEndDate) && filteredLedgerEntries.length === 0 && ` (No transactions for this filter. Checked ${allLedgerEntriesForParty.length} total entries for party)`}
+                         {!isLoadingLedger && allLedgerEntriesForParty.length === 0 && filteredLedgerEntries.length === 0 && " No transactions found for this party."}
                     </CardDescription>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-end">
@@ -354,7 +387,8 @@ export default function PartiesPage() {
                 <Table>
                   <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Shift</TableHead><TableHead>Milk Qty</TableHead><TableHead className="text-right">Debit (₹)</TableHead><TableHead className="text-right">Credit (₹)</TableHead><TableHead className="text-right">Balance (₹)</TableHead></TableRow></TableHeader>
                   <TableBody>
-                    {filteredLedgerEntries.length === 0 && !isLoadingLedger && (<TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No transactions match the current filter for this party.</TableCell></TableRow>)}
+                    {allLedgerEntriesForParty.length === 0 && !isLoadingLedger && (<TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No transactions found for this party.</TableCell></TableRow>)}
+                    {filteredLedgerEntries.length === 0 && !isLoadingLedger && allLedgerEntriesForParty.length > 0 && (<TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No transactions match the current filter.</TableCell></TableRow>)}
                     {filteredLedgerEntries.map(entry => (
                       <TableRow key={entry.id}>
                         <TableCell>{entry.date instanceof Date && !isNaN(entry.date.getTime()) ? format(entry.date, 'P') : 'Invalid Date'}</TableCell>
@@ -399,6 +433,23 @@ export default function PartiesPage() {
             <form onSubmit={handleAddPartySubmit} className="space-y-4">
               <div><Label htmlFor="newPartyName" className="flex items-center mb-1"><User className="h-4 w-4 mr-2 text-muted-foreground" />Party Name</Label><Input id="newPartyName" value={newPartyName} onChange={(e) => setNewPartyName(e.target.value)} placeholder="Enter party name" required /></div>
               <div><Label htmlFor="newPartyType" className="flex items-center mb-1"><Briefcase className="h-4 w-4 mr-2 text-muted-foreground" />Party Type</Label><Select value={newPartyType} onValueChange={(value: Party['type']) => setNewPartyType(value)}><SelectTrigger id="newPartyType"><SelectValue placeholder="Select party type" /></SelectTrigger><SelectContent>{partyTypes.map(type => (<SelectItem key={type} value={type}>{type}</SelectItem>))}</SelectContent></Select></div>
+              
+              <div>
+                <Label htmlFor="newPartyOpeningBalance" className="flex items-center mb-1">
+                  <IndianRupee className="h-4 w-4 mr-1 text-muted-foreground" /> Opening Balance (₹)
+                </Label>
+                <Input id="newPartyOpeningBalance" type="number" step="0.01" value={newPartyOpeningBalance} onChange={(e) => setNewPartyOpeningBalance(e.target.value)} placeholder="e.g., 100 or -50" />
+                <p className="text-xs text-muted-foreground mt-1">{openingBalanceConventionText}</p>
+              </div>
+              
+              <div>
+                <Label htmlFor="newPartyOpeningBalanceDate" className="flex items-center mb-1">
+                  <History className="h-4 w-4 mr-2 text-muted-foreground" /> As of Date (for Opening Balance)
+                </Label>
+                <DatePicker date={newPartyOpeningBalanceDate} setDate={setNewPartyOpeningBalanceDate} />
+                 <p className="text-xs text-muted-foreground mt-1">Required if opening balance is not zero. Defaults to today.</p>
+              </div>
+
               <Button type="submit" className="w-full" disabled={isSubmittingParty}><PlusCircle className="h-4 w-4 mr-2" /> {isSubmittingParty ? 'Adding...' : 'Add Party'}</Button>
             </form>
           </CardContent>
@@ -418,12 +469,18 @@ export default function PartiesPage() {
             ) : (
               <div className="max-h-96 overflow-y-auto">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead>Opening Balance (₹)</TableHead><TableHead>As of</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {parties.map(party => (
                       <TableRow key={party.id}>
                         <TableCell>{party.name}</TableCell>
                         <TableCell>{party.type}</TableCell>
+                        <TableCell className={party.openingBalance && party.openingBalance < 0 ? 'text-chart-3' : party.openingBalance && party.openingBalance > 0 ? 'text-chart-4' : ''}>
+                          {party.openingBalance !== undefined && party.openingBalance !== 0 ? party.openingBalance.toFixed(2) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {party.openingBalanceAsOfDate && party.openingBalance !== 0 ? format(parseEntryDate(party.openingBalanceAsOfDate), 'P') : "-"}
+                        </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="icon" onClick={() => openDeleteDialog(party)} disabled={isSubmittingParty}>
                             <Trash2 className="h-4 w-4 text-destructive" /><span className="sr-only">Delete {party.name}</span>
@@ -452,6 +509,3 @@ export default function PartiesPage() {
     </div>
   );
 }
-
-
-    

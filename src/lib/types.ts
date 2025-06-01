@@ -7,22 +7,22 @@ export interface UserProfile {
   email: string; // User's email
   displayName: string | null;
   role: UserRole;
-  createdAt?: Date; // Made optional for flexibility, though signup sets it
+  createdAt?: Date;
 }
 
 export interface Company {
   id: string; // Document ID in Firestore 'companies' collection
   name: string;
   ownerUid: string; // UID of the user who created/owns the company
-  createdAt?: Date; // Made optional for flexibility, though signup sets it
+  createdAt?: Date;
 }
 
 export interface MilkCollectionEntry {
   id: string;
-  companyId?: string;
+  // companyId is implied by subcollection path
   date: Date;
   shift: "Morning" | "Evening";
-  customerName: string;
+  customerName: string; // This refers to the Party supplying milk
   quantityLtr: number;
   fatPercentage: number;
   ratePerLtr: number;
@@ -76,9 +76,11 @@ export interface PurchaseEntry {
 
 export interface Party {
   id: string;
-  companyId?: string;
+  companyId?: string; // Will be set when creating party under a company context
   name: string;
   type: "Customer" | "Supplier" | "Employee";
+  openingBalance?: number; // Positive: Party owes Dairy (Customer/Employee) or Dairy owes Party (Supplier). Negative: Vice-versa.
+  openingBalanceAsOfDate?: Date;
 }
 
 export interface PartyLedgerEntry {
@@ -90,9 +92,9 @@ export interface PartyLedgerEntry {
   milkQuantityLtr?: number;
   fatPercentage?: number;
   rate?: number;
-  debit?: number;
-  credit?: number;
-  balance: number;
+  debit?: number; // Amount party owes dairy, or dairy paid to party
+  credit?: number; // Amount dairy owes party, or party paid to dairy
+  balance: number; // Running balance from dairy's perspective (Positive = Party owes dairy; Negative = Dairy owes party)
 }
 
 export interface PaymentEntry {
