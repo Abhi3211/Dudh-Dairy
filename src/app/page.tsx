@@ -4,18 +4,40 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { LogIn, Zap, TrendingUp, Milk, Users, BarChart3 } from "lucide-react"; // Added Users and BarChart3
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LogIn, Zap, TrendingUp, Milk, Users, BarChart3 } from "lucide-react"; 
 import { usePageTitle } from '@/context/PageTitleContext';
 import { useEffect } from "react";
+import { useUserSession } from "@/context/UserSessionContext";
+import { useRouter } from "next/navigation";
 
 export default function LandingPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Welcome to Dudh Dairy";
+  const { firebaseUser, authLoading, companyProfile, profilesLoading } = useUserSession();
+  const router = useRouter();
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
   }, [setPageTitle, pageSpecificTitle]);
+
+  useEffect(() => {
+    // If user is authenticated, profiles are loaded, and companyProfile exists,
+    // redirect them from landing page to dashboard.
+    if (!authLoading && firebaseUser && !profilesLoading && companyProfile) {
+      router.replace("/dashboard");
+    }
+    // If auth is loaded, user is present, but profiles are still loading OR companyProfile is not yet available,
+    // they will see the landing page briefly. Once profilesLoading is false and companyProfile is set,
+    // this effect will re-run and redirect.
+    // If authLoading is true, they also see the landing page (or a loading state if you add one).
+  }, [firebaseUser, authLoading, companyProfile, profilesLoading, router]);
+
+
+  // If still loading auth or profiles, or if user is already logged in and has a company (and will be redirected),
+  // you might want to show a loading indicator or a minimal version of the landing page.
+  // For simplicity, we'll let the redirect handle it. If the redirect doesn't happen immediately,
+  // they see the landing page.
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-10rem)] items-center justify-center p-4 md:p-8">

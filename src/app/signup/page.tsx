@@ -37,7 +37,7 @@ export default function SignupPage() {
 
   useEffect(() => {
     if (!authLoading && firebaseUser) {
-      router.replace("/"); 
+      router.replace("/dashboard"); 
     }
   }, [firebaseUser, authLoading, router]);
 
@@ -53,40 +53,34 @@ export default function SignupPage() {
     }
     setIsLoading(true);
     try {
-      // 1. Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       console.log("CLIENT: Firebase Auth user created:", user.uid);
 
-      // 2. Update Firebase Auth profile (optional, for displayName)
       if (displayName.trim()) {
         await updateProfile(user, { displayName: displayName.trim() });
         console.log("CLIENT: Firebase Auth profile updated with displayName.");
       }
 
-      // 3. Create Company in Firestore
       const companyResult = await createCompanyInFirestore(companyName.trim(), user.uid);
 
       if (!companyResult.success) {
-        // Attempt to clean up Firebase Auth user if Firestore company creation failed due to operational error
         await user.delete().catch(delErr => console.error("CLIENT: Failed to cleanup Firebase Auth user after Firestore company creation failure (operation unsuccessful):", delErr));
         throw new Error(companyResult.error || "Failed to create company record: Operation unsuccessful.");
       }
-
+      
       // Explicitly check for a valid companyId string after confirming success
-      if (!companyResult.companyId || companyResult.companyId.trim() === "") {
-        // Attempt to clean up Firebase Auth user if companyId is missing/invalid despite success flag
+      if (!companyResult.companyId || typeof companyResult.companyId !== 'string' || companyResult.companyId.trim() === "") {
         await user.delete().catch(delErr => console.error("CLIENT: Failed to cleanup Firebase Auth user after Firestore company creation failure (missing or invalid companyId):", delErr));
         throw new Error("Failed to create company record: Company ID was not returned or was invalid.");
       }
       
-      const companyId = companyResult.companyId; // companyId is now confirmed to be a non-empty string
+      const companyId = companyResult.companyId;
       console.log("CLIENT: Company created in Firestore with ID:", companyId);
 
-      // 4. Create User Profile in Firestore
       const userProfileResult = await createUserProfileInFirestore(
         user.uid,
-        companyId, // Use the validated companyId
+        companyId, 
         user.email!, 
         displayName.trim() || null,
         'admin' 
@@ -94,13 +88,12 @@ export default function SignupPage() {
 
       if (!userProfileResult.success) {
         await user.delete().catch(delErr => console.error("CLIENT: Failed to cleanup Firebase Auth user after Firestore user profile creation failure:", delErr));
-        // Potentially also delete the company document here if desired, for full rollback
         throw new Error(userProfileResult.error || "Failed to create user profile record.");
       }
       console.log("CLIENT: User profile created in Firestore.");
 
-      toast({ title: "Account Created!", description: "Your account and company have been successfully created. Please log in." });
-      router.push("/login");
+      toast({ title: "Account Created!", description: "Your account and company have been successfully created." });
+      router.push("/dashboard"); // Redirect to dashboard instead of login
 
     } catch (error: any) {
       console.error("CLIENT: Signup error:", error);
