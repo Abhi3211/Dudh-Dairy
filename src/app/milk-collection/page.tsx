@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, type FormEvent, useEffect, useMemo, useCallback, useRef } from "react";
@@ -17,7 +18,7 @@ import {
   TableFooter
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter, MoreHorizontal, Edit, Trash2, StickyNote, Download, AlertCircle } from "lucide-react";
+import { CalendarDays, User, Percent, Scale, IndianRupee, PlusCircle, Sun, Moon, Filter, MoreHorizontal, Edit, Trash2, StickyNote, Download } from "lucide-react";
 import type { MilkCollectionEntry, Party } from "@/lib/types";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
@@ -46,14 +47,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePageTitle } from '@/context/PageTitleContext';
-import { useUserSession } from '@/context/UserSessionContext';
 
 
 export default function MilkCollectionPage() {
   const { setPageTitle } = usePageTitle();
   const pageSpecificTitle = "Milk Collection";
-  const { firebaseUser, companyProfile, authLoading, profilesLoading } = useUserSession();
-  const companyId = companyProfile?.id;
 
   useEffect(() => {
     setPageTitle(pageSpecificTitle);
@@ -104,14 +102,9 @@ export default function MilkCollectionPage() {
 
 
   const fetchParties = useCallback(async () => {
-    if (!companyId) {
-      setAvailableParties([]);
-      setIsLoadingParties(false);
-      return;
-    }
     setIsLoadingParties(true);
     try {
-      const parties = await getPartiesFromFirestore(companyId);
+      const parties = await getPartiesFromFirestore();
       setAvailableParties(parties); 
     } catch (error) {
       console.error("CLIENT: Failed to fetch parties for milk collection:", error);
@@ -119,20 +112,15 @@ export default function MilkCollectionPage() {
     } finally {
       setIsLoadingParties(false);
     }
-  }, [toast, companyId]);
+  }, [toast]);
   
   const fetchEntries = useCallback(async () => {
-    if (!companyId) {
-      setAllEntries([]);
-      setIsLoadingEntries(false);
-      return;
-    }
     console.log('CLIENT: MilkCollection - fetchEntries called. Setting isLoadingEntries to true.');
     setIsLoadingEntries(true);
     try {
-      const fetchedEntries = await getMilkCollectionEntriesFromFirestore(companyId);
+      const fetchedEntries = await getMilkCollectionEntriesFromFirestore();
       console.log('CLIENT: MilkCollection - Raw fetched entries from Firestore:', JSON.parse(JSON.stringify(fetchedEntries)));
-      const processedEntries = fetchedEntries.map((entry: MilkCollectionEntry) => ({
+      const processedEntries = fetchedEntries.map(entry => ({
         ...entry,
         date: entry.date instanceof Date ? entry.date : new Date(entry.date) 
       })).sort((a, b) => b.date.getTime() - a.date.getTime()); 
@@ -145,25 +133,13 @@ export default function MilkCollectionPage() {
       console.log('CLIENT: MilkCollection - fetchEntries finished. Setting isLoadingEntries to false.');
       setIsLoadingEntries(false);
     }
-  }, [toast, companyId]);
+  }, [toast]);
 
   useEffect(() => {
-    if (authLoading || profilesLoading) return;
-    
-    if (date === undefined && !editingEntryId) { 
-      setDate(new Date());
-    }
-    if (tableFilterStartDate === undefined) {
-        setTableFilterStartDate(startOfMonth(new Date()));
-    }
-    if (tableFilterEndDate === undefined) {
-        setTableFilterEndDate(new Date()); 
-    }
-    if (companyId) {
-      fetchEntries();
-      fetchParties();
-    }
-  }, [date, tableFilterStartDate, tableFilterEndDate, editingEntryId, fetchEntries, fetchParties, companyId, authLoading, profilesLoading]);
+    console.log("CLIENT: MilkCollection - Initial useEffect for data fetching.");
+    fetchEntries();
+    fetchParties();
+  }, [fetchEntries, fetchParties]); 
 
   const filteredPartiesForSuggestions = useMemo(() => {
     return availableParties
@@ -227,24 +203,24 @@ export default function MilkCollectionPage() {
     let finalCustomerName = trimmedValue;
 
     if (isCreateNew) {
-      if (!companyId) {
-        toast({ title: "Error", description: "Company information is missing. Cannot add customer.", variant: "destructive" });
+      if (!trimmedValue) {
+        toast({ title: "Error", description: "Customer name cannot be empty.", variant: "destructive" });
+        // No explicit setIsCustomerPopoverOpen(false) here, as the popover might not even be open
+        // or we want it to stay open for correction if that's the UX choice.
+        // However, usually, on error, we might want to close it or let the user explicitly close.
+        // For now, let's assume the main path continues to close it.
         return;
       }
-      const existingParty = availableParties.find(p => 
-        p.name.toLowerCase() === trimmedValue.toLowerCase() && p.type === "Customer"
-      );
 
+      const existingParty = availableParties.find(
+        p => p.name.toLowerCase() === trimmedValue.toLowerCase() && p.type === "Customer"
+      );
       if (existingParty) {
         toast({ title: "Info", description: `Customer "${trimmedValue}" already exists. Selecting existing customer.`, variant: "default" });
         finalCustomerName = trimmedValue; // Use existing name casing
       } else {
         setIsSubmitting(true); 
-        const result = await addPartyToFirestore({ 
-          name: trimmedValue, 
-          type: "Customer",
-          companyId: companyId 
-        }); 
+        const result = await addPartyToFirestore({ name: trimmedValue, type: "Customer" }); 
         if (result.success && result.id) {
           finalCustomerName = trimmedValue;
           toast({ title: "Success", description: `Customer (Milk Supplier) "${trimmedValue}" added.` });
@@ -261,8 +237,9 @@ export default function MilkCollectionPage() {
     
     setCustomerNameInput(finalCustomerName);
     setIsCustomerPopoverOpen(false);
-    justSelectedRef.current = true;
-  }, [toast, fetchParties, availableParties, companyId]);
+    justSelectedRef.current = true; // Indicate a selection was made
+    // customerNameInputRef.current?.focus(); // Explicit refocus can be jarring, usually not needed and can cause issues.
+  }, [toast, fetchParties, availableParties]);
 
   const resetFormFields = useCallback(() => {
     // Date and Shift persist
@@ -279,10 +256,6 @@ export default function MilkCollectionPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!companyId) {
-      toast({ title: "Error", description: "Company information is missing. Cannot add entry.", variant: "destructive" });
-      return;
-    }
     if (!date || !shift || !customerNameInput.trim() || !quantityLtr || !fatPercentage || !rateInputValue) {
       toast({ title: "Error", description: "Please fill all required fields (Date, Shift, Customer Name, Quantity, FAT, Rate).", variant: "destructive" });
       return;
@@ -316,7 +289,6 @@ export default function MilkCollectionPage() {
     const finalNetAmountPayable = finalTotalAmount - parsedAdvancePaid;
 
     const entryData: Omit<MilkCollectionEntry, 'id'> = {
-      companyId,
       date, 
       shift,
       customerName: customerNameInput.trim(), 
@@ -374,13 +346,11 @@ export default function MilkCollectionPage() {
   };
 
   const confirmDelete = async () => {
-    if (!entryToDelete || !companyId) return;
-    
+    if (!entryToDelete) return;
     setIsSubmitting(true);
-    const result = await deleteMilkCollectionEntryFromFirestore(entryToDelete.id, companyId);
-    
+    const result = await deleteMilkCollectionEntryFromFirestore(entryToDelete.id);
     if (result.success) {
-      toast({ title: "Success", description: "Milk collection entry deleted." });
+      toast({ title: "Success", description: "Entry deleted." });
       await fetchEntries();
     } else {
       toast({ title: "Error", description: result.error || "Failed to delete entry.", variant: "destructive" });
@@ -470,38 +440,6 @@ export default function MilkCollectionPage() {
     return desc;
   }, [tableFilterStartDate, tableFilterEndDate, shiftFilter]);
 
-  if (authLoading || profilesLoading) {
-    return (
-      <div>
-        <PageHeader title={pageSpecificTitle} description="Loading user and company data..." />
-        <div className="container mx-auto py-6">
-          <Skeleton className="h-64 w-full" />
-        </div>
-      </div>
-    );
-  }
-
-  if (!companyId && !profilesLoading) {
-    return (
-      <div>
-        <PageHeader title={pageSpecificTitle} description="Company information is missing." />
-        <div className="container mx-auto py-6">
-          <Card className="border-destructive">
-            <CardHeader>
-              <CardTitle className="flex items-center text-destructive">
-                <AlertCircle className="h-5 w-5 mr-2" />
-                Unable to Load Milk Collection
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p>Your user profile is not associated with a company. The milk collection data cannot be displayed.</p>
-              <p className="mt-2 text-sm text-muted-foreground">Please ensure your account setup is complete or contact support.</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <TooltipProvider>

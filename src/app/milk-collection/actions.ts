@@ -1,21 +1,16 @@
+
 'use server';
 
 import { db } from '@/lib/firebase';
 import type { MilkCollectionEntry } from '@/lib/types';
-import { collection, addDoc, getDocs, query, orderBy, where, Timestamp, doc, updateDoc, deleteDoc, DocumentSnapshot, DocumentData, getDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, Timestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 export async function addMilkCollectionEntryToFirestore(
   entryData: Omit<MilkCollectionEntry, 'id'>
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addMilkCollectionEntryToFirestore called with data:", JSON.parse(JSON.stringify(entryData)));
-  if (!entryData.companyId) {
-    console.error("SERVER ACTION: companyId is missing in addMilkCollectionEntryToFirestore.");
-    return { success: false, error: "Company ID is required to add a milk collection entry." };
-  }
   try {
-    // Using nested collection path
-    const { companyId, ...dataWithoutCompanyId } = entryData;
-    const docRef = await addDoc(collection(db, 'companies', companyId, 'milkCollections'), dataWithoutCompanyId);
+    const docRef = await addDoc(collection(db, 'milkCollections'), entryData);
     console.log("SERVER ACTION: Milk collection entry successfully added to Firestore with ID:", docRef.id);
     return { success: true, id: docRef.id };
   } catch (error) {
@@ -27,20 +22,12 @@ export async function addMilkCollectionEntryToFirestore(
   }
 }
 
-export async function getMilkCollectionEntriesFromFirestore(companyId: string): Promise<MilkCollectionEntry[]> {
-  console.log("SERVER ACTION: getMilkCollectionEntriesFromFirestore called for companyId:", companyId);
-  if (!companyId) {
-    console.warn("SERVER ACTION: getMilkCollectionEntriesFromFirestore called without a companyId. Returning empty array.");
-    return [];
-  }
+export async function getMilkCollectionEntriesFromFirestore(): Promise<MilkCollectionEntry[]> {
+  console.log("SERVER ACTION: getMilkCollectionEntriesFromFirestore called.");
   try {
-    // Using nested collection path
-    const entriesCollection = collection(db, 'companies', companyId, 'milkCollections');
+    const entriesCollection = collection(db, 'milkCollections');
     console.log("SERVER ACTION: Querying 'milkCollections' ordered by date desc.");
-    const q = query(
-      entriesCollection, 
-      orderBy('date', 'desc')
-    );
+    const q = query(entriesCollection, orderBy('date', 'desc'));
     const entrySnapshot = await getDocs(q);
     console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} documents from Firestore.`);
 
@@ -49,7 +36,7 @@ export async function getMilkCollectionEntriesFromFirestore(companyId: string): 
       return [];
     }
 
-    const entryList = entrySnapshot.docs.map((docSnapshot: DocumentSnapshot<DocumentData>) => {
+    const entryList = entrySnapshot.docs.map(docSnapshot => {
       const data = docSnapshot.data();
       console.log(`SERVER ACTION: Processing document ID: ${docSnapshot.id}, Raw Data:`, JSON.parse(JSON.stringify(data)));
       
@@ -66,7 +53,6 @@ export async function getMilkCollectionEntriesFromFirestore(companyId: string): 
 
       return {
         id: docSnapshot.id,
-        companyId, // Add back the companyId for consistency
         date: entryDate,
         shift: data.shift || "Morning",
         customerName: data.customerName || "Unknown Customer",
@@ -80,14 +66,14 @@ export async function getMilkCollectionEntriesFromFirestore(companyId: string): 
       } as MilkCollectionEntry;
     });
     console.log("SERVER ACTION: Successfully processed entries. Mapped entries count:", entryList.length);
-    if (entryList.length > 0) {
-      console.log("SERVER ACTION: First mapped entry (sample):", JSON.parse(JSON.stringify(entryList[0])));
+     if (entryList.length > 0) {
+        console.log("SERVER ACTION: First mapped entry (sample):", JSON.parse(JSON.stringify(entryList[0])));
     }
     return entryList;
   } catch (error) {
     console.error("SERVER ACTION: Error fetching milk collection entries from Firestore:", error);
     if (error instanceof Error) {
-      console.error("SERVER ACTION: Error name:", error.name, "Error message:", error.message);
+        console.error("SERVER ACTION: Error name:", error.name, "Error message:", error.message);
     }
     return [];
   }
@@ -98,15 +84,9 @@ export async function updateMilkCollectionEntryInFirestore(
   entryData: Omit<MilkCollectionEntry, 'id'>
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`SERVER ACTION: updateMilkCollectionEntryInFirestore called for ID: ${entryId} with data:`, JSON.parse(JSON.stringify(entryData)));
-  if (!entryData.companyId) {
-    console.error("SERVER ACTION: companyId is missing in updateMilkCollectionEntryInFirestore.");
-    return { success: false, error: "Company ID is required to update a milk collection entry." };
-  }
   try {
-    // Using nested collection path
-    const { companyId, ...dataWithoutCompanyId } = entryData;
-    const entryRef = doc(db, 'companies', companyId, 'milkCollections', entryId);
-    await updateDoc(entryRef, dataWithoutCompanyId);
+    const entryRef = doc(db, 'milkCollections', entryId);
+    await updateDoc(entryRef, entryData);
     console.log(`SERVER ACTION: Milk collection entry with ID: ${entryId} successfully updated.`);
     return { success: true };
   } catch (error) {
@@ -119,17 +99,11 @@ export async function updateMilkCollectionEntryInFirestore(
 }
 
 export async function deleteMilkCollectionEntryFromFirestore(
-  entryId: string,
-  companyId: string
+  entryId: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`SERVER ACTION: deleteMilkCollectionEntryFromFirestore called for ID: ${entryId}`);
-  if (!companyId) {
-    console.error("SERVER ACTION: companyId is missing in deleteMilkCollectionEntryFromFirestore.");
-    return { success: false, error: "Company ID is required to delete a milk collection entry." };
-  }
   try {
-    // Using nested collection path
-    const entryRef = doc(db, 'companies', companyId, 'milkCollections', entryId);
+    const entryRef = doc(db, 'milkCollections', entryId);
     await deleteDoc(entryRef);
     console.log(`SERVER ACTION: Milk collection entry with ID: ${entryId} successfully deleted.`);
     return { success: true };

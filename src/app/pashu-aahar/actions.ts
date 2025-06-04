@@ -1,3 +1,4 @@
+
 'use server';
 
 import { db } from '@/lib/firebase';
@@ -8,14 +9,9 @@ export async function addPashuAaharTransactionToFirestore(
   transactionData: Omit<PashuAaharTransaction, 'id'>
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addPashuAaharTransactionToFirestore called with data:", JSON.parse(JSON.stringify(transactionData)));
-  if (!transactionData.companyId) {
-    console.error("SERVER ACTION: companyId is missing in addPashuAaharTransactionToFirestore.");
-    return { success: false, error: "Company ID is required to add a Pashu Aahar transaction." };
-  }
   try {
-    const { companyId, ...dataWithoutCompanyId } = transactionData;
-    const docRef = await addDoc(collection(db, 'companies', companyId, 'pashuAahar'), {
-      ...dataWithoutCompanyId,
+    const docRef = await addDoc(collection(db, 'pashuAaharTransactions'), {
+      ...transactionData,
       date: Timestamp.fromDate(transactionData.date), // Ensure date is a Timestamp
     });
     console.log("SERVER ACTION: Pashu Aahar transaction successfully added to Firestore with ID:", docRef.id);
@@ -29,14 +25,10 @@ export async function addPashuAaharTransactionToFirestore(
   }
 }
 
-export async function getPashuAaharTransactionsFromFirestore(companyId: string): Promise<PashuAaharTransaction[]> {
+export async function getPashuAaharTransactionsFromFirestore(): Promise<PashuAaharTransaction[]> {
   console.log("SERVER ACTION: Attempting to fetch Pashu Aahar transactions from Firestore.");
-  if (!companyId) {
-    console.warn("SERVER ACTION: getPashuAaharTransactionsFromFirestore called without a companyId. Returning empty array.");
-    return [];
-  }
   try {
-    const transactionsCollection = collection(db, 'companies', companyId, 'pashuAahar');
+    const transactionsCollection = collection(db, 'pashuAaharTransactions');
     const q = query(transactionsCollection, orderBy('date', 'desc'));
     const transactionSnapshot = await getDocs(q);
     const transactionList = transactionSnapshot.docs.map(docSnapshot => {
@@ -53,7 +45,6 @@ export async function getPashuAaharTransactionsFromFirestore(companyId: string):
       }
       return {
         id: docSnapshot.id,
-        companyId, // Add back the companyId for consistency
         date: entryDate,
         type: data.type || "Purchase",
         productName: data.productName || "Unknown Product",
@@ -78,15 +69,10 @@ export async function updatePashuAaharTransactionInFirestore(
   transactionData: Omit<PashuAaharTransaction, 'id'>
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`SERVER ACTION: updatePashuAaharTransactionInFirestore called for ID: ${transactionId} with data:`, JSON.parse(JSON.stringify(transactionData)));
-  if (!transactionData.companyId) {
-    console.error("SERVER ACTION: companyId is missing in updatePashuAaharTransactionInFirestore.");
-    return { success: false, error: "Company ID is required to update a Pashu Aahar transaction." };
-  }
   try {
-    const { companyId, ...dataWithoutCompanyId } = transactionData;
-    const transactionRef = doc(db, 'companies', companyId, 'pashuAahar', transactionId);
+    const transactionRef = doc(db, 'pashuAaharTransactions', transactionId);
     await updateDoc(transactionRef, {
-      ...dataWithoutCompanyId,
+      ...transactionData,
       date: Timestamp.fromDate(transactionData.date), // Ensure date is a Timestamp
     });
     console.log(`SERVER ACTION: Pashu Aahar transaction with ID: ${transactionId} successfully updated.`);
@@ -101,16 +87,11 @@ export async function updatePashuAaharTransactionInFirestore(
 }
 
 export async function deletePashuAaharTransactionFromFirestore(
-  transactionId: string,
-  companyId: string
+  transactionId: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`SERVER ACTION: deletePashuAaharTransactionFromFirestore called for ID: ${transactionId}`);
-  if (!companyId) {
-    console.error("SERVER ACTION: companyId is missing in deletePashuAaharTransactionFromFirestore.");
-    return { success: false, error: "Company ID is required to delete a Pashu Aahar transaction." };
-  }
   try {
-    const transactionRef = doc(db, 'companies', companyId, 'pashuAahar', transactionId);
+    const transactionRef = doc(db, 'pashuAaharTransactions', transactionId);
     await deleteDoc(transactionRef);
     console.log(`SERVER ACTION: Pashu Aahar transaction with ID: ${transactionId} successfully deleted.`);
     return { success: true };
@@ -123,30 +104,26 @@ export async function deletePashuAaharTransactionFromFirestore(
   }
 }
 
-export async function getUniquePashuAaharProductNamesFromFirestore(companyId: string): Promise<string[]> {
+export async function getUniquePashuAaharProductNamesFromFirestore(): Promise<string[]> {
   console.log("SERVER ACTION: getUniquePashuAaharProductNamesFromFirestore called.");
-  if (!companyId) {
-    console.warn("SERVER ACTION: getUniquePashuAaharProductNamesFromFirestore called without a companyId. Returning empty array.");
-    return [];
-  }
   const productNames = new Set<string>();
 
   try {
-    // Fetch from Pashu Aahar transactions
-    const transactionsCollection = collection(db, 'companies', companyId, 'pashuAahar');
-    const transactionSnapshot = await getDocs(transactionsCollection);
-    if (!transactionSnapshot.empty) {
-      transactionSnapshot.docs.forEach(docSnapshot => {
+    // Fetch from Pashu Aahar Purchases
+    const purchaseTransactionsCollection = collection(db, 'pashuAaharTransactions');
+    const purchaseSnapshot = await getDocs(purchaseTransactionsCollection);
+    if (!purchaseSnapshot.empty) {
+      purchaseSnapshot.docs.forEach(docSnapshot => {
         const data = docSnapshot.data();
         if (data.productName && typeof data.productName === 'string') {
           productNames.add(data.productName.trim());
         }
       });
     }
-    console.log(`SERVER ACTION: Found ${productNames.size} unique names after transactions.`);
+    console.log(`SERVER ACTION: Found ${productNames.size} unique names after purchase transactions.`);
 
-    // Fetch from Sales (where unit is "Bags")
-    const salesCollection = collection(db, 'companies', companyId, 'sales');
+    // Fetch from Sales Entries (where unit is "Bags")
+    const salesCollection = collection(db, 'salesEntries');
     const salesQuery = query(salesCollection, where('unit', '==', 'Bags'));
     const salesSnapshot = await getDocs(salesQuery);
     if (!salesSnapshot.empty) {
@@ -158,6 +135,7 @@ export async function getUniquePashuAaharProductNamesFromFirestore(companyId: st
       });
     }
     console.log(`SERVER ACTION: Found ${productNames.size} unique names after sales entries.`);
+
 
     const uniqueNamesArray = Array.from(productNames).sort((a, b) => a.localeCompare(b));
     console.log("SERVER ACTION: Successfully fetched and combined unique Pashu Aahar product names. Count:", uniqueNamesArray.length);

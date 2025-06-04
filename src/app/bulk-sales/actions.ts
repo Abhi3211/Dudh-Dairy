@@ -1,3 +1,4 @@
+
 'use server';
 
 import { db } from '@/lib/firebase';
@@ -8,13 +9,8 @@ export async function addBulkSaleEntryToFirestore(
   entryData: Omit<BulkSaleEntry, 'id'>
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   console.log("SERVER ACTION: addBulkSaleEntryToFirestore called with data:", JSON.parse(JSON.stringify(entryData)));
-  if (!entryData.companyId) {
-    console.error("SERVER ACTION: companyId is missing in addBulkSaleEntryToFirestore.");
-    return { success: false, error: "Company ID is required to add a bulk sale entry." };
-  }
   try {
-    const { companyId, ...dataWithoutCompanyId } = entryData;
-    const docRef = await addDoc(collection(db, 'companies', companyId, 'bulkSales'), dataWithoutCompanyId);
+    const docRef = await addDoc(collection(db, 'bulkSalesEntries'), entryData);
     console.log("SERVER ACTION: Bulk sale entry successfully added to Firestore with ID:", docRef.id);
     return { success: true, id: docRef.id };
   } catch (error) {
@@ -26,20 +22,16 @@ export async function addBulkSaleEntryToFirestore(
   }
 }
 
-export async function getBulkSaleEntriesFromFirestore(companyId: string): Promise<BulkSaleEntry[]> {
-  console.log("SERVER ACTION: getBulkSaleEntriesFromFirestore called for companyId:", companyId);
-  if (!companyId) {
-    console.warn("SERVER ACTION: getBulkSaleEntriesFromFirestore called without a companyId. Returning empty array.");
-    return [];
-  }
+export async function getBulkSaleEntriesFromFirestore(): Promise<BulkSaleEntry[]> {
+  console.log("SERVER ACTION: getBulkSaleEntriesFromFirestore called.");
   try {
-    const entriesCollection = collection(db, 'companies', companyId, 'bulkSales');
+    const entriesCollection = collection(db, 'bulkSalesEntries');
     const q = query(entriesCollection, orderBy('date', 'desc'));
     const entrySnapshot = await getDocs(q);
     console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} bulk sale documents from Firestore.`);
 
     if (entrySnapshot.empty) {
-      console.log("SERVER ACTION: No documents found in 'bulkSales'. Returning empty array.");
+      console.log("SERVER ACTION: No documents found in 'bulkSalesEntries'. Returning empty array.");
       return [];
     }
 
@@ -56,9 +48,8 @@ export async function getBulkSaleEntriesFromFirestore(companyId: string): Promis
 
       return {
         id: docSnapshot.id,
-        companyId, // Add back the companyId for consistency
         date: entryDate,
-        shift: data.shift || "Morning",
+        shift: data.shift || "Morning", // Added shift
         customerName: data.customerName || "Unknown Customer",
         quantityLtr: typeof data.quantityLtr === 'number' ? data.quantityLtr : 0,
         fatPercentage: typeof data.fatPercentage === 'number' ? data.fatPercentage : 0,
@@ -81,14 +72,9 @@ export async function updateBulkSaleEntryInFirestore(
   entryData: Omit<BulkSaleEntry, 'id'>
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`SERVER ACTION: updateBulkSaleEntryInFirestore called for ID: ${entryId} with data:`, JSON.parse(JSON.stringify(entryData)));
-  if (!entryData.companyId) {
-    console.error("SERVER ACTION: companyId is missing in updateBulkSaleEntryInFirestore.");
-    return { success: false, error: "Company ID is required to update a bulk sale entry." };
-  }
   try {
-    const { companyId, ...dataWithoutCompanyId } = entryData;
-    const entryRef = doc(db, 'companies', companyId, 'bulkSales', entryId);
-    await updateDoc(entryRef, dataWithoutCompanyId);
+    const entryRef = doc(db, 'bulkSalesEntries', entryId);
+    await updateDoc(entryRef, entryData);
     console.log(`SERVER ACTION: Bulk sale entry with ID: ${entryId} successfully updated.`);
     return { success: true };
   } catch (error) {
@@ -101,16 +87,11 @@ export async function updateBulkSaleEntryInFirestore(
 }
 
 export async function deleteBulkSaleEntryFromFirestore(
-  entryId: string,
-  companyId: string
+  entryId: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`SERVER ACTION: deleteBulkSaleEntryFromFirestore called for ID: ${entryId}`);
-  if (!companyId) {
-    console.error("SERVER ACTION: companyId is missing in deleteBulkSaleEntryFromFirestore.");
-    return { success: false, error: "Company ID is required to delete a bulk sale entry." };
-  }
   try {
-    const entryRef = doc(db, 'companies', companyId, 'bulkSales', entryId);
+    const entryRef = doc(db, 'bulkSalesEntries', entryId);
     await deleteDoc(entryRef);
     console.log(`SERVER ACTION: Bulk sale entry with ID: ${entryId} successfully deleted.`);
     return { success: true };
