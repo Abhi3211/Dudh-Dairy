@@ -1,9 +1,8 @@
-
 'use server';
 
 import { db } from '@/lib/firebase';
 import type { PaymentEntry } from '@/lib/types';
-import { collection, addDoc, getDocs, query, orderBy, Timestamp, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
 
 export async function addPaymentEntryToFirestore(
   entryData: Omit<PaymentEntry, 'id'> & { companyId: string }
@@ -14,8 +13,9 @@ export async function addPaymentEntryToFirestore(
     return { success: false, error: "Company ID is required to add a payment entry." };
   }
   try {
-    const docRef = await addDoc(collection(db, 'paymentEntries'), {
-      ...entryData,
+    const { companyId, ...dataWithoutCompanyId } = entryData;
+    const docRef = await addDoc(collection(db, 'companies', companyId, 'payments'), {
+      ...dataWithoutCompanyId,
       date: Timestamp.fromDate(entryData.date), // Ensure date is a Timestamp
     });
     console.log("SERVER ACTION: Payment entry successfully added to Firestore with ID:", docRef.id);
@@ -36,17 +36,16 @@ export async function getPaymentEntriesFromFirestore(companyId: string): Promise
     return [];
   }
   try {
-    const entriesCollection = collection(db, 'paymentEntries');
+    const entriesCollection = collection(db, 'companies', companyId, 'payments');
     const q = query(
       entriesCollection,
-      where('companyId', '==', companyId),
       orderBy('date', 'desc')
     );
     const entrySnapshot = await getDocs(q);
     console.log(`SERVER ACTION: Fetched ${entrySnapshot.docs.length} payment documents from Firestore for companyId ${companyId}.`);
 
     if (entrySnapshot.empty) {
-      console.log("SERVER ACTION: No documents found in 'paymentEntries'. Returning empty array.");
+      console.log("SERVER ACTION: No documents found in 'payments'. Returning empty array.");
       return [];
     }
 
@@ -65,7 +64,7 @@ export async function getPaymentEntriesFromFirestore(companyId: string): Promise
 
       return {
         id: docSnapshot.id,
-        companyId: data.companyId,
+        companyId, // Add back the companyId for consistency
         date: entryDate,
         type: data.type || "Received",
         partyName: data.partyName || "Unknown Party",

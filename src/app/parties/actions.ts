@@ -1,4 +1,3 @@
-
 'use server';
 
 import { db } from '@/lib/firebase';
@@ -14,8 +13,8 @@ export async function getPartiesFromFirestore(companyId: string): Promise<Party[
     return [];
   }
   try {
-    const partiesCollection = collection(db, 'parties');
-    const q = query(partiesCollection, where('companyId', '==', companyId), orderBy('name', 'asc'));
+    const partiesCollection = collection(db, 'companies', companyId, 'parties');
+    const q = query(partiesCollection, orderBy('name', 'asc'));
     const partySnapshot = await getDocs(q);
     const partyList = partySnapshot.docs.map(docSnapshot => {
       const data = docSnapshot.data();
@@ -40,7 +39,7 @@ export async function getPartiesFromFirestore(companyId: string): Promise<Party[
 
       return {
         id: docSnapshot.id,
-        companyId: data.companyId, // Ensure companyId is included
+        companyId, // Add back the companyId for consistency
         name: data.name,
         type: data.type,
         openingBalance: numericOpeningBalance,
@@ -67,33 +66,27 @@ export async function addPartyToFirestore(
     return { success: false, error: "Company ID is required to add a party." };
   }
   try {
-    const partiesCollection = collection(db, 'parties');
+    const partiesCollection = collection(db, 'companies', partyData.companyId, 'parties');
     const q = query(
       partiesCollection, 
       where('name', '==', partyData.name), 
-      where('type', '==', partyData.type),
-      where('companyId', '==', partyData.companyId) // Check within the same company
+      where('type', '==', partyData.type)
     );
     const existingPartySnapshot = await getDocs(q);
     if (!existingPartySnapshot.empty) {
-      console.warn(`SERVER ACTION: Party with name "${partyData.name}", type "${partyData.type}" and companyId "${partyData.companyId}" already exists.`);
+      console.warn(`SERVER ACTION: Party with name "${partyData.name}", type "${partyData.type}" already exists in this company.`);
       return { success: false, error: `Party "${partyData.name}" (${partyData.type}) already exists for this company.` };
     }
 
-    const dataToSave: any = {
-      companyId: partyData.companyId,
-      name: partyData.name,
-      type: partyData.type,
-      openingBalance: Number(partyData.openingBalance || 0), 
+    const { companyId, ...dataToSave } = {
+      ...partyData,
+      openingBalance: Number(partyData.openingBalance || 0),
+      openingBalanceAsOfDate: partyData.openingBalanceAsOfDate ? 
+        Timestamp.fromDate(new Date(partyData.openingBalanceAsOfDate)) :
+        (Number(partyData.openingBalance || 0) !== 0 ? Timestamp.now() : null)
     };
 
-    if (partyData.openingBalanceAsOfDate) {
-      dataToSave.openingBalanceAsOfDate = Timestamp.fromDate(new Date(partyData.openingBalanceAsOfDate));
-    } else if (dataToSave.openingBalance !== 0) {
-      dataToSave.openingBalanceAsOfDate = Timestamp.now();
-    }
-
-    const docRef = await addDoc(collection(db, 'parties'), dataToSave);
+    const docRef = await addDoc(partiesCollection, dataToSave);
     console.log("SERVER ACTION: Party document successfully added to Firestore with ID:", docRef.id);
     revalidatePath('/parties');
     revalidatePath('/milk-collection'); // Parties used in many places
@@ -111,11 +104,17 @@ export async function addPartyToFirestore(
   }
 }
 
-// deletePartyFromFirestore: No change needed for companyId here, rules protect.
-export async function deletePartyFromFirestore(partyId: string): Promise<{ success: boolean; error?: string }> {
+export async function deletePartyFromFirestore(
+  partyId: string,
+  companyId: string
+): Promise<{ success: boolean; error?: string }> {
   console.log("SERVER ACTION: deletePartyFromFirestore called with partyId:", partyId);
+  if (!companyId) {
+    console.error("SERVER ACTION: companyId is missing in deletePartyFromFirestore.");
+    return { success: false, error: "Company ID is required to delete a party." };
+  }
   try {
-    await deleteDoc(doc(db, 'parties', partyId));
+    await deleteDoc(doc(db, 'companies', companyId, 'parties', partyId));
     console.log("SERVER ACTION: Party document successfully deleted from Firestore.");
     revalidatePath('/parties');
     return { success: true };
@@ -128,13 +127,12 @@ export async function deletePartyFromFirestore(partyId: string): Promise<{ succe
   }
 }
 
-
-export async function getPartyTransactions(partyId: string): Promise<PartyLedgerEntry[]> {
+export async function getPartyTransactions(partyId: string, companyId: string): Promise<PartyLedgerEntry[]> {
   console.log(`SERVER ACTION: getPartyTransactions called for partyId: ${partyId}`);
   const ledgerEntries: PartyLedgerEntry[] = [];
 
   try {
-    const partyDocRef = doc(db, 'parties', partyId);
+    const partyDocRef = doc(db, 'companies', companyId, 'parties', partyId);
     const partyDocSnap = await getDoc(partyDocRef);
 
     if (!partyDocSnap.exists()) {
@@ -142,11 +140,6 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
       return [];
     }
     const partyData = partyDocSnap.data() as Party; 
-    if (!partyData.companyId) {
-        console.error(`SERVER ACTION: Party with ID ${partyId} is missing companyId. Cannot generate ledger.`);
-        return [];
-    }
-    const partyCompanyId = partyData.companyId;
     const partyName = partyData.name;
     const partyType = partyData.type;
 
@@ -165,7 +158,7 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
 
       ledgerEntries.push({
         id: `ob-${partyId}`,
-        companyId: partyCompanyId,
+        companyId,
         date: openingDate,
         description: "Opening Balance",
         debit: openingDebit,
@@ -177,9 +170,8 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
     // Fetch Milk Collections (for this party & company)
     if (partyType === "Customer") { // Milk collection customers are suppliers to the dairy
       const milkCollectionsQuery = query(
-        collection(db, 'milkCollections'), 
+        collection(db, 'companies', companyId, 'milkCollections'), 
         where('customerName', '==', partyName),
-        where('companyId', '==', partyCompanyId), // Ensure companyId match
         orderBy('date', 'asc')
       );
       const milkCollectionsSnapshot = await getDocs(milkCollectionsQuery);
@@ -187,131 +179,109 @@ export async function getPartyTransactions(partyId: string): Promise<PartyLedger
         const data = docSnapshot.data() as MilkCollectionEntry;
         ledgerEntries.push({
           id: `mc-${docSnapshot.id}`,
-          companyId: partyCompanyId,
+          companyId,
           date: parseEntryDate(data.date),
           description: `Milk Supplied (${data.quantityLtr} Ltr, ${data.fatPercentage}% FAT, Rate ${data.ratePerLtr.toFixed(2)})`,
           shift: data.shift,
           milkQuantityLtr: data.quantityLtr,
-          credit: data.netAmountPayable, debit: 0, balance: 0,
+          credit: data.netAmountPayable, 
+          debit: 0, 
+          balance: 0,
         });
       });
     }
 
-    // Fetch Retail Sales (for this party & company on credit)
-    if (partyType === "Customer") {
-      const salesQuery = query(
-        collection(db, 'salesEntries'), 
-        where('customerName', '==', partyName),
-        where('paymentType', '==', 'Credit'),
-        where('companyId', '==', partyCompanyId), // Ensure companyId match
-        orderBy('date', 'asc')
-      );
-      const salesSnapshot = await getDocs(salesQuery);
-      salesSnapshot.forEach(docSnapshot => {
-        const data = docSnapshot.data() as SaleEntry;
-        ledgerEntries.push({
-          id: `rs-${docSnapshot.id}`,
-          companyId: partyCompanyId,
-          date: parseEntryDate(data.date),
-          description: `Retail Sale: ${data.productName} (${data.quantity} ${data.unit})`,
-          debit: data.totalAmount, credit: 0, balance: 0,
-        });
+    // Fetch Sales (for this party & company)
+    const salesQuery = query(
+      collection(db, 'companies', companyId, 'sales'),
+      where('customerName', '==', partyName),
+      orderBy('date', 'asc')
+    );
+    const salesSnapshot = await getDocs(salesQuery);
+    salesSnapshot.forEach(docSnapshot => {
+      const data = docSnapshot.data() as SaleEntry;
+      ledgerEntries.push({
+        id: `s-${docSnapshot.id}`,
+        companyId,
+        date: parseEntryDate(data.date),
+        description: `Sale (${data.description || 'No description'})`,
+        debit: data.totalAmount,
+        credit: 0,
+        balance: 0,
       });
-    }
+    });
 
-    // Fetch Bulk Sales (for this party & company on credit)
-    if (partyType === "Customer") {
-      const bulkSalesQuery = query(
-        collection(db, 'bulkSalesEntries'), 
-        where('customerName', '==', partyName),
-        where('paymentType', '==', 'Credit'),
-        where('companyId', '==', partyCompanyId), // Ensure companyId match
-        orderBy('date', 'asc')
-      );
-      const bulkSalesSnapshot = await getDocs(bulkSalesQuery);
-      bulkSalesSnapshot.forEach(docSnapshot => {
-        const data = docSnapshot.data() as BulkSaleEntry;
-        ledgerEntries.push({
-          id: `bs-${docSnapshot.id}`,
-          companyId: partyCompanyId,
-          date: parseEntryDate(data.date),
-          description: `Bulk Milk Sale (${data.quantityLtr} Ltr)`,
-          shift: data.shift,
-          debit: data.totalAmount, credit: 0, balance: 0,
-        });
+    // Fetch Bulk Sales (for this party & company)
+    const bulkSalesQuery = query(
+      collection(db, 'companies', companyId, 'bulkSales'),
+      where('customerName', '==', partyName),
+      orderBy('date', 'asc')
+    );
+    const bulkSalesSnapshot = await getDocs(bulkSalesQuery);
+    bulkSalesSnapshot.forEach(docSnapshot => {
+      const data = docSnapshot.data() as BulkSaleEntry;
+      ledgerEntries.push({
+        id: `bs-${docSnapshot.id}`,
+        companyId,
+        date: parseEntryDate(data.date),
+        description: `Bulk Sale (${data.quantityLtr} Ltr, ${data.fatPercentage}% FAT)`,
+        debit: data.totalAmount,
+        credit: 0,
+        balance: 0,
       });
-    }
+    });
 
-    // Fetch Purchases (for this party & company on credit)
-    if (partyType === "Supplier") {
-      const purchasesQuery = query(
-        collection(db, 'purchaseEntries'), 
-        where('supplierName', '==', partyName),
-        where('paymentType', '==', 'Credit'),
-        where('companyId', '==', partyCompanyId), // Ensure companyId match
-        orderBy('date', 'asc')
-      );
-      const purchasesSnapshot = await getDocs(purchasesQuery);
-      purchasesSnapshot.forEach(docSnapshot => {
-        const data = docSnapshot.data() as PurchaseEntry;
-        ledgerEntries.push({
-          id: `pu-${docSnapshot.id}`,
-          companyId: partyCompanyId,
-          date: parseEntryDate(data.date),
-          description: `Purchase: ${data.productName} (${data.quantity} ${data.unit})`,
-          credit: data.totalAmount, debit: 0, balance: 0,
-        });
+    // Fetch Purchases (for this party & company)
+    const purchasesQuery = query(
+      collection(db, 'companies', companyId, 'purchases'),
+      where('supplierName', '==', partyName),
+      orderBy('date', 'asc')
+    );
+    const purchasesSnapshot = await getDocs(purchasesQuery);
+    purchasesSnapshot.forEach(docSnapshot => {
+      const data = docSnapshot.data() as PurchaseEntry;
+      ledgerEntries.push({
+        id: `p-${docSnapshot.id}`,
+        companyId,
+        date: parseEntryDate(data.date),
+        description: `Purchase (${data.description || 'No description'})`,
+        credit: data.totalAmount,
+        debit: 0,
+        balance: 0,
       });
-    }
+    });
 
-    // Fetch Payment Entries (for this party & company)
+    // Fetch Payments (for this party & company)
     const paymentsQuery = query(
-      collection(db, 'paymentEntries'), 
+      collection(db, 'companies', companyId, 'payments'),
       where('partyName', '==', partyName),
-      where('partyType', '==', partyType),
-      where('companyId', '==', partyCompanyId), // Ensure companyId match
       orderBy('date', 'asc')
     );
     const paymentsSnapshot = await getDocs(paymentsQuery);
     paymentsSnapshot.forEach(docSnapshot => {
       const data = docSnapshot.data() as PaymentEntry;
-      let debit = 0; let credit = 0; let description = "";
-      if (data.type === "Received") { credit = data.amount; description = `Payment Received by Dairy (${data.mode})`; }
-      else if (data.type === "Paid") { debit = data.amount; description = `Payment Paid by Dairy (${data.mode})`; }
-      if (description) {
-        ledgerEntries.push({
-          id: `pa-${docSnapshot.id}`,
-          companyId: partyCompanyId,
-          date: parseEntryDate(data.date),
-          description, debit, credit, balance: 0,
-        });
-      }
+      ledgerEntries.push({
+        id: `py-${docSnapshot.id}`,
+        companyId,
+        date: parseEntryDate(data.date),
+        description: `Payment (${data.paymentType}) - ${data.remarks || 'No remarks'}`,
+        debit: data.type === 'Paid' ? data.amount : 0,
+        credit: data.type === 'Received' ? data.amount : 0,
+        balance: 0,
+      });
     });
 
-    ledgerEntries.sort((a, b) => {
-      const dateDiff = a.date.getTime() - b.date.getTime();
-      if (dateDiff !== 0) return dateDiff;
-      if (a.id.startsWith('ob-')) return -1; if (b.id.startsWith('ob-')) return 1;
-      const typeOrder = (id: string) => {
-        if (id.startsWith('mc-') || id.startsWith('pu-')) return 1; 
-        if (id.startsWith('rs-') || id.startsWith('bs-')) return 2; 
-        if (id.startsWith('pa-')) return 3;
-        return 4;
-      };
-      return typeOrder(a.id) - typeOrder(b.id);
-    });
-
+    // Sort all entries by date and calculate running balance
+    ledgerEntries.sort((a, b) => a.date.getTime() - b.date.getTime());
     let runningBalance = 0;
-    const finalLedgerEntries = ledgerEntries.map(entry => {
-      runningBalance += (entry.debit || 0) - (entry.credit || 0);
-      return { ...entry, balance: runningBalance };
+    ledgerEntries.forEach(entry => {
+      runningBalance = runningBalance + entry.credit - entry.debit;
+      entry.balance = runningBalance;
     });
 
-    console.log(`SERVER ACTION: Processed ${finalLedgerEntries.length} ledger entries for ${partyName} (${partyType}, company ${partyCompanyId}). Last balance: ${runningBalance.toFixed(2)}`);
-    return finalLedgerEntries;
-
+    return ledgerEntries;
   } catch (error) {
-    console.error(`SERVER ACTION: Error fetching transactions for party ${partyId}:`, error);
+    console.error("SERVER ACTION: Error fetching party transactions:", error);
     return [];
   }
 }
